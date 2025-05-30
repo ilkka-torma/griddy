@@ -853,7 +853,7 @@ def let_expr():
 @p.generate
 def substitution_pair():
     the_node = yield pos_expr
-    yield lexeme(p.string('<-'))
+    yield lexeme(p.string(':='))
     the_value = yield label | natural
     return (the_node, the_value)
 

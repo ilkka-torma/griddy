@@ -773,7 +773,7 @@ code = """
 unit_tests.append(("density linear program syntax", code))
 
 code = """
-%SFT x Ao subst o<-0 in o=0
+%SFT x Ao subst o:=0 in o=0
 %SFT zero Ao o=0
 %SFT univ Ao o=o
 %equals expect=F x zero
