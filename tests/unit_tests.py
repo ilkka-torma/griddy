@@ -764,6 +764,15 @@ code = """
 """
 unit_tests.append(("sofic from regexp", code))
 
+code = """
+%SFT x Ao #p[o1] p=1 >= 2
+%density_lower_bound x (1,0) (0,1); (0,0) (0,1) (1,0) (0,-1) (-1,0)
+%density_lower_bound x [[(1,0)] [(0,0) (0,1) (1,0)]] [[(0,1)] [(0,0) (0,-1) (-1,0)]]
+%density_lower_bound x [(1,0)] [(0,0) (0,1) (1,0)]; [(0,1)] [(0,0) (0,-1) (-1,0)]
+"""
+unit_tests.append(("density linear program syntax", code))
+
+
 if __name__ == "__main__":
 
     t = time.time()

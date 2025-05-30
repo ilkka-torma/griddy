@@ -41,6 +41,7 @@ def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verb
     density = pulp.LpVariable("epsilon",
                               min(weights.values()),
                               max(weights.values()))
+    density.setInitialValue(max(weights.values()))
 
     # we simply try to maximize this density in our problem
     prob = pulp.LpProblem("discharge", pulp.LpMaximize)
@@ -70,6 +71,7 @@ def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verb
                 # assert p[(0,0)] == 1
                 # send at most everything away
                 send[fr_pat, vec] = pulp.LpVariable("patvec{},{}".format(k,i)) #, 0, 1)
+                send[fr_pat, vec].setInitialValue(0)
                 i += 1
         total_vars += i
     
@@ -98,7 +100,7 @@ def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verb
 
     if verbose:
         print("Done with {} constraints, now solving".format(i))
-    pulp.PULP_CBC_CMD(msg=0).solve(prob)
+    pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
 
     if ret_shares:
         pat_rules = {fr_pat : dict() for fr_pat in all_pats}

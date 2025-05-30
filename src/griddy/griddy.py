@@ -616,14 +616,21 @@ class Griddy:
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
                 rad = kwds.get("radius", 0)
-                dirs = args[1]
-                nhood = [self.process_nvec(nvec) for nvec in args[2]]
+                specs = args[1]
+                if not specs:
+                    raise Exception("@density_lower_bound requires nonempty specs")
+                if type(specs[0][0]) == tuple:
+                    # single spec
+                    specs = [specs]
+                specs = [(dirs, [self.process_nvec(nvec) for nvec in nhood])
+                         for [dirs, nhood] in specs]
                 print_freq = kwds.get("print_freq", 5000)
                 verb = "verbose" in flags
                 show_rules = "show_rules" in flags
-                print("Computing lower bound for density in {} using directions {}, neighborhood {} and additional radius {}".format(sft_name, dirs, nhood, rad))
+                print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
+                # TODO: display nhoods properly
                 #patterns = list(the_sft.all_patterns(nhood))
-                data = density_linear_program.optimal_density(the_sft, [(dirs, nhood)], rad, weights=self.weights, verbose=verb, print_freq=print_freq, ret_shares=show_rules)
+                data = density_linear_program.optimal_density(the_sft, specs, rad, weights=self.weights, verbose=verb, print_freq=print_freq, ret_shares=show_rules)
                 if show_rules:
                     dens, rules = data
                     print("Discharging rules")
