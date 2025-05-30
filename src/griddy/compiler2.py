@@ -42,7 +42,7 @@ graph.distance
 """
 
 
-def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, externals, global_restr):
+def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
 
     def is_letter(a):
         return any(a in local_alph for local_alph in alphabet.values())
@@ -81,9 +81,9 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
                     variables_new[a] = pos
                 # if argument is a formula, we will evaluate it (in old context)
                 else:
-                    circ = formula_to_circuit_(graph, topology, nodes, alphabet, args[i], variables, externals, global_restr)
+                    circ = formula_to_circuit_(graph, topology, nodes, alphabet, args[i], variables, subst, externals, global_restr)
                     variables_new[a] = circ
-            ret = formula_to_circuit_(graph, topology, nodes, alphabet, code, variables_new, externals, global_restr)
+            ret = formula_to_circuit_(graph, topology, nodes, alphabet, code, variables_new, subst, externals, global_restr)
         # call a Python function
         elif var in externals:
             func = externals[var]
@@ -113,10 +113,10 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
                 ret = T
                 for step in args[1:]:
                     try:
-                        print(variables, ("ADDR", node, step))
+                        #print(variables, ("ADDR", node, step))
 
                         p = eval_to_position(graph, topology, nodes, ("ADDR", node, step), variables)
-                        print("speijf", p)
+                        #print("speijf", p)
                         if p == None:
                             ret = F
                             break
@@ -138,7 +138,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
             variables_new = dict(variables)
             variables_new[var] = q
             pos_formulas.append(formula_to_circuit_(graph, topology, nodes, alphabet, rem_formula,
-                                                    variables_new, externals, global_restr))
+                                                    variables_new, subst, externals, global_restr))
         if op == "FORALL":
             ret = AND(*pos_formulas)
         elif op == "EXISTS":
@@ -157,7 +157,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
             variables_new[valvar] = a
             val_formulas.append(formula_to_circuit_(graph, topology, nodes,
                                                     alphabet, rem_formula, variables_new,
-                                                    externals, global_restr))
+                                                    subst, externals, global_restr))
         if op == "FORALL":
             ret = AND(*val_formulas)
         elif op == "EXISTS":
@@ -175,7 +175,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
         arg_formulas = []
         for arg in args:
             res = formula_to_circuit_(graph, topology, nodes, alphabet, arg,
-                                      variables, externals, global_restr)
+                                      variables, subst, externals, global_restr)
             arg_formulas.append(res)
         if op == "OR":
             ret = OR(*arg_formulas)
@@ -191,11 +191,11 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
     elif op == "SETBOOL":
         var = formula[1]
         form = formula_to_circuit_(graph, topology, nodes, alphabet, formula[2],
-                                   variables, externals, global_restr)
+                                   variables, subst, externals, global_restr)
         variables_new = dict(variables)
         variables_new[var] = form
         ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[3],
-                                  variables_new, externals, global_restr)
+                                  variables_new, subst, externals, global_restr)
     # cvn[var] should be just the code, and a closure
     elif op == "LET":
         var = formula[1][0]
@@ -216,13 +216,13 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
         variables_new[var] = (arg_names, circuit_code, closure)
         
         ret = formula_to_circuit_(graph, topology, nodes, alphabet, ret_code,
-                                  variables_new, externals, global_restr)
+                                  variables_new, subst, externals, global_restr)
     elif op == "SETNUM":
         var = formula[1]
-        num_circ = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[2], variables, externals, global_restr)
+        num_circ = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[2], variables, subst, externals, global_restr)
         variables_new = dict(variables)
         variables_new[var] = num_circ
-        ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[3], variables_new, externals, global_restr)
+        ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[3], variables_new, subst, externals, global_restr)
         
     elif op == "POSEQ":
         # p1 and p2 must be position expressions
@@ -270,6 +270,10 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
             if is_cell(p1):
             #elif type(p1) == tuple and len(p1) != dim+1:
                 raise Exception("Cannot compare value of cell, only node.")
+            # if the node has been substituted, use the substituted value instead
+            if p1 in subst:
+                p1ispos = False
+                p1val = subst[p1]
 
         # This means we will interpret as value, as we ended up looking up a
         # value as variable. I suppose the reasoning is that we may want to use
@@ -292,6 +296,11 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
                 return None
             if is_cell(p2):
                 raise Exception("Cannot compare value of cell, only node.")
+            # if the node has been substituted, use the substituted value instead
+            if p2 in subst:
+                p2ispos = False
+                p2val = subst[p2]
+            
         except KeyError:
             #print("eval to pos failed for arg2", arg2)
             #print("eval to pos failed, alphabet", alphabet)
@@ -301,7 +310,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
             else:
                 raise Exception("Could not handle argument {} for =".format(arg2))
 
-        #print("arg1", arg1, "p1ispos", p1ispos, "arg2", arg2, "p2ispos", p2ispos)
+        #print("arg1", arg1, "p1ispos", p1ispos, "arg2", arg2, "p2ispos", p2ispos, "subst", subst)
         
         if not p1ispos and not p2ispos:
             if p1val == p2val:
@@ -405,8 +414,8 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
             else:
                 ret = F
     elif op in ["NUM_EQ", "NUM_LEQ"]:
-        circ1, range1 = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[1], variables, externals, global_restr)
-        circ2, range2 = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[2], variables, externals, global_restr)
+        circ1, range1 = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[1], variables, subst, externals, global_restr)
+        circ2, range2 = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[2], variables, subst, externals, global_restr)
         if circ1 is None:
             if circ2 is None:
                 if (op == "NUM_EQ" and range1 == range2) or (op == "NUM_LEQ" and range1 <= range2):
@@ -451,6 +460,15 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, ex
                 elif op == "NUM_LEQ":
                     anded.append(IMP(circ2[j], NOT(OR(*(circ1[k] for k in range(i+1, len(range1)))))))
                 ret = AND(*anded)
+                
+    elif op == "SUBSTITUTE":
+        #print("subst", formula)
+        subst_new = subst.copy()
+        subst_new.update({eval_to_position(graph, topology, nodes, node, variables) : value
+                          for (node, value) in formula[1].items()})
+        #print("subst_new", subst_new)
+        ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[2], variables, subst_new, externals, global_restr)
+    
     else:
         raise Exception("Unknown operation: " + op)
     #print ("from formula", formula)
@@ -508,7 +526,8 @@ def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, si
             
     variables = {}
     global_restr = []
-    form = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, externals, global_restr)
+    subst = {}
+    form = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
     #return tech_simp(form)
     form = tech_simp(AND(*([form]+global_restr)))
     if simplify:
@@ -616,28 +635,28 @@ def num_func_circ(func, arg, global_restr):
 # Transform a numeric expression into an MOCircuit.
 # Return the MOCircuit and a list of values that's the range of the numeric expression.
 # Each value has a corresponding output (accessed by its index).
-def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, externals, global_restr):
+def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
     op = formula[0]
     if op == "NUM_VAR":
         return variables[formula[1]]
     elif op == "TRUTH_AS_NUM":
         cond = formula[1]
-        circ = formula_to_circuit_(graph, topology, nodes, alphabet, cond, variables, externals, global_restr)
+        circ = formula_to_circuit_(graph, topology, nodes, alphabet, cond, variables, subst, externals, global_restr)
         ret = (moc.MOCircuit({0 : NOT(circ), 1 : circ}), [0,1])
     elif op == "SUM":
         args = formula[1:]
         summands = []
         for numexpr in args:
-            summands.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, externals, global_restr))
+            summands.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, subst, externals, global_restr))
         ret = sum_circuit(summands, global_restr)
     elif op == "PROD":
         args = formula[1:]
         factors = []
         for numexpr in args:
-            factors.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, externals, global_restr))
+            factors.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, subst, externals, global_restr))
         ret = prod_circuit(factors, global_restr)
     elif op in ["ABS"]:
-        numcirc = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[1], variables, externals, global_restr)
+        numcirc = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[1], variables, subst, externals, global_restr)
         if op == "ABS":
             func = abs
         ret = num_func_circ(func, numcirc, global_restr)
@@ -657,7 +676,7 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, ext
             #print(var, typ, q)
             variables_new = dict(variables)
             variables_new[var] = q
-            circ = formula_to_circuit_(graph, topology, nodes, alphabet, rem_formula, variables_new, externals, global_restr)
+            circ = formula_to_circuit_(graph, topology, nodes, alphabet, rem_formula, variables_new, subst, externals, global_restr)
             summands.append((moc.MOCircuit({0 : NOT(circ), 1 : circ}), [0,1]))
         ret = sum_circuit(summands, global_restr)
     elif op == "SYM_TO_NUM":

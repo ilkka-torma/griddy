@@ -849,6 +849,24 @@ def let_expr():
     rest = yield formula
     return ("LET", tuple(call), result, rest)
 
+# A substitution pair
+@p.generate
+def substitution_pair():
+    the_node = yield pos_expr
+    yield lexeme(p.string('<-'))
+    the_value = yield label | natural
+    return (the_node, the_value)
+
+# A local substitution
+@p.generate
+def subst_expr():
+    yield lexeme(p.string('subst'))
+    subst_pairs = yield substitution_pair.at_least(1)
+    subst = {node : value for (node, value) in subst_pairs}
+    yield lexeme(p.string('in'))
+    rest = yield formula
+    return ("SUBSTITUTE", subst, rest)
+
 num_expr = p.forward_declaration()
 
 # A numeric let-in definition
@@ -936,7 +954,7 @@ def distance_func():
 num_expr.become(expr_with_ops(numeric_ops, count_list | count_quantified | sym_to_num | distance_func | numeric_call | strict_label.map(lambda s: ("NUM_VAR", s)) | integer.map(lambda n: ("CONST_NUM", n)) | lparen >> num_expr << rparen))
 
 # A full formula
-formula.become(expr_with_ops(boolean_ops, quantified | let_expr | num_let_expr | num_comparison | node_expr | bool_or_call | (lparen >> formula << rparen)))
+formula.become(expr_with_ops(boolean_ops, quantified | let_expr | subst_expr | num_let_expr | num_comparison | node_expr | bool_or_call | (lparen >> formula << rparen)))
 
 
 ### Regexp parser

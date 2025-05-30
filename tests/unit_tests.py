@@ -772,6 +772,15 @@ code = """
 """
 unit_tests.append(("density linear program syntax", code))
 
+code = """
+%SFT x Ao subst o<-0 in o=0
+%SFT zero Ao o=0
+%SFT univ Ao o=o
+%equals expect=F x zero
+%equals expect=T x univ
+"""
+unit_tests.append(("local substitution", code))
+
 
 if __name__ == "__main__":
 
