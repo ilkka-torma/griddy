@@ -18,7 +18,7 @@ up (0,0;b) (0,1;b);
 dn (0,0;b) (0,-1;b)
 
 -- Define identifying codes on this graph.
-%SFT idcode Ao let c p q := p~q=1 in (Ep[o1] p=1) & (Ap[o2] o!@p -> Eq[o1p1] ((c o q & p!~q) | (c p q & o!~q)))
+%SFT idcode Ao let c p q := p~q=1 in (Ep[o:1] p=1) & (Ap[o:2] o!@p -> Eq[o:1+p:1] ((c o q & p!~q) | (c p q & o!~q)))
 %compute_forbidden_patterns idcode
 
 -- Compute the minimum density of a periodic point of the given period.

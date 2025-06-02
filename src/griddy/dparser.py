@@ -79,6 +79,7 @@ def natural_range():
 natural_set = natural_range.sep_by(comma, min=1)
 
 # Stuff to be defined later
+set_expr = p.forward_declaration()
 formula = p.forward_declaration()
 quantified = p.forward_declaration()
 regexp = p.forward_declaration()
@@ -595,7 +596,7 @@ commands = [
               ["LIST",
                ["MANY", vector],
                ["MANY", vector]]]],
-            opts = ["radius", "print_freq", "expect"],
+            opts = ["radius", "print_freq", "expect", "save_constr", "load_constr"],
             flags = ["verbose", "show_rules"]),
     Command("entropy_upper_bound",
             [label,
@@ -748,6 +749,66 @@ pos_expr = p.seq(strict_label | integer.desc("integer"),
 # List of positional expressions
 pos_expr_list = lbracket >> pos_expr.many() << rbracket
 
+## Set expressions (finite sets of nodes)
+
+# Table of set operators
+# The first operator binds the loosest
+set_op_table = [
+    ("set difference", Assoc.RIGHT, [lexeme(p.string('-')) >> p.success(lambda x, y: ("SETMINUS", x, y))]),
+    ("set symmetric difference", Assoc.RIGHT, [lexeme(p.string('<>')) >> p.success(lambda x, y: ("SETSYMDIF", x, y))]),
+    ("set union", Assoc.RIGHT, [lexeme(p.string('+')) >> p.success(lambda x, y: ("SETUNION", x, y))]),
+    ("set intersection", Assoc.RIGHT, [lexeme(p.string('*')) >> p.success(lambda x, y: ("SETINTER", x, y))])
+]
+
+# Set literal
+@p.generate
+def set_literal():
+    yield lbrace
+    elems = yield pos_expr.sep_by(comma.optional(), min=1)
+    yield rbrace
+    return ("SET_LITERAL", elems)
+
+# Neighborhoods (one argument)
+@p.generate
+def set_neighborhood():
+    yield p.string("N")
+    mods = yield lexeme((p.string("o") | p.string("p")).many())
+    node = yield pos_expr
+    ret = ("SET_NHOOD", node)
+    if "o" in mods:
+        ret = ("SETMINUS", ret, ("SET_LITERAL", [node]))
+    if "p" in mods:
+        ret = ("ONLY_POS", node, ret)
+    return ret
+
+# Balls and spheres (two arguments)
+@p.generate
+def ball_or_sphere():
+    func = yield p.alt(p.string("B") >> p.success("SET_BALL"),
+                       p.string("S") >> p.success("SET_SPHERE"))
+    mods = yield lexeme((p.string("o") | p.string("p")).many())
+    radius = yield natural
+    node = yield pos_expr
+    ret = (func, radius, node)
+    if "o" in mods:
+        ret = ("SETMINUS", ret, ("SET_LITERAL", [node]))
+    if "p" in mods:
+        ret = ("ONLY_POS", node, ret)
+    return ret
+
+# Shorthand for ball
+@p.generate
+def short_ball():
+    node = yield pos_expr
+    yield colon
+    radius = yield natural
+    return ("SET_BALL", radius, node)
+
+# A set expression
+set_expr.become(expr_with_ops(set_op_table, set_literal | set_neighborhood | ball_or_sphere | short_ball | (lparen >> set_expr << rparen)))
+
+## Logical expressions
+
 # Distance operator: specify allowed distances between two nodes
 @p.generate
 def dist_operation():
@@ -795,15 +856,6 @@ def bool_or_call():
     else:
         return ("BOOL", name)
 
-# Restrictions in quantifiers
-@p.generate
-def restriction():
-    name = yield strict_label
-    num = yield natural
-    return (name, num)
-
-restrictions = lexeme(p.string('[')) >> restriction.many() << lexeme(p.string(']')).desc("variable restriction")
-
 # Logical quantifier, potentially restricted
 @p.generate
 def quantified_formula():
@@ -814,12 +866,12 @@ def quantified_formula():
                                  p.string("A") >> p.success("NODEFORALL"),
                                  p.string("E") >> p.success("NODEEXISTS"),
                                  p.string("O") >> p.success("NODEORIGIN")).desc("quantifier")
-    yield whitespace.optional()
+    yield whitespace#.optional()
     var = yield strict_label
-    restr = yield restrictions.map(dict).optional()
+    restr = yield (lbracket >> set_expr << rbracket).optional()
     #print("parsed quantifier part", the_quantifier, var)
     the_formula = yield formula
-    return (the_quantifier, var, restr or dict(), the_formula)
+    return (the_quantifier, var, restr, the_formula)
 
 quantified.become(quantified_formula)
 
@@ -931,7 +983,7 @@ def count_list():
 def count_quantified():
     yield lexeme(p.string('#'))
     var = yield strict_label
-    restr = yield restrictions.map(dict)
+    restr = yield lbracket >> set_expr << rbracket
     #print("parsed quantifier part", the_quantifier, var)
     the_formula = yield formula
     return ("NODECOUNT", var, restr, the_formula)

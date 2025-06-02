@@ -8,7 +8,7 @@
 (o=V -> (o.up=V | o.up=C) & (o.dn=V | o.dn=C) & V!=o.rt!=1 & V!=o.lt!=2) &
 (o=D -> (o.up.rt=D | o.up.rt=C) & (o.dn.lt=D | o.dn.lt=C) & D!=o.up!=1 & D!=o.dn!=2) &
 (o=C -> o.up=o.dn=V & o.lt=o.rt=H & o.up.rt=o.dn.lt=D & o.up.lt=1 & o.dn.rt=2) &
-(o=1 -> Ap[o1] p!=2)
+(o=1 -> Ap[o:1] p!=2)
 
 %SFT sixper Ao o.(0,6) = o.(6,0) = o
 %SFT twoper Ao o.(0,2) = o.(2,0) = o

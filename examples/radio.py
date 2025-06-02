@@ -28,7 +28,7 @@ d.run("""
 --%SFT all_e Ao o=e
 %SFT empty Ao 0=1
 
-%SFT radio Ao Ap[o3]
+%SFT radio Ao Ap[o:3]
   (o ~^1 p -> dgeq o p 3) &
   (o ~^2 p -> dgeq o p 2) &
   (o ~^3 p -> dgeq o p 1)

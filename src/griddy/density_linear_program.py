@@ -13,9 +13,18 @@ import time
 # given sft, vectors and patterns, enumerate combined locally correct patterns that affect origin
 # yield values are dicts : nvec -> pat
 # they are shared, i.e. should not be modified by the consumer
-def surroundings(the_sft, specs, radius):
+def surroundings(the_sft, specs, radius, save_surr_to=None, load_surr_from=None):
     bigdomain = set(nvsub(nvec, vec) for (vecs, domain) in specs for nvec in domain for vec in vecs+[(0,)*the_sft.dim])
-    for bigpat in the_sft.all_patterns(bigdomain, extra_rad=radius):
+    if load_surr_from is None:
+        bigpat_enum = the_sft.all_patterns(bigdomain, extra_rad=radius)
+    else:
+        with open(load_surr_from + ".output", 'r') as f:
+            bigpat_enum = [eval(line) for line in f]
+    if save_surr_to is not None:
+        bigpats = []
+    for bigpat in bigpat_enum:
+        if save_surr_to is not None:
+            bigpats.append(bigpat)
         surr = []
         orig_nodes = {node : bigpat[(0,)*the_sft.dim + (node,)] for node in the_sft.nodes}
         for (vecs, domain) in specs:
@@ -26,13 +35,17 @@ def surroundings(the_sft, specs, radius):
                 # toward origin
                 surr.append((fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), vec, False))
         yield (orig_nodes, surr)
+    if save_surr_to is not None:
+        with open(save_surr_to + ".output", 'w') as f:
+            for pat in bigpats:
+                f.write(repr(pat) + "\n")
 
 # given sft, vectors along which to share charge, and patterns that guide the sharing, find best provable lower bound
 # specs is a list of pairs (vectors, domain)
 # vectors is a list of Z^d-vectors that should not contain origin
 # domain is a set of nvectors that should contain origin cell
 # nodes' weights are averaged together for the purposes of charge sharing
-def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verbose=False, print_freq=5000):
+def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verbose=False, print_freq=5000, save_constr=None, load_constr=None):
     if weights is None:
         weights = {a:a for alph in the_sft.alph.values() for a in alph}
     if verbose:
@@ -80,8 +93,7 @@ def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verb
     
     # list all legal combinations of patterns around origin
     i = 0
-    for (orig_nodes, surr) in surroundings(the_sft, specs, radius):
-
+    for (orig_nodes, surr) in surroundings(the_sft, specs, radius, save_surr_to=save_constr, load_surr_from=load_constr):
         # for each legal combo, sum the contributions from each -v
         summa = 0
         #print("orig_pat", orig_pat)

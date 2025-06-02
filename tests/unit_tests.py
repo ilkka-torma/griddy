@@ -39,13 +39,13 @@ unit_tests.append(("basic comparisons", code_basic_comparisons))
 
 # crazy golden mean shift formula / forbs
 code_crazy_gms = """
-%SFT hor_golden_mean_shift  Ao (o.rt.rt = 1 -> o.rt = 0) & Ae[o3] e.up = 0 | e.lt.up != e.rt.up.lt
+%SFT hor_golden_mean_shift  Ao (o.rt.rt = 1 -> o.rt = 0) & Ae[o:3] e.up = 0 | e.lt.up != e.rt.up.lt
 %SFT hor_golden_mean_shift2
 (0,0):1 (1,0):1 (0,3):0;
 (0,0):1 (1,0):1 (0,3):1;
 (0,0):1 (1,0):1 (2,2):0;
 (0,0):1 (1,0):1 (2,2):1
-%SFT hor_golden_mean_shift3 Ao (o.(2,0) = 1 -> o.(1,0) = 0) & Ae[o3] e.(0,1) = 0 | e.(-1,1) != e.(0,1)
+%SFT hor_golden_mean_shift3 Ao (o.(2,0) = 1 -> o.(1,0) = 0) & Ae[o:3] e.(0,1) = 0 | e.(-1,1) != e.(0,1)
 %show_formula hor_golden_mean_shift
 %show_formula hor_golden_mean_shift2
 %show_formula hor_golden_mean_shift3
@@ -57,10 +57,10 @@ unit_tests.append(("crazy gms", code_crazy_gms))
 # golden mean shift on hexagon grid
 code_hex_gms = """
 %topology hex
-%SFT gms Ao Ae[o1] o=0|e=0|o@e
-%SFT gms2 Ao Ae[o5] o~~e -> (o=0| e = 0)
-%SFT broken_gms Ao Ae[o1] o=0|e=0
-%SFT broken_gms2 Ao Ae[o5] o~e -> (o=0| e = 0)
+%SFT gms Ao Ae[o:1] o=0|e=0|o@e
+%SFT gms2 Ao Ae[o:5] o~~e -> (o=0| e = 0)
+%SFT broken_gms Ao Ae[o:1] o=0|e=0
+%SFT broken_gms2 Ao Ae[o:5] o~e -> (o=0| e = 0)
 --%SFT empty Ao 0=1
 %SFT all_zero Ao o=0
 %SFT fullshift Ao 0=0
@@ -80,7 +80,7 @@ unit_tests.append(("hex gms", code_hex_gms))
 code_hex_idcodes = """ 
 %topology hex
 %SFT idcode Ao let c u v := v = 1 & u ~ v in
-(Ed[o1] c o d) & (Ap[o2] p !@ o -> Eq[o1p1] (c o q & ! c p q) | (c p q & !c o q))
+(Ed[o:1] c o d) & (Ap[o:2] p !@ o -> Eq[o:1+p:1] (c o q & ! c p q) | (c p q & !c o q))
 %SFT idcode2
 (0,0;1):0 (0,0;0):0 (1,0;0):0 (0,-1;0):0;
 (0,0;1):0 (1,1;1):0 (2,0;0):0 (1,-1;0):0;
@@ -208,19 +208,19 @@ code_locdomrad2 = """
 %topology grid
 
 %SFT locdomrad22 Ao
-o=0 -> (Ep[o2] p=1) &
-       (Ap[o1] p=0 -> (Eq[o2] q=1 & !Er[p1] r~q) |
-                      (Eq[p2] q=1 & !Er[o1] r~q))
+o=0 -> (Ep[o:2] p=1) &
+       (Ap[o:1] p=0 -> (Eq[o:2] q=1 & !Er[p:1] r~q) |
+                       (Eq[p:2] q=1 & !Er[o:1] r~q))
 
 %SFT locdomrad24 Ao
-o=0 -> (Ep[o2] p=1) &
-       (Ap[o4] p=0 -> (Eq[o2] q=1 & Ar[p2] r!@q) |
-                      (Eq[p2] q=1 & Ar[o2] r!@q))
+o=0 -> (Ep[o:2] p=1) &
+       (Ap[o:4] p=0 -> (Eq[o:2] q=1 & Ar[p:2] r!@q) |
+                       (Eq[p:2] q=1 & Ar[o:2] r!@q))
 
 
-%SFT locdomrad2x Ao let c a b := b=1 & Ed[a1] d~b in
-o=0 -> (Et[o2] c o t) &
-       (Ap[o4] p=0 -> Eq[o2p2] (c o q & !c p q) | (!c o q & c p q))
+%SFT locdomrad2x Ao let c a b := b=1 & Ed[a:1] d~b in
+o=0 -> (Et[o:2] c o t) &
+       (Ap[o:4] p=0 -> Eq[o:2+p:2] (c o q & !c p q) | (!c o q & c p q))
 
 -- %compare_SFT_pairs
 %equal expect=T locdomrad22 locdomrad24
@@ -343,7 +343,7 @@ unit_tests.append(("spacetime diagram", code))
 
 code = """
 %alphabet 0 1 2
-%SFT long_dist Ao o=1 -> Ep[o4] p=2 & o ~^1,3 p
+%SFT long_dist Ao o=1 -> Ep[o:4] p=2 & o ~^1,3 p
 %SFT long_dist2 Ao o=1 ->
 o.(3,0)=2 | o.(2,1)=2 | o.(1,2)=2 | o.(0,3)=2 |
 o.(-1,2)=2 | o.(-2,1)=2 | o.(-3,0)=2 |
@@ -366,7 +366,7 @@ e6 (0,0;t2.t21.1) (0,0;t1.a);
 e7 (0,0;t2.t22.a) (0,0;t1.a);
 e8 (0,0;t2.t22.b) (0,0;t1.a)
 %SFT a0 Ao o._.t1.a=0 <-> o=0
-%SFT a1 Ao Ax[o1] o=x
+%SFT a1 Ao Ax[o:1] o=x
 %SFT a2
 (0,0;t1.a):0 (0,0;t2.t21.0):1;
 (0,0;t1.a):0 (0,0;t2.t21.1):1;
@@ -510,19 +510,19 @@ code = """
 %SFT count1 Ao 1 <= #[o=1 o.rt=1 o.up=1 o.up.rt=1] <= 3
 %SFT man1 Ao !(o=o.rt=o.up=o.up.rt)
 %equal expect=T count1 man1
-%SFT count2 Ao let v a := a=1 in letnum n := 1 in #p[o1] v p <= n
-%SFT man2 Ao !Ex[o1] Ey[o1] y!@x=y=1
+%SFT count2 Ao let v a := a=1 in letnum n := 1 in #p[o:1] v p <= n
+%SFT man2 Ao !Ex[o:1] Ey[o:1] y!@x=y=1
 %equal expect=T count2 man2
-%SFT count3 Ao let v a := letnum n := 1 in #p[a1] p=1 <= n in v o
+%SFT count3 Ao let v a := letnum n := 1 in #p[a:1] p=1 <= n in v o
 %equal expect=T count3 man2
-%SFT count4 Ao (#p[o1] p=1 | p.up=0) + 1 <= abs (#q[o1] q=0 | q.rt=1)
-%SFT count5 Ao ((#p[o1] p=1 | p.up=0) + 2)*3 >= ((#q[o1] q=0 | q.rt=1) + 1)*3
-%SFT count6 Ao ((#p[o1] p=1 | p.up=0) + 4)*(-1) == ((#q[o1] q=0 | q.rt=1) + 3)*(-1)
+%SFT count4 Ao (#p[o:1] p=1 | p.up=0) + 1 <= abs (#q[o:1] q=0 | q.rt=1)
+%SFT count5 Ao ((#p[o:1] p=1 | p.up=0) + 2)*3 >= ((#q[o:1] q=0 | q.rt=1) + 1)*3
+%SFT count6 Ao ((#p[o:1] p=1 | p.up=0) + 4)*(-1) == ((#q[o:1] q=0 | q.rt=1) + 3)*(-1)
 %intersection count7 count4 count5
 %equal expect=T count6 count7
 %SFT empty Ao 0=1
 %equal expect=F empty count7
-%SFT count8 Ao Ax[o2] dist o x + #[o=0 x=1] <= 3
+%SFT count8 Ao Ax[o:2] dist o x + #[o=0 x=1] <= 3
 %SFT uni_chess Ao (o = o.rt = o.up = o.up.rt) | (o != o.rt = o.up != o.up.rt)
 %equal expect=T count8 uni_chess
 """
@@ -765,7 +765,7 @@ code = """
 unit_tests.append(("sofic from regexp", code))
 
 code = """
-%SFT x Ao #p[o1] p=1 >= 2
+%SFT x Ao #p[o:1] p=1 >= 2
 %density_lower_bound x (1,0) (0,1); (0,0) (0,1) (1,0) (0,-1) (-1,0)
 %density_lower_bound x [[(1,0)] [(0,0) (0,1) (1,0)]] [[(0,1)] [(0,0) (0,-1) (-1,0)]]
 %density_lower_bound x [(1,0)] [(0,0) (0,1) (1,0)]; [(0,1)] [(0,0) (0,-1) (-1,0)]
@@ -780,6 +780,26 @@ code = """
 %equals expect=T x univ
 """
 unit_tests.append(("local substitution", code))
+
+code = """
+%alphabet 0 1 2
+%SFT x1 Ao o=2 -> Ap[No o] p.up.up=1
+%SFT x2 Ao o=2 -> Ap[N o.up.up - {o.up.up}] p=1
+%SFT x3 Ao o=2 -> Ap[{o.up, o.up.up.lt, o.up.up.rt, o.(0,3)}] p=1
+%equal expect=T x1 x2
+%equal expect=T x2 x3
+%SFT x4 Ao o=2 -> Ap[Sop 2 o] p=1
+%SFT x5 Ao o=2 -> Ap[{o.(2,0) o.(1,1) o.(0,2) o.(1,-1)}] p=1
+%equal expect=T x4 x5
+%SFT x6 Ao o=2 -> Ap[B 2 o.(3,0) <> B 2 o.(5,0)] p=1
+%SFT x7 Ao o=2 -> Ap[(B 2 o.(3,0) + B 2 o.(5,0)) - B 1 o.(4,0)] p=1
+%equal expect=T x6 x7
+%SFT x8 Ao o=2 -> Ap[B 2 o.(3,0) * B 2 o.(5,0)] p=1
+%SFT x9 Ao o=2 -> Ap[B 1 o.(4,0)] p=1
+%equal expect=T x8 x9
+"""
+
+unit_tests.append(("finite sets", code))
 
 
 if __name__ == "__main__":

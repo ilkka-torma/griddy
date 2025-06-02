@@ -49,7 +49,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, su
     def is_cell(p):
         return len(p) == 1
 
-    #print(formula)
+    #print("F2C", formula)
 
     #if type(nodes) == list:
     #    nodes = sft.Nodes(nodes)
@@ -127,8 +127,8 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, su
     elif op in ["CELLFORALL", "CELLEXISTS", "NODEFORALL", "NODEEXISTS"]:
         var = formula[1]
         bound = formula[2]
-        if bound == None:
-            bound = {}
+        #if bound == None:
+        #    bound = {}
         rem_formula = formula[3] # remaining formula
         pos_formulas = []
         typ = op[:4] # cell and node happen to be four letters
@@ -736,7 +736,7 @@ def collect_unbound_vars(formula, bound = None):
     elif op in ["CELLFORALL", "CELLEXISTSCELL", "NODEFORALL", "NODEEXISTS", "NODECOUNT"]:
         var = formula[1]
         bound.add(var)
-        for q in formula[2]: # collect vars used in bounds
+        for q in collect_unbound_vars(formula[2], bound): # collect vars used in bounds
             possibles.add(q)
         for q in collect_unbound_vars(formula[3], bound): # collect vars recursively in code
             possibles.add(q)
@@ -748,7 +748,7 @@ def collect_unbound_vars(formula, bound = None):
             possibles.add(q)
     elif op in "TF":
         pass
-    elif op in ["OR", "AND", "NOT", "IMP", "IFF", "NUM_EQ", "NUM_LEQ"]:
+    elif op in ["OR", "AND", "NOT", "IMP", "IFF", "NUM_EQ", "NUM_LEQ", "SETMINUS", "SETSYMDIF", "SETUNION", "SETINTER"]:
         args = formula[1:]
         for arg in args:
             possibles.update(collect_unbound_vars(arg, bound))
@@ -780,6 +780,15 @@ def collect_unbound_vars(formula, bound = None):
         pass
     elif op in ["NUM_VAR", "SYM_TO_NUM"]:
         possibles.add(formula[1])
+    elif op == "SET_LITERAL":
+        for pos in formula[1]:
+            possibles.add(var_of_pos_expr(pos))
+    elif op == "SET_NHOOD":
+        possibles.add(var_of_pos_expr(formula[1]))
+    elif op in ["SET_BALL", "SET_SPHERE"]:
+        possibles.add(var_of_pos_expr(formula[2]))
+    elif op == "ONLY_POS":
+        possibles.update(collect_unbound_vars(formula[2], bound))
     else:
         raise Exception("Unknown operation " + op)
     ret = set()
@@ -904,7 +913,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
 def get_area(graph, topology, nodes, pos_variables, bound, typ):
     #print("getting area", bound)
     # for now, no bound means we're at the beginning
-    if bound == {}:
+    if bound is None:
         ret = set()
         ##print(typ)
         if typ == "NODE":
@@ -913,19 +922,64 @@ def get_area(graph, topology, nodes, pos_variables, bound, typ):
         else:
             ret.add((graph.origin(), ()))
         return ret
-    area = set()
-    for u in pos_variables:
-        p = pos_variables[u]
-        while type(p) != tuple:
-            u = p
-            p = pos_variables[u]
-        if u not in bound:
-            continue
-        for t in get_ball(graph, topology, nodes, p, bound[u]):
+    
+    # branch based on set expression's form
+    if bound[0] == "SET_LITERAL":
+        area = set()
+        for pos in bound[1]:
+            node = eval_to_position(graph, topology, nodes, pos, pos_variables)
+            area.add(node)
+            
+    elif bound[0] == "SET_NHOOD":
+        area = set()
+        node = eval_to_position(graph, topology, nodes, bound[1], pos_variables)
+        for t in get_ball(graph, topology, nodes, node, 1):
             if typ == "CELL":
                 t = (t[0], ())
             area.add(t)
-    #print(area)
+            
+    elif bound[0] == "SET_BALL":
+        area = set()
+        node = eval_to_position(graph, topology, nodes, bound[2], pos_variables)
+        for t in get_ball(graph, topology, nodes, node, bound[1]):
+            if typ == "CELL":
+                t = (t[0], ())
+            area.add(t)
+            
+    elif bound[0] == "SET_SPHERE":
+        area = set()
+        node = eval_to_position(graph, topology, nodes, bound[2], pos_variables)
+        for t in get_ball(graph, topology, nodes, node, bound[1]):
+            if typ == "CELL":
+                t = (t[0], ())
+            area.add(t)
+        for t in get_ball(graph, topology, nodes, node, bound[1]-1):
+            if typ == "CELL":
+                t = (t[0], ())
+            area.discard(t)
+
+    elif bound[0] == "ONLY_POS":
+        node = eval_to_position(graph, topology, nodes, bound[1], pos_variables)
+        area = get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+        area = {t for t in area if t >= node}
+
+    elif bound[0] == "SETMINUS":
+        area = get_area(graph, topology, nodes, pos_variables, bound[1], typ)
+        area -= get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+
+    elif bound[0] == "SETSYMDIF":
+        area = get_area(graph, topology, nodes, pos_variables, bound[1], typ)
+        area ^= get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+
+    elif bound[0] == "SETUNION":
+        area = get_area(graph, topology, nodes, pos_variables, bound[1], typ)
+        area |= get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+
+    elif bound[0] == "SETINTER":
+        area = get_area(graph, topology, nodes, pos_variables, bound[1], typ)
+        area &= get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+
+    #print("got area", area)
     return area
 
 def get_distance(graph, topology, nodes, p1, p2):
