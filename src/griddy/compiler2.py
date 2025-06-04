@@ -784,11 +784,9 @@ def collect_unbound_vars(formula, bound = None):
         for pos in formula[1]:
             possibles.add(var_of_pos_expr(pos))
     elif op == "SET_NHOOD":
-        possibles.add(var_of_pos_expr(formula[1]))
-    elif op in ["SET_BALL", "SET_SPHERE"]:
-        possibles.add(var_of_pos_expr(formula[2]))
-    elif op == "ONLY_POS":
         possibles.update(collect_unbound_vars(formula[2], bound))
+    elif op in ["SET_BALL", "SET_SPHERE"]:
+        possibles.update(collect_unbound_vars(formula[3], bound))
     else:
         raise Exception("Unknown operation " + op)
     ret = set()
@@ -932,36 +930,58 @@ def get_area(graph, topology, nodes, pos_variables, bound, typ):
             
     elif bound[0] == "SET_NHOOD":
         area = set()
-        node = eval_to_position(graph, topology, nodes, bound[1], pos_variables)
-        for t in get_ball(graph, topology, nodes, node, 1):
-            if typ == "CELL":
-                t = (t[0], ())
-            area.add(t)
+        arg_area = get_area(graph, topology, nodes, pos_variables, bound[2], typ)
+        for node in arg_area:
+            new_area = set()
+            for t in get_ball(graph, topology, nodes, node, 1):
+                if typ == "CELL":
+                    t = (t[0], ())
+                if "POSITIVE" in bound[1] and t < node:
+                    continue
+                if "NEGATIVE" in bound[1] and t > node:
+                    continue
+                if "OPEN" in bound[1] and t == node:
+                    continue
+                new_area.add(t)
+            area |= new_area
             
     elif bound[0] == "SET_BALL":
         area = set()
-        node = eval_to_position(graph, topology, nodes, bound[2], pos_variables)
-        for t in get_ball(graph, topology, nodes, node, bound[1]):
-            if typ == "CELL":
-                t = (t[0], ())
-            area.add(t)
+        arg_area = get_area(graph, topology, nodes, pos_variables, bound[3], typ)
+        for node in arg_area:
+            new_area = set()
+            for t in get_ball(graph, topology, nodes, node, bound[2]):
+                if typ == "CELL":
+                    t = (t[0], ())
+                if "POSITIVE" in bound[1] and t < node:
+                    continue
+                if "NEGATIVE" in bound[1] and t > node:
+                    continue
+                if "OPEN" in bound[1] and t == node:
+                    continue
+                new_area.add(t)
+            area |= new_area
             
     elif bound[0] == "SET_SPHERE":
         area = set()
-        node = eval_to_position(graph, topology, nodes, bound[2], pos_variables)
-        for t in get_ball(graph, topology, nodes, node, bound[1]):
-            if typ == "CELL":
-                t = (t[0], ())
-            area.add(t)
-        for t in get_ball(graph, topology, nodes, node, bound[1]-1):
-            if typ == "CELL":
-                t = (t[0], ())
-            area.discard(t)
-
-    elif bound[0] == "ONLY_POS":
-        node = eval_to_position(graph, topology, nodes, bound[1], pos_variables)
-        area = get_area(graph, topology, nodes, pos_variables, bound[2], typ)
-        area = {t for t in area if t >= node}
+        arg_area = get_area(graph, topology, nodes, pos_variables, bound[3], typ)
+        for node in arg_area:
+            new_area = set()
+            for t in get_ball(graph, topology, nodes, node, bound[2]):
+                if typ == "CELL":
+                    t = (t[0], ())
+                if "POSITIVE" in bound[1] and t < node:
+                    continue
+                if "NEGATIVE" in bound[1] and t > node:
+                    continue
+                if "OPEN" in bound[1] and t == node:
+                    continue
+                new_area.add(t)
+            for t in get_ball(graph, topology, nodes, node, bound[2]-1):
+                if typ == "CELL":
+                    t = (t[0], ())
+                new_area.discard(t)
+            area |= new_area
 
     elif bound[0] == "SETMINUS":
         area = get_area(graph, topology, nodes, pos_variables, bound[1], typ)

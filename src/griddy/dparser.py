@@ -768,33 +768,28 @@ def set_literal():
     yield rbrace
     return ("SET_LITERAL", elems)
 
+# Neighborhood and ball modifiers
+nhood_modifiers = lexeme(p.alt(p.string("o") >> p.success("OPEN"),
+                               p.string("p") >> p.success("POSITIVE"),
+                               p.string("n") >> p.success("NEGATIVE")).many())
+
 # Neighborhoods (one argument)
 @p.generate
 def set_neighborhood():
     yield p.string("N")
-    mods = yield lexeme((p.string("o") | p.string("p")).many())
-    node = yield pos_expr
-    ret = ("SET_NHOOD", node)
-    if "o" in mods:
-        ret = ("SETMINUS", ret, ("SET_LITERAL", [node]))
-    if "p" in mods:
-        ret = ("ONLY_POS", node, ret)
-    return ret
+    mods = yield nhood_modifiers
+    arg = yield pos_expr.map(lambda pos: ("SET_LITERAL", [pos])) | set_expr
+    return ("SET_NHOOD", mods, arg)
 
 # Balls and spheres (two arguments)
 @p.generate
 def ball_or_sphere():
     func = yield p.alt(p.string("B") >> p.success("SET_BALL"),
                        p.string("S") >> p.success("SET_SPHERE"))
-    mods = yield lexeme((p.string("o") | p.string("p")).many())
+    mods = yield nhood_modifiers
     radius = yield natural
-    node = yield pos_expr
-    ret = (func, radius, node)
-    if "o" in mods:
-        ret = ("SETMINUS", ret, ("SET_LITERAL", [node]))
-    if "p" in mods:
-        ret = ("ONLY_POS", node, ret)
-    return ret
+    arg = yield pos_expr.map(lambda pos: ("SET_LITERAL", [pos])) | set_expr
+    return (func, mods, radius, arg)
 
 # Shorthand for ball
 @p.generate
@@ -802,7 +797,7 @@ def short_ball():
     node = yield pos_expr
     yield colon
     radius = yield natural
-    return ("SET_BALL", radius, node)
+    return ("SET_BALL", [], radius, ("SET_LITERAL", [node]))
 
 # A set expression
 set_expr.become(expr_with_ops(set_op_table, set_literal | set_neighborhood | ball_or_sphere | short_ball | (lparen >> set_expr << rparen)))

@@ -797,6 +797,9 @@ code = """
 %SFT x8 Ao o=2 -> Ap[B 2 o.(3,0) * B 2 o.(5,0)] p=1
 %SFT x9 Ao o=2 -> Ap[B 1 o.(4,0)] p=1
 %equal expect=T x8 x9
+%SFT x10 Ao o=2 -> Ap[Bp 1(o.(4,0):1)] p=1
+%SFT x11 Ao o=2 -> Ap[B 1 o.(4,0)] Aq[Bp 1 p] q=1
+%equal expect=T x10 x11
 """
 
 unit_tests.append(("finite sets", code))
