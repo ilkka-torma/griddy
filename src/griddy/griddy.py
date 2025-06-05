@@ -529,7 +529,7 @@ class Griddy:
                     print("First period vector must be even for symmetry breaking")
                     break
                 print_freq_pop = kwds.get("print_freq_pop", 5000)
-                print_freq_cyc = kwds.get("print_freq_cyc", 50)
+                print_freq_cyc = kwds.get("print_freq_cyc", 1000)
                 verb = "verbose" in flags
                 rot = "rotate" in flags
                 if rot and (the_sft.dim != 2 or periods[0][0] != 0):
@@ -839,7 +839,8 @@ class Griddy:
                 if the_sft.forbs is None:
                     print("Forbidden patterns not yet computed.")
                 else:
-                    print(the_sft.forbs)
+                    for forb in the_sft.forbs:
+                        print(forb)
                 print()
 
             elif cmd == "compute_forbidden_patterns":
