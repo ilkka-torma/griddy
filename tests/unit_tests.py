@@ -529,7 +529,7 @@ code = """
 unit_tests.append(("counting", code))
 
 code = """
-%alphabet 0 1 3 e
+%alphabet 0 d 3 1 e
 %SFT x Ao #o <= 2
 %SFT y Ao o=0 | o=1
 %equal expect=T x y
@@ -803,6 +803,17 @@ code = """
 """
 
 unit_tests.append(("finite sets", code))
+
+code = """
+%nodes a1 B_2 0 01 00
+%alphabet _x 27 x27 01 0_1
+%topology
+A7 (0,0;B_2) (1,0;00);
+7A (0,0;01) (1,0;0)
+%info
+"""
+
+unit_tests.append(("node and symbol names", code))
 
 
 if __name__ == "__main__":

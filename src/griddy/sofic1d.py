@@ -796,7 +796,7 @@ def union(*sofics):
 
 def product(*sofics, track_names=None):
     if track_names is None:
-        track_names = list(range(len(sofics)))
+        track_names = list(str(n) for n in range(len(sofics)))
     nodes = sft.Nodes({tr:sof.nodes for (tr, sof) in zip(track_names, sofics)})
     alph = {(tr,) + node : sof.alph[node]
             for (tr, sof) in zip(track_names, sofics)

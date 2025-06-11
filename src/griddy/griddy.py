@@ -50,7 +50,7 @@ class Griddy:
         self.automata = {}
         self.environments = {}
         self.nodes = sft.Nodes()
-        self.alphabet = {() : [0, 1] for node in self.nodes}
+        self.alphabet = {() : ['0', '1'] for node in self.nodes}
         self.dim = 2
         self.topology = grid
         self.graph = None
@@ -174,10 +174,10 @@ class Griddy:
                 elif top in ["hex", "hexgrid"]:
                     self.dim = 2
                     self.topology = hexgrid
-                    self.nodes = sft.Nodes([0,1])
+                    self.nodes = sft.Nodes(['0','1'])
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
                     #self.tiler_skew = 1
-                    self.tiler_nodeoffsets = {(0,) : (0,0.15), (1,) : (0.5,-0.15)}
+                    self.tiler_nodeoffsets = {('0',) : (0,0.15), ('1',) : (0.5,-0.15)}
                 elif top in ["king", "kinggrid"]:
                     self.dim = 2
                     self.topology = kinggrid
@@ -507,7 +507,7 @@ class Griddy:
                 self.SFTs[sofic_image_name] = compute_sofic_image.sofic_from_BM_and_sofic(the_ca, the_sofic)
                 
             elif cmd == "minimum_density":
-                verbose_here = False
+                verbose_here = True#False
                 sft_name = args[0]
                 if sft_name not in self.SFTs:
                     raise Exception("{} is not an SFT".format(sft_name))
@@ -542,6 +542,7 @@ class Griddy:
                 nfa.populate(verbose=verb, num_threads=threads, chunk_size=chunk_size, report=print_freq_pop)
                 if verbose_here: print("popula")
                 nfa.minimize(verbose=verb)
+                if verbose_here: print("minim")
                 comps = list(nfa.strong_components())
                 if not comps:
                     print("No configurations exist with given period(s)")
@@ -1467,12 +1468,12 @@ hexgrid = [("up", (0,0,0), (0,1,1)),
            ("rt", (0,0,1), (1,0,0)),
            ("lt", (0,0,1), (0,0,0))]
 """
-hexgrid = [("N", (0,0,(0,)), (0,1,(1,))),
-           ("S", (0,0,(1,)), (0,-1,(0,))),
-           ("sE", (0,0,(0,)), (0,0,(1,))),
-           ("sW", (0,0,(0,)), (-1,0,(1,))),
-           ("nE", (0,0,(1,)), (1,0,(0,))),
-           ("nW", (0,0,(1,)), (0,0,(0,)))]
+hexgrid = [("N", (0,0,('0',)), (0,1,('1',))),
+           ("S", (0,0,('1',)), (0,-1,('0',))),
+           ("sE", (0,0,('0',)), (0,0,('1',))),
+           ("sW", (0,0,('0',)), (-1,0,('1',))),
+           ("nE", (0,0,('1',)), (1,0,('0',))),
+           ("nW", (0,0,('1',)), (0,0,('0',)))]
 
 kinggrid = [("E", (0,0,()), (1,0,())),
             ("NW", (0,0,()), (1,1,())),

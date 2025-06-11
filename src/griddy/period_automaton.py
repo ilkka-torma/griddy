@@ -172,8 +172,9 @@ class PeriodAutomaton:
         self.rotate = rotate
         self.all_labels = all_labels
 
+        self.weights = weights
         if weights == None:
-            self.weight_numerators = {a:a for sub_alph in self.sft.alph.values() for a in sub_alph}
+            self.weight_numerators = {a:int(a) for sub_alph in self.sft.alph.values() for a in sub_alph}
             self.weight_denominator = 1
             #print("makkel")
         else:
@@ -237,8 +238,8 @@ class PeriodAutomaton:
             for (state, weight, new_state) in res:
                 if new_state not in self.states:
                     self.states.add(new_state)
-                    if verbose and len(self.states)%report == 0:
-                        print("states", len(self.states), "to process", undone)
+                    if verbose and (len(self.states) - undone)%report == 0:
+                        print("states processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
                     qq.append(new_state)
                     if len(qq) >= chunk_size:
                         task_q.put(qq)
@@ -820,7 +821,7 @@ class PeriodAutomaton:
                             if nxt == cur:
                                 break
                         if len(comp) > 1 or cur in self.trans.get(cur, []):
-                            aut = PeriodAutomaton(self.sft, self.pmat, self.rotate, self.sym_bound, False, self.immediately_relabel, check_periods=False)
+                            aut = PeriodAutomaton(self.sft, self.pmat, self.rotate, self.sym_bound, False, self.immediately_relabel, check_periods=False, weights=self.weights)
                             aut.weight_numerators = self.weight_numerators
                             aut.weight_denominator = self.weight_denominator
 

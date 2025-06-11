@@ -34,13 +34,13 @@ class Nodes:
     def from_list(cls, node_list):
         #print("from list", node_list)
         nodes = dict()
-        for node in node_list:
+        for (i, node) in enumerate(node_list):
             if not node:
                 raise Exception("Bad node list: {}".format(node_list))
             head = node[0]
             if head in nodes:
                 if nodes[head] is None or len(node) == 1:
-                    raise Exception("Bad node list: {}".format(node_list))
+                    raise Exception("Bad node list: {} (offender is {} at position {})".format(node_list, node, i))
                 nodes[head].append(node[1:])
             elif len(node) == 1:
                 nodes[head] = None
@@ -1027,7 +1027,7 @@ def intersection(*sfts):
 
 def product(*sfts, track_names=None):
     if track_names is None:
-        track_names = list(range(len(sfts)))
+        track_names = list(str(n) for n in range(len(sfts)))
     nodes = Nodes({tr:sft.nodes for (tr, sft) in zip(track_names, sfts)})
     alph = {(tr,) + node : sft.alph[node]
             for (tr, sft) in zip(track_names, sfts)

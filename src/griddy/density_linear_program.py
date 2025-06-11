@@ -47,7 +47,7 @@ def surroundings(the_sft, specs, radius, save_surr_to=None, load_surr_from=None)
 # nodes' weights are averaged together for the purposes of charge sharing
 def optimal_density(the_sft, specs, radius, weights=None, ret_shares=False, verbose=False, print_freq=5000, save_constr=None, load_constr=None):
     if weights is None:
-        weights = {a:a for alph in the_sft.alph.values() for a in alph}
+        weights = {a:int(a) for alph in the_sft.alph.values() for a in alph}
     if verbose:
         print("Lower-bounding density using specs {}".format(specs))
     # this is how large density can be made, i.e. what we want to compute

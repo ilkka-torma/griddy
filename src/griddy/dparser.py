@@ -66,7 +66,7 @@ colon = lexeme(p.string(':'))
 semicolon = lexeme(p.string(';'))
 
 # Protected keywords
-keyword = p.regex(r'(let|letnum|in|dist)(\W|$)')
+keyword = p.regex(r'(let|letnum|in|dist|subst)(\W|$)')
 
 # Range of nonnegative integers; "inf" means no upper bound
 @p.generate
@@ -114,8 +114,11 @@ def fraction():
     else:
         return Fraction(numerator, maybe_denominator)
 
-# Labels (of commands, alphabets, nodes etc.)
-label = lexeme(keyword.should_fail("keyword") >> p.regex(r'[a-zA-Z]\w*')).desc("label")
+# Label of constant (alphabet symbol or node): any alphanumeric sequence
+const_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'\w+')).desc("node or symbol name")
+# Label of variable (variable in formula, command, or Diddy object like SFT or block map): must begin with non-digit
+var_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'[a-zA-Z]\w*')).desc("variable name")
+
 topology_keyword = lexeme(p.regex(r'line|grid|square|squaregrid|king[0-9]*|kinggrid|triangle|trianglegrid|hex|hexgrid|CR')).desc("topology name")
 graph_keyword = lexeme(p.regex(r'Aleshin|none')).desc("graph name")
 
@@ -123,9 +126,9 @@ graph_keyword = lexeme(p.regex(r'Aleshin|none')).desc("graph name")
 # Type checking is not done at parse time
 @p.generate("optional argument / setter")
 def set_arg_value():
-    arg_name = yield label
+    arg_name = yield var_label
     yield lexeme(p.string('='))
-    arg_value = yield fraction | label | nested_list | nested_mapping(node_name | label | integer, flat_value | nested_list)
+    arg_value = yield fraction | const_label | nested_list | nested_mapping(node_name | const_label, flat_value | nested_list)
     return (arg_name, arg_value)
 
 # Optinal argument / setter from given names
@@ -140,7 +143,7 @@ def set_arg_value_of(name_dict):
     return setter
     
 # Node name: period-separated sequence of labels
-node_name = (label | natural).sep_by(period, min=1).map(tuple)
+node_name = const_label.sep_by(period, min=1).map(tuple)
 #node_name = (label | natural).sep_by(period, min=1).map(lambda items: items[0] if len(items) == 1  else tuple(items))
 
 # Vector or node vector
@@ -191,8 +194,8 @@ def nested_default_mapping(key, value, default=None):
         
 
 # Pattern: vector:label/number mapping
-pattern = mapping(vector, label|fraction)
-open_pattern = open_mapping(vector, label|fraction)
+pattern = mapping(vector, const_label|fraction)
+open_pattern = open_mapping(vector, const_label|fraction)
 
 # Flat value
 flat_value = vector | set_arg_value.desc("setter") | fraction | node_name | pattern
@@ -254,7 +257,7 @@ def cmd_args(cmd, opts, flags, arg_specs, mode="normal", depth=0):
         
         # Parse options and flags
         while opts != False and flags != False:
-            maybe_flag = yield (p.string('@') >> label).desc("flag").optional()
+            maybe_flag = yield (p.string('@') >> var_label).desc("flag").optional()
             if maybe_flag is not None:
                 if maybe_flag not in cmd.flags:
                     return p.fail("valid flag for {}".format(cmd.name))
@@ -409,14 +412,14 @@ commands = [
     # Setting up the environment
     Command("alphabet",
             [["OR",
-              ["MANY", label|natural],
-              mapping(node_name, label|natural|list_of(label|natural))]],
-            opts = {"default" : list_of(label|natural)},
+              ["MANY", const_label],
+              mapping(node_name, const_label|list_of(const_label))]],
+            opts = {"default" : list_of(const_label)},
             aliases = ["alph"]),
     Command("topology",
             [["OR",
               topology_keyword,
-              ["MANY", ["LIST", label, vector, vector]]]]),
+              ["MANY", ["LIST", const_label, vector, vector]]]]),
     Command("dim",
             [natural],
             opts = ["onesided"],
@@ -427,144 +430,144 @@ commands = [
     Command("nodes",
             [["OR",
               ["MANY", node_name],
-              nested_default_mapping(label|natural, label|natural)]],
+              nested_default_mapping(const_label, const_label)]],
             aliases = ["vertices"]),
     Command("set_weights",
             [mapping(node_name, fraction) | open_mapping(node_name, fraction)]),
     Command("save_environment",
-            [label]),
+            [var_label]),
     Command("load_environment",
-            [label]),
+            [var_label]),
     Command("run",
-            [label]),
+            [var_label]),
 
     # Defining objects
     Command("sft",
-            [label,
+            [var_label,
              ["OR",
               quantified,
-              ["MANY", ["MAP", vector, label | natural]]]],
+              ["MANY", ["MAP", vector, const_label]]]],
             aliases = ["SFT"],
             opts = ["onesided"],
             flags = ["simplify", "verbose"]),
     Command("sofic1D",
-            [label, label],
+            [var_label, var_label],
             aliases = ["sofic1d"],
             flags = ["forbs", "onesided", "verbose"]),
     Command("trace",
-            [label,
-             label,
+            [var_label,
+             var_label,
              ["MANY", natural],
              ["MANY",
               ["OR",
-               label, # dir
-               ["LIST", label, natural], # per p
+               var_label, # dir
+               ["LIST", var_label, natural], # per p
                ["LIST", # [a b]
-                ["OR", ["LIST", label, natural], ["LIST", label, natural, natural]],
-                ["OR", ["LIST", label, natural], ["LIST", label, natural, natural]]]]]],
+                ["OR", ["LIST", var_label, natural], ["LIST", var_label, natural, natural]],
+                ["OR", ["LIST", var_label, natural], ["LIST", var_label, natural, natural]]]]]],
             opts = ["extra_rad"],
             flags = ["onesided", "verbose"]),
     Command("regexp",
-            [label, regexp],
+            [var_label, regexp],
             flags = ["minimize", "verbose"]),
     Command("language",
-            [label, label]),
+            [var_label, var_label]),
     Command("compute_forbidden_patterns",
-            [label],
+            [var_label],
             opts = ["radius", "filename"],
             aliases = ["calculate_forbidden_patterns"]),
     Command("load_forbidden_patterns",
-            [label, label]),
+            [var_label, var_label]),
     Command("determinize",
-            [label]),
+            [var_label]),
     Command("minimize",
-            [label]),        
+            [var_label]),        
     Command("wang",
-            [label, "tiles", nested_list], # TODO: figure out how this works
+            [var_label, "tiles", nested_list], # TODO: figure out how this works
             opts = ["inverses"],
             flags = ["topology", "use_topology", "custom_topology"],
             aliases = ["Wang"]),
     Command("intersection",
-            [label,
-             ["MANY", label]]),
+            [var_label,
+             ["MANY", var_label]]),
     Command("sofic_image",
-            [label, label, label]),
+            [var_label, var_label, var_label]),
     Command("union",
-            [label,
-             ["MANY", label]]),
+            [var_label,
+             ["MANY", var_label]]),
     Command("product",
-            [label,
-             ["MANY", label]],
-            opts = {"tracks" : list_of(label|natural), "env" : label}),
+            [var_label,
+             ["MANY", var_label]],
+            opts = {"tracks" : list_of(const_label), "env" : var_label}),
     Command("block_map",
-            [label,
+            [var_label,
              ["OR",
-              ["MANY", ["LIST", label|integer, quantified]],
-              ["MANY", ["LIST", node_name, label|integer, quantified]]]],
+              ["MANY", ["LIST", const_label, quantified]],
+              ["MANY", ["LIST", node_name, const_label, quantified]]]],
             opts = ["domain", "codomain"],
             flags = ["simplify", "verbose"],
             aliases = ["blockmap", "CA"]),
     Command("compose",
-            [label,
-             ["MANY", label]]),
+            [var_label,
+             ["MANY", var_label]]),
     Command("has_post_inverse",
-            [label],
+            [var_label],
             opts = ["radius"],
             aliases = ["has_retraction"]),
     Command("relation",
-            [label, label],
-            opts = {"tracks" : list_of(label|natural)}),
+            [var_label, var_label],
+            opts = {"tracks" : list_of(const_label)}),
     Command("preimage",
-            [label, label, label]),
+            [var_label, var_label, var_label]),
     Command("fixed_points",
-            [label, label]),
+            [var_label, var_label]),
     Command("spacetime_diagram",
-            [label, label],
+            [var_label, var_label],
             opts = ["time_axis"],
             flags = ["twosided"],
             aliases = ["spacetime"]),
     
     # TFG stuff not implemented yet
     Command("TFG",
-            [label, "nested list"], # TODO
+            [var_label, "nested list"], # TODO
             aliases = ["topological_full_group_element"]),
 
     # Printing objects' basic properties
     Command("show_conf",
-            [label],
+            [var_label],
             flags = ["hide_contents"],
             aliases = ["print_conf"]),
     Command("show_formula",
-            [label],
+            [var_label],
             aliases = ["print_formula"]),
     Command("show_parsed",
-            [label],
+            [var_label],
             aliases = ["print_parsed"]),
     Command("show_forbidden_patterns",
-            [label],
+            [var_label],
             aliases = ["print_forbidden_patterns"]),
     Command("show_graph",
-            [label],
+            [var_label],
             aliases = ["print_graph"]),
     Command("show_environment",
             [],
             opts = ["sft"]),
     Command("info",
-            [["MANY", label]],
+            [["MANY", var_label]],
             flags = ["verbose"]),
 
     # Comparing objects
     Command("empty",
-            [label],
+            [var_label],
             opts = ["conf_name", "expect"],
             flags = ["verbose"]),
     Command("equal",
-            [label, label],
+            [var_label, var_label],
             opts = ["method", "expect"],
             flags = ["verbose"],
             aliases = ["equals"]),
     Command("contains",
-            [label, label],
+            [var_label, var_label],
             opts = ["method", "expect", "conf_name"],
             flags = ["verbose"],
             aliases = ["contain"]),
@@ -576,18 +579,18 @@ commands = [
             aliases = ["compare_SFT_pairs_equality"]),
     Command("compute_CA_ball",
             [natural,
-             ["MANY", label]],
+             ["MANY", var_label]],
             opts = ["filename"],
             aliases = ["calculate_CA_ball"]),
 
     # Analyzing dynamical properties
     Command("minimum_density",
-            [label,
+            [var_label,
              ["MANY", vector]],
             opts = ["threads", "mode", "chunk_size", "symmetry", "print_freq_pop", "print_freq_cyc", "expect", "conf_name"],
             flags = ["verbose", "rotate"]),
     Command("density_lower_bound",
-            [label,
+            [var_label,
              ["OR",
               ["MANY",
                ["LIST",
@@ -599,34 +602,34 @@ commands = [
             opts = ["radius", "print_freq", "expect", "save_constr", "load_constr"],
             flags = ["verbose", "show_rules"]),
     Command("entropy_upper_bound",
-            [label,
+            [var_label,
              ["MANY", natural]],
             opts = ["radius"]),
     Command("entropy_lower_bound",
-            [label,
+            [var_label,
              ["MANY", natural],
              ["MANY", natural]]),
     Command("TFG_loops",
-            [label, label],
+            [var_label, var_label],
             aliases = ["topological_full_group_element_loops"]),
 
     # Visualization / finding individual tilings in SFT
     Command("tiler",
-            [label],
+            [var_label],
             opts = {"x_size" : natural,
                     "y_size" : natural,
                     "node_offsets" : mapping(node_name, list_of(fraction)),
-                    "pictures" : mapping(node_name, list_of(label)),
+                    "pictures" : mapping(node_name, list_of(var_label)),
                     "gridmoves" : list_of(list_of(fraction)),
-                    "topology" : label,
-                    "initial" : label,
-                    "colors" : mapping(label|natural, list_of(natural)),
+                    "topology" : var_label,
+                    "initial" : var_label,
+                    "colors" : mapping(const_label, list_of(natural)),
                     "hidden" : list_of(node_name)},
             flags = ["x_periodic", "y_periodic"]),
     Command("tile_box",
-            [label, natural]),
+            [var_label, natural]),
     Command("keep_tiling",
-            [label],
+            [var_label],
             opts = ["min", "max"]),
 
     # Technical commands
@@ -642,7 +645,7 @@ command_dict = {alias : cmd for cmd in commands for alias in [cmd.name] + cmd.al
 @p.generate
 def command():
     yield p.string('%')
-    alias = yield label
+    alias = yield var_label
     try:
         opts = dict()
         flags = set()
@@ -740,11 +743,11 @@ def expr_with_ops(prec_table, atomic, prec_index=0):
         return parse_the_expr
 
 # Alphabetic label
-strict_label = lexeme((keyword | p.regex(r'[AEO].*')).should_fail("keyword") >> p.regex(r'[a-zA-Z_]+')).desc("formula variable")
+# strict_label = lexeme((keyword | p.regex(r'[AEO].*')).should_fail("keyword") >> p.regex(r'[a-zA-Z_]\w*')).desc("formula variable")
 
 # Positional expression
-pos_expr = p.seq(strict_label | integer.desc("integer"),
-                 (lexeme(p.string('.')) >> (label | integer | vector | p.string('_')).desc("address")).many()).combine(lambda var, addrs: ("ADDR", var, *addrs) if addrs else var)
+pos_expr = p.seq(const_label,
+                 (lexeme(p.string('.')) >> (const_label | vector | p.string('_')).desc("address")).many()).combine(lambda var, addrs: ("ADDR", var, *addrs) if addrs else var)
 
 # List of positional expressions
 pos_expr_list = lbracket >> pos_expr.many() << rbracket
@@ -843,7 +846,7 @@ node_expr = expr_with_ops(comp_table, pos_expr) | expr_with_ops(comp_table, pos_
 @p.generate("boolean variable or function call")
 def bool_or_call():
     #print("parsing call")
-    name = yield strict_label
+    name = yield var_label
     args = yield (pos_expr | lparen >> formula << rparen).many()
     #print("parsed call", name, args)
     if args:
@@ -862,10 +865,11 @@ def quantified_formula():
                                  p.string("E") >> p.success("NODEEXISTS"),
                                  p.string("O") >> p.success("NODEORIGIN")).desc("quantifier")
     yield whitespace#.optional()
-    var = yield strict_label
+    var = yield var_label
     restr = yield (lbracket >> set_expr << rbracket).optional()
     #print("parsed quantifier part", the_quantifier, var)
     the_formula = yield formula
+    #print("parsed formula", the_formula)
     return (the_quantifier, var, restr, the_formula)
 
 quantified.become(quantified_formula)
@@ -889,7 +893,7 @@ boolean_ops = [
 @p.generate
 def let_expr():
     yield lexeme(p.string('let'))
-    call = yield strict_label.at_least(1)
+    call = yield var_label.at_least(1)
     yield lexeme(p.string(':='))
     result = yield formula
     yield lexeme(p.string('in'))
@@ -901,7 +905,7 @@ def let_expr():
 def substitution_pair():
     the_node = yield pos_expr
     yield lexeme(p.string(':='))
-    the_value = yield label | natural
+    the_value = yield const_label
     return (the_node, the_value)
 
 # A local substitution
@@ -920,7 +924,7 @@ num_expr = p.forward_declaration()
 @p.generate
 def num_let_expr():
     yield lexeme(p.string('letnum'))
-    var = yield strict_label
+    var = yield var_label
     yield lexeme(p.string(':='))
     result = yield num_expr
     yield lexeme(p.string('in'))
@@ -977,7 +981,7 @@ def count_list():
 @p.generate
 def count_quantified():
     yield lexeme(p.string('#'))
-    var = yield strict_label
+    var = yield var_label
     restr = yield lbracket >> set_expr << rbracket
     #print("parsed quantifier part", the_quantifier, var)
     the_formula = yield formula
@@ -998,7 +1002,7 @@ def distance_func():
     node2 = yield pos_expr
     return ("DISTANCE", node1, node2)
 
-num_expr.become(expr_with_ops(numeric_ops, count_list | count_quantified | sym_to_num | distance_func | numeric_call | strict_label.map(lambda s: ("NUM_VAR", s)) | integer.map(lambda n: ("CONST_NUM", n)) | lparen >> num_expr << rparen))
+num_expr.become(expr_with_ops(numeric_ops, count_list | count_quantified | sym_to_num | distance_func | numeric_call | var_label.map(lambda s: ("NUM_VAR", s)) | integer.map(lambda n: ("CONST_NUM", n)) | lparen >> num_expr << rparen))
 
 # A full formula
 formula.become(expr_with_ops(boolean_ops, quantified | let_expr | subst_expr | num_let_expr | num_comparison | node_expr | bool_or_call | (lparen >> formula << rparen)))
@@ -1010,7 +1014,7 @@ formula.become(expr_with_ops(boolean_ops, quantified | let_expr | subst_expr | n
 empty_word_lang = lexeme(lparen) >> lexeme(rparen) >> p.success("EMPTYWORD")
 
 # Language consisting of a single word
-symbol_lang = ((label | natural).map(lambda sym: ("SYMBOL", sym)) | list_of(label | natural).map(lambda syms: ("SYMBOLS", syms)))
+symbol_lang = (const_label.map(lambda sym: ("SYMBOL", sym)) | list_of(const_label).map(lambda syms: ("SYMBOLS", syms)))
 
 # Regexp operation table
 regexp_ops = [

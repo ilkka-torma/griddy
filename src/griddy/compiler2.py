@@ -689,6 +689,16 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
     #else:
     #    print("numexpr_to_circ", formula, ret[0].circuits, ret[1])
     return ret
+
+# Does this string represent a number?
+def is_nat(string):
+    if not string:
+        return False
+    if string == '0':
+        return True
+    if string[0] != '0' and all(c in "0123456789" for c in string):
+        return True
+    return False
     
 # Make a numeric circuit that
 # (a) restricts the node to have a "numeric" symbol, and
@@ -696,7 +706,7 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
 def sym_to_num(nvec, alphabet, global_restr):
     node = nvec[1]
     node_alph = alphabet[node]
-    nums = list(sorted(sym for sym in node_alph if type(sym) == int))
+    nums = list(sorted(sym for sym in node_alph if is_nat(sym)))
     circs = dict()
     for (i, num) in enumerate(nums):
         if num == node_alph[0]:
@@ -711,7 +721,8 @@ def sym_to_num(nvec, alphabet, global_restr):
             else:
                 circ = NOT(V(nvec + (sym,)))
             global_restr.append(circ)
-    return moc.MOCircuit(circs), nums
+
+    return moc.MOCircuit(circs), [int(num) for num in nums]
 
 def collect_unbound_vars(formula, bound = None):
     #print("collecting", formula)
