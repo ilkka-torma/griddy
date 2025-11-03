@@ -1,13 +1,17 @@
 import time
 
 class DFA:
+    """
+    Deterministic finite automata with several output symbols.
+    Classical "acceptor" DFA have output alphabet {True, False}.
+    """
 
     @classmethod
     def universal(self, alph):
         trans = {(0, sym) : 0 for sym in alph}
         return self(alph, trans, 0, {0})
 
-    def __init__(self, alph, trans, init, finals, states=None):
+    def __init__(self, alph, trans, init, finals=None, outputs=None, states=None):
         self.alph = alph
         self.trans = trans
         if states is None:
@@ -15,41 +19,56 @@ class DFA:
         else:
             self.states = states
         self.init = init
-        self.finals = finals
+        if finals is not None:
+            self.outputs = { st : st in finals for st in self.states}
+        elif outputs is not None:
+            self.outputs = outputs
+        else:
+            raise ValueError("DFA needs either finals or outputs")
 
     def info_string(self, name, verbose=False):
         s = ["DFA {} on alphabet {} with {} states".format(name, self.alph, len(self.states))]
         if verbose:
             s.append("Transitions: {}".format(self.trans))
             s.append("Initial state: {}".format(self.init))
-            s.append("Final states: {}".format(self.finals))
+            s.append("Outputs: {}".format(self.outputs))
         return "\n".join(s)
 
     def __call__(self, st, sym):
         return self.trans[st, sym]
 
     def accepts(self, word):
-        sts = self.inits
+        # Acceptor only
+        st = self.init
         for sym in word:
-            sts = {st2 for st in sts for st2 in self(st, sym)}
-        return sts.intersects(self.finals)
+            st = self(st, sym)
+        return sts.colors[st]
+
+    def output(self, word):
+        return self.accepts(word)
         
     def to_nfa(self):
-        return NFA(self.alph, {(st, sym) : [st2] for ((st, sym), st2) in self.trans.items()}, {self.init}, self.finals, states=self.states)
+        # Acceptor only
+        return NFA(self.alph, {(st, sym) : [st2] for ((st, sym), st2) in self.trans.items()}, {self.init}, finals={st for st in self.states if self.outputs[st]}, states=self.states)
 
     def concat(self, other):
+        # Acceptor only
         return self.to_nfa().concat(other)
 
     def plus(self):
+        # Acceptor only
         return self.to_nfa().plus()
 
     def star(self):
+        # Acceptor only
         return self.to_nfa().star()
         
     def negate(self):
-        return DFA(self.alph, self.trans, self.init, set(self.states) - set(self.finals))
+        # Acceptor only
+        return DFA(self.alph, self.trans, self.init, colors={st : not c for (st,c) in self.colors.items()})
 
     def intersect(self, other):
+        # Acceptor only
         if isinstance(other, DFA):
             init = (self.init, other.init)
             states = {init}
@@ -65,13 +84,14 @@ class DFA:
                             states.add(res)
                             newfrontier.append(res)
                 frontier = newfrontier
-            finals = {(st1, st2) for (st1, st2) in states
-                      if st1 in self.finals and st2 in other.finals}
-            return NFA(self.alph, trans, init, finals, states=states)
+            outputs = {(st1, st2) : self.outputs[st1] and other.outputs[st2]
+                       for (st1, st2) in states}
+            return DFA(self.alph, trans, init, outputs=outputs, states=states)
         else:
             return other.intersect(self)
 
     def union(self, other):
+        # Acceptor only
         return self.to_nfa().union(other)
 
     def rename(self):
@@ -79,7 +99,7 @@ class DFA:
         self.trans = {(nums[st], sym) : nums[st2] for ((st, sym), st2) in self.trans.items()}
         self.states = {nums[st] for st in self.states}
         self.init = nums[self.init]
-        self.finals = {nums[st] for st in self.finals}
+        self.outputs = {nums[st] : c for (st,c) in self.outputs.items()}
 
     def trim(self, verbose=False):
         if verbose:
@@ -98,7 +118,7 @@ class DFA:
         self.trans = {(st, sym) : st2 for ((st, sym), st2) in self.trans.items()
                       if st in reachables}
         self.states &= reachables
-        self.finals &= reachables
+        self.outputs = {st : c for (st,c) in self.outputs if st in reachables}
         if verbose:
             print("Trimmed to {} states".format(len(self.states)))
 
@@ -106,19 +126,14 @@ class DFA:
         """
             Minimize a DFA using Moore's algorithm.
             It is assumed that all states are reachable.
+        TODO: update to outputs.
         """
         if verbose: print("Minimizing")
 
         # Maintain a coloring of the states; states with different colors are provably non-equivalent
-        coloring = {}
-        colors = set()
-        for st in self.states:
-            if st in self.finals:
-                coloring[st] = 1
-                colors.add(1)
-            else:
-                coloring[st] = 0
-                colors.add(0)
+        color_map = {c : i for (i,c) in enumerate(set(self.outputs.values()))}
+        colors = set(color_map.values())
+        coloring = {st : color_map[c] for (st, c) in self.outputs.items()}
         num_colors = len(colors)
 
         # Iteratively update coloring based on the colors of successors
@@ -151,11 +166,12 @@ class DFA:
             for sym in self.alph:
                 new_trans_dict[new_coloring[st], sym] = new_coloring[self(st, sym)]
 
-        new_final_states = set(new_coloring[st] for st in self.finals)
+        new_outputs = {new_coloring[st] : c for (st, c) in self.outputs.items()}
         new_states = {new_coloring[st] for st in self.states}
-        return DFA(self.alph, new_trans_dict, new_coloring[self.init], new_final_states, states=new_states)
+        return DFA(self.alph, new_trans_dict, new_coloring[self.init], outputs=new_outputs, states=new_states)
 
     def equals(self, other):
+        # If other is not NFA, acceptor only
         if isinstance(other, DFA):
             reachables = {(self.init, other.init)}
             frontier = list(reachables)
@@ -163,7 +179,7 @@ class DFA:
             while frontier:
                 newfrontier = []
                 for (st1, st2) in frontier:
-                    if (st1 in self.finals) != (st2 in other.finals):
+                    if self.outputs[st1] != other.outputs[st2]:
                         return False
                     for sym in self.alph:
                         new = (self(st1, sym), other(st2, sym))
@@ -177,7 +193,7 @@ class DFA:
             return self.contains(other) and other.contains(self)
 
     def contains(self, other, track=False, verbose=False):
-        # DFA-XFA containment
+        # DFA-XFA containment, acceptor only
         if isinstance(other, DFA):
             if track:
                 reachables = {(self.init, other.init) : []}
@@ -188,7 +204,7 @@ class DFA:
             while frontier:
                 newfrontier = []
                 for (st1, st2) in frontier:
-                    if st1 not in self.finals and st2 in other.finals:
+                    if (not self.outputs[st1]) and other.outputs[st2]:
                         if track:
                             return (False, reachables[st1, st2])
                         else:
@@ -215,7 +231,7 @@ class DFA:
             while frontier:
                 newfrontier = []
                 for (st1, st2) in frontier:
-                    if st1 not in self.finals and st2 in other.finals:
+                    if (not self.outputs[st1]) and st2 in other.finals:
                         if track:
                             return (False, reachables[st1, st2])
                         else:
