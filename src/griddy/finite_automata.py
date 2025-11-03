@@ -26,8 +26,11 @@ class DFA:
         else:
             raise ValueError("DFA needs either finals or outputs")
 
-    def info_string(self, name, verbose=False):
-        s = ["DFA {} on alphabet {} with {} states".format(name, self.alph, len(self.states))]
+    def info_string(self, name=None, verbose=False):
+        if name is None:
+            s = ["DFA on alphabet {} with {} states".format(self.alph, len(self.states))]
+        else:
+            s = ["DFA {} on alphabet {} with {} states".format(name, self.alph, len(self.states))]
         if verbose:
             s.append("Transitions: {}".format(self.trans))
             s.append("Initial state: {}".format(self.init))
