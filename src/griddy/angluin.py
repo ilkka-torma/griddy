@@ -118,7 +118,8 @@ class DFALearner:
         "Erase the output values of the given words"
         # Assert they are in the table
         for w in words:
-            del self.output_table[w]
+            if w in self.output_table:
+                del self.output_table[w]
 
     def row(self, w):
         "Compute row of state word or state word plus symbol"

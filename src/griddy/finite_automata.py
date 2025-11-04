@@ -40,12 +40,15 @@ class DFA:
     def __call__(self, st, sym):
         return self.trans[st, sym]
 
+    def map_outputs(self, f):
+        return DFA(self.alph, self.trans, self.init, outputs={st : f(c) for (st, c) in self.outputs.items()})
+
     def accepts(self, word):
         # Acceptor only
         st = self.init
         for sym in word:
             st = self(st, sym)
-        return sts.colors[st]
+        return self.outputs[st]
 
     def output(self, word):
         return self.accepts(word)
@@ -68,7 +71,7 @@ class DFA:
         
     def negate(self):
         # Acceptor only
-        return DFA(self.alph, self.trans, self.init, colors={st : not c for (st,c) in self.colors.items()})
+        return DFA(self.alph, self.trans, self.init, outputs={st : not c for (st,c) in self.outputs.items()})
 
     def intersect(self, other):
         # Acceptor only
@@ -129,7 +132,6 @@ class DFA:
         """
             Minimize a DFA using Moore's algorithm.
             It is assumed that all states are reachable.
-        TODO: update to outputs.
         """
         if verbose: print("Minimizing")
 
@@ -173,25 +175,31 @@ class DFA:
         new_states = {new_coloring[st] for st in self.states}
         return DFA(self.alph, new_trans_dict, new_coloring[self.init], outputs=new_outputs, states=new_states)
 
-    def equals(self, other):
+    def equals(self, other, ret_diff=False):
         # If other is not NFA, acceptor only
         if isinstance(other, DFA):
-            reachables = {(self.init, other.init)}
+            reachables = {(self.init, other.init) : []}
             frontier = list(reachables)
             i = 0
             while frontier:
                 newfrontier = []
                 for (st1, st2) in frontier:
                     if self.outputs[st1] != other.outputs[st2]:
-                        return False
+                        if ret_diff:
+                            return False
+                        else:
+                            return False, reachables[st1, st2]
                     for sym in self.alph:
                         new = (self(st1, sym), other(st2, sym))
                         if new not in reachables:
-                            reachables.add(new)
+                            reachables[new] = reachables[st1, st2] + [sym]
                             newfrontier.append(new)
                 frontier = newfrontier
                 i += 1
-            return True
+            if ret_diff:
+                return True, None
+            else:
+                return True
         else:
             return self.contains(other) and other.contains(self)
 

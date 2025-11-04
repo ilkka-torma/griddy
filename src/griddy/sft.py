@@ -179,7 +179,7 @@ def nonnegative_patterns(dim, tr_dims, patterns):
     tr_vec = []
     for i in range(dim):
         if i in tr_dims:
-            tr_vec.append(-min(vec[i] for vec in pat for pat in patterns))
+            tr_vec.append(-min(vec[i] for pat in patterns for vec in pat))
         else:
             tr_vec.append(0)
     return [{nvadd(nvec, tr_vec) : val for (nvec, val) in pat.items()} for pat in patterns]
