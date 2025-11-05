@@ -612,6 +612,8 @@ commands = [
     Command("TFG_loops",
             [var_label, var_label],
             aliases = ["topological_full_group_element_loops"]),
+    Command("find_automatic_conf",
+            [var_label, var_label]),
 
     # Visualization / finding individual tilings in SFT
     Command("tiler",

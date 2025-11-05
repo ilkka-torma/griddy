@@ -25,6 +25,8 @@ import abstract_SAT_simplify
 
 import period_automaton
 import density_linear_program
+import automatic_conf
+import automatic_learn
 import time
 
 import argparse
@@ -650,6 +652,18 @@ class Griddy:
                     print(dens, "=", expect)
                     assert dens == expect
                 print("Calculation took", time.time() - tim, "seconds.")
+
+            elif cmd == "find_automatic_conf":
+                sft_name = args[0]
+                conf_name = args[1]
+                try:
+                    the_sft = self.SFTs[name]
+                except KeyError:
+                    raise Exception("No SFT named {}".format(sft_name))
+                struct = automatic_conf.AutomaticStructure(the_sft.dim, 2) # for now
+                print("Finding automatic configuration in SFT", sft_name)
+                conf = automatic_learn.learn_lex_min(struct, the_sft)
+                self.confs[conf_name] = conf
 
             elif cmd == "show_formula" and mode == "report":
                 name = args[0]
