@@ -40,6 +40,12 @@ class DFA:
     def __call__(self, st, sym):
         return self.trans[st, sym]
 
+    def read_word(self, st, word):
+        the_st = st
+        for sym in word:
+            the_st = self.trans[the_st, sym]
+        return the_st
+
     def map_outputs(self, f):
         return DFA(self.alph, self.trans, self.init, outputs={st : f(c) for (st, c) in self.outputs.items()})
 
@@ -186,9 +192,9 @@ class DFA:
                 for (st1, st2) in frontier:
                     if self.outputs[st1] != other.outputs[st2]:
                         if ret_diff:
-                            return False
-                        else:
                             return False, reachables[st1, st2]
+                        else:
+                            return False
                     for sym in self.alph:
                         new = (self(st1, sym), other(st2, sym))
                         if new not in reachables:
@@ -265,8 +271,7 @@ class DFA:
             return (True, None)
         else:
             return True
-    
-    
+        
 class NFA:
 
     @classmethod
@@ -401,6 +406,8 @@ class NFA:
                                 states.add(new)
                                 newfrontier.append(new)
                 frontier = newfrontier
+            finals = {(st1, st2) for (st1, st2) in states
+                      if st1 in self.finals and other.outputs[st2]}
         else:
             inits = {(st1, st2) for st1 in self.inits for st2 in other.inits}
             states = {st for st in inits}
@@ -419,8 +426,8 @@ class NFA:
                                 states.add(new)
                                 newfrontier.append(new)
                 frontier = newfrontier
-        finals = {(st1, st2) for (st1, st2) in states
-                  if st1 in self.finals and st2 in other.finals}
+            finals = {(st1, st2) for (st1, st2) in states
+                      if st1 in self.finals and st2 in other.finals}
         return NFA(self.alph, trans, inits, finals, states=states)
 
     def union(self, other):
@@ -654,3 +661,19 @@ class NFA:
         if track:
             return (True, None)
         return True
+
+class NTrans:
+
+    def __init__(self, alph, trans, init, finals, states=None):
+        # Transition function is a dict (st, in_sym) -> [(st, [out_sym])]
+        self.alph = alph
+        self.trans = trans
+        if states is None:
+            self.states = {st for (st, _) in trans}
+        else:
+            self.states = states
+        self.init = init
+        self.finals = finals
+
+    def __call__(self, st, sym):
+        return self.trans[st, sym]
