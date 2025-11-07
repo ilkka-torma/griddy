@@ -654,13 +654,14 @@ class Griddy:
                 print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "find_automatic_conf":
-                sft_name = args[0]
-                conf_name = args[1]
+                conf_name = args[0]
+                sft_name = args[1]
+                arity = kwds.get("arity", 2)
                 try:
                     the_sft = self.SFTs[name]
                 except KeyError:
                     raise Exception("No SFT named {}".format(sft_name))
-                struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, 2, the_sft.nodes) # for now
+                struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, arity, the_sft.nodes) # for now
                 print("Finding automatic configuration in SFT", sft_name)
                 conf = automatic_learn.learn_lex_min(struct, the_sft,
                                                      order_succ=automatic_learn.max_then_lex)
