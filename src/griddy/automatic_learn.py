@@ -143,7 +143,7 @@ def learn_lex_min(struct, sft, order_succ=None, reset_freq=1):
             # Otherwise we have to give a counterexample
             #print("Looking for counterexample")
             # Look for one in the pattern
-            for (nvec, sym) in pattern.items():
+            for (nvec, sym) in sorted(pattern.items(), key=lambda p: max(p[0][:-1])):
                 if conf[nvec] != sym:
                     #print("Found", vec, "in pattern")
                     (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]) + (nvec[-1],), None))
