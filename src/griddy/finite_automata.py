@@ -40,6 +40,24 @@ class DFA:
     def __call__(self, st, sym):
         return self.trans[st, sym]
 
+    def extend_alph(self, new_syms):
+        "Extend the alphabet by new symbols while keeping the same language."
+        # Acceptor only
+        nums = {st : i for (i, st) in enumerate(self.states)}
+        trans = {(nums[st], sym) : nums[st2] for ((st, sym), st2) in self.trans.items()}
+
+        new_syms = [sym for sym in new_syms if sym not in self.alph]
+        new_alph = list(self.alph) + list(new_syms)
+        sink = -1
+        for sym in new_alph:
+            trans[sink, sym] = sink
+        for i in nums.values():
+            for sym in new_syms:
+                trans[i, sym] = sink
+        outputs = { nums[st] : c for (st, c) in self.outputs.items() }
+        outputs[sink] = False
+        return DFA(new_alph, trans, nums[self.init], outputs=outputs)
+
     def read_word(self, st, word):
         the_st = st
         for sym in word:

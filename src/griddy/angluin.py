@@ -21,6 +21,24 @@ class DFALearner:
         self.state_words = [tuple()]
         self.sep_words = [tuple()]
         self.output_table = dict()
+        self.history = []
+
+    def store(self, tag):
+        self.history.append((tag, self.state_words, self.sep_words, self.output_table))
+        self.state_words = self.state_words.copy()
+        self.sep_words = self.sep_words.copy()
+        self.output_table = self.output_table.copy()
+
+
+    def recall(self, tag):
+        try:
+            (i, (state_words, sep_words, output_table)) = min((i,p) for (i, p) in enumerate(self.history) if p[0] == tag)
+        except ValueError:
+            return
+        self.state_words = state_words
+        self.sep_words = sep_words
+        self.output_table = output_table
+        self.history = self.history[:i]
 
     def learn(self):
         """
@@ -37,16 +55,18 @@ class DFALearner:
                     for w in self.state_words:
                         w2 = w + e
                         if w2 not in self.output_table:
-                            (msg, data) = yield ("eval", w2)
+                            (msg, data, tag) = yield ("eval", w2)
                             if msg == "val":
+                                self.store(tag)
                                 self.output_table[w2] = data
                             else:
                                 raise BacktrackException(data)
                         for a in self.input_alph:
                             w2 = w + (a,) + e
                             if w2 not in self.output_table:
-                                (msg, data) = yield ("eval", w2)
+                                (msg, data, tag) = yield ("eval", w2)
                                 if msg == "val":
+                                    self.store(tag)
                                     self.output_table[w2] = data
                                 else:
                                     raise BacktrackException(data)
@@ -57,7 +77,7 @@ class DFALearner:
                 if change:
                     continue
                 dfa = self.make_dfa()
-                (msg, data) = yield ("eq", dfa)
+                (msg, data, _) = yield ("eq", dfa)
                 if msg == "yes":
                     # Success
                     return
@@ -70,7 +90,8 @@ class DFALearner:
                     # Backtrack
                     raise BacktrackException(data)
             except BacktrackException as e:
-                self.backtrack(e.data)
+                for tag in e.data:
+                    self.recall(tag)
             
 
     def make_consistent(self):
@@ -113,13 +134,6 @@ class DFALearner:
         dfa = DFA(self.input_alph, trans, self.row(tuple()), outputs=outputs)
         dfa.rename()
         return dfa
-
-    def backtrack(self, words):
-        "Erase the output values of the given words"
-        # Assert they are in the table
-        for w in words:
-            if w in self.output_table:
-                del self.output_table[w]
 
     def row(self, w):
         "Compute row of state word or state word plus symbol"

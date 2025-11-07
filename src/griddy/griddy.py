@@ -660,9 +660,10 @@ class Griddy:
                     the_sft = self.SFTs[name]
                 except KeyError:
                     raise Exception("No SFT named {}".format(sft_name))
-                struct = automatic_conf.AutomaticStructure(the_sft.dim, 2) # for now
+                struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, 2, the_sft.nodes) # for now
                 print("Finding automatic configuration in SFT", sft_name)
-                conf = automatic_learn.learn_lex_min(struct, the_sft)
+                conf = automatic_learn.learn_lex_min(struct, the_sft,
+                                                     order_succ=automatic_learn.max_then_lex)
                 self.confs[conf_name] = conf
 
             elif cmd == "show_formula" and mode == "report":
