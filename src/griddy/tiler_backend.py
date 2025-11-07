@@ -2,6 +2,7 @@ from general import *
 import compiler
 import sft
 from configuration import *
+from automatic_conf import *
 from enum import Enum
 
 class AxisState(Enum):
@@ -85,9 +86,12 @@ class TilerState:
 
 def decorate_default(conf):
     "Add default (False) decorations."
-    decor_pat = {nvec : (sym, False) for (nvec, sym) in conf.pat.items()}
-    return RecognizableConf(conf.markers, decor_pat, conf.nodes, onesided=conf.onesided)
-    
+    if isinstance(conf, RecognizableConf):
+        decor_pat = {nvec : (sym, False) for (nvec, sym) in conf.pat.items()}
+        return RecognizableConf(conf.markers, decor_pat, conf.nodes, onesided=conf.onesided)
+    elif isinstance(conf, AutomaticConf):
+        return conf
+        
 def copy_decoration(undec_conf, dec_conf):
     """
     Make a configuration with contents of undec_conf and decorations of dec_conf.

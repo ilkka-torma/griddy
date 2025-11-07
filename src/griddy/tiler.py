@@ -574,7 +574,11 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     
     show_help = True
     show_labels = True
-    show_markers = True
+    
+    if isinstance(backend.conf, RecognizableConf):
+        show_markers = True
+    else:
+        show_markers = False
     
     selection_anchor = None
     selection = set()
@@ -1036,7 +1040,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
         
         conf = backend.conf()
                 
-        #if nnn%10 == 0:
+        #if nnn%1 == 0:
         #    print("backend conf", conf.display_str())
         
         # Draw the grid lines i.e. draw the edges
@@ -1093,7 +1097,11 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         white_circle = False
                         #print(grid[(x,y,n)] )
                         #print("seeing", conf[x,y,nodes[n]], "at", (x,y,nodes[n]))
-                        sym, fixed = conf[x,y,nodes[n]]
+                        if isinstance(conf, RecognizableConf):
+                            sym, fixed = conf[x,y,nodes[n]]
+                        elif isinstance(conf, AutomaticConf):
+                            sym = conf[x,y,nodes[n]]
+                            fixed = False
                         #print(sym, fixed)
                         if type(sym) == list:
                             color = UNKNOWN_COLOR
