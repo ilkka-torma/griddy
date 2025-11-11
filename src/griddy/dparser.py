@@ -614,7 +614,8 @@ commands = [
             aliases = ["topological_full_group_element_loops"]),
     Command("find_automatic_conf",
             [var_label, var_label],
-            opts = ["arity"]),
+            opts = ["arity", "extra_rad", "print_freq"],
+            flags = ["verbose"]),
 
     # Visualization / finding individual tilings in SFT
     Command("tiler",

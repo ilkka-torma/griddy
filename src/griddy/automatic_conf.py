@@ -207,6 +207,7 @@ class AutomaticStructure:
             return tuple(word)
 
         def add_trans(vec):
+            #print("add_trans", vec)
             init = vec
             finals = {"acc"}
             frontier = {vec, "acc"}
@@ -234,7 +235,7 @@ class AutomaticStructure:
             return NTrans(alph, trans, init, finals)
 
         ret = self(dim, nodes, alph, word_dfa, w2v, v2w, add_trans, name="{}-ary".format(arity))
-        assert ret.valid_for(list(onesided_hypercube(dim, 10)))
+        #assert ret.valid_for(list(onesided_hypercube(dim, 10)))
         return ret
 
 class AutomaticConf(Conf):

@@ -3,8 +3,123 @@
 from general import *
 from angluin import DFALearner
 from automatic_conf import AutomaticStructure, AutomaticConf
-from sft import Nodes, SFT
+from sft import Nodes, SFT, add_uniqueness_constraints
 from finite_automata import NFA
+from circuit import AND, solver_process, transform
+
+class PatternBuilder:
+    "Abstract pattern builder class"
+
+    def __init__(self, sft):
+        self.sft = sft
+
+class LexMinBuilder(PatternBuilder):
+    "Build a lexicographically minimal pattern"
+
+    def __init__(self, sft, extra_rad=0):
+        super().__init__(sft)
+
+        self.pattern = dict()
+        self.nvecs = [None]
+        
+        # Construct SAT instance
+        circuits = []
+        nvecs = set()
+        #print("radii", self.sft.radii(twosided=True))
+        for vec in hyperrect([(-b,-a+extra_rad) for (a,b) in self.sft.radii(twosided=True)]):
+            circ = sft.circuit.copy()
+            transform(circ, lambda var: nvadd(var[:-1], vec) + var[-1:])
+            circuits.append(circ)
+            for var in circ.get_variables():
+                nvecs.add(var[:-1])
+        add_uniqueness_constraints(self.sft.alph, circuits, nvecs)
+        #print("circuits", circuits)
+        self.circuit = AND(*circuits)
+        self.circuit_nvecs = list(set(var[:-1] for var in self.circuit.get_variables()))
+        self.circuit_vecs = list(set(nvec[:-1] for nvec in self.circuit_nvecs))
+        self.circuit_radii = [(min(vec[i] for vec in self.circuit_vecs),
+                               max(vec[i] for vec in self.circuit_vecs))
+                              for i in range(sft.dim)]
+        self.solver = solver_process(self.circuit, ret_assignment=False)
+        _ = next(self.solver)
+
+    def extend(self):
+        "Extend by a single node vector, or backtrack"
+        #print("extend", self.nvecs, self.pattern)
+        last_nvec = self.nvecs[-1]
+        assert (last_nvec is None) or (last_nvec in self.pattern)
+        next_nvec = max_then_lex(self.sft.dim, self.sft.nodes, last_nvec)
+        #print("next_nvec", next_nvec)
+        assert next_nvec not in self.pattern
+        success = self._try_extend(next_nvec, self.sft.alph[next_nvec[-1]])
+        if success:
+            assert next_nvec in self.pattern
+            return (True, next_nvec)
+        else:
+            # Backtrack
+            changed = []
+            del self.nvecs[-1]
+            while last_nvec is not None:
+                #print("backtrack", last_nvec, self.pattern)
+                changed.append(last_nvec)
+                sym = self.pattern[last_nvec]
+                del self.pattern[last_nvec]
+                syms = self.sft.alph[last_nvec[-1]]
+                greater_syms = syms[syms.index(sym)+1:]
+                success = self._try_extend(last_nvec, greater_syms)
+                if success:
+                    break
+                else:
+                    last_nvec = self.nvecs.pop(-1)
+            return (False, changed)
+
+    def _try_extend(self, nvec, syms):
+        #if len(self.pattern) < 6:
+        #print("trying to extend", self.pattern, "at", nvec, "using", syms)
+        # Return True if succeeded, False if failed
+        if syms:
+            # Bisecting search for the value
+            left, right = syms[:len(syms)//2], syms[len(syms)//2:]
+            #print("bisecting", left, right)
+            sym = right[0]
+            
+            tr_vec = [max(nvec[i], -self.circuit_radii[i][0])
+                      for i in range(self.sft.dim)]
+            #if len(self.pattern) < 6:
+            #print("tr_vec", tr_vec)
+            solver_values = {}
+            for circ_nvec in self.circuit_nvecs:
+                node = circ_nvec[-1]
+                pat_nvec = nvadd(circ_nvec, tr_vec)
+                #print("circ_nvec", circ_nvec, "pat_nvec", pat_nvec)
+                if pat_nvec in self.pattern:
+                    pat_sym = self.pattern[pat_nvec]
+                    #print("in pattern", pat_sym)
+                    for the_sym in self.sft.alph[node][1:]:
+                        solver_values[circ_nvec + (the_sym,)] = pat_sym == the_sym
+                elif pat_nvec == nvec:
+                    #print("is nvec", sym)
+                    for the_sym in self.sft.alph[node][1:]:
+                        solver_values[circ_nvec + (the_sym,)] = sym == the_sym
+
+            #if len(self.pattern) < 6:
+            #print("sent values", {a[:-1] : a[-1] for (a,b) in solver_values.items() if b})
+            is_sat = self.solver.send(solver_values)
+            #print("is_sat", is_sat)
+            if is_sat:
+                # See if we can find a smaller symbol
+                if not self._try_extend(nvec, left):
+                    # Actually extend
+                    self.nvecs.append(nvec)
+                    self.pattern[nvec] = sym
+                return True
+            elif self._try_extend(nvec, left):
+                return True
+            else:
+                return self._try_extend(nvec, right[1:])
+        # If we are here, then there are no extensions
+        return False
+        
 
 def sum_then_lex(dim, nodes, nvec):
     if nvec is None:
@@ -50,54 +165,10 @@ def max_then_lex(dim, nodes, nvec):
 
 # Let's quickly implement an N^d lex min learner
 # Default order of N^d is by sum then lex
-def learn_lex_min(struct, sft, order_succ=None, reset_freq=1):
-    if order_succ is None:
-        # Use sum then lex
-        order_succ2 = lambda nvec: sum_then_lex(struct.dim, struct.nodes, nvec)
-    else:
-        order_succ2 = lambda nvec: order_succ(struct.dim, struct.nodes, nvec)
+def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
 
     dim = sft.dim
     pat_alph = sft.alph
-    #print("got alph", pat_alph, "from", sft.alph)
-    nvecs = [None]
-    pattern = dict()
-
-    # Extend pattern by one symbol, or backtrack if impossible
-    # Return whether it was succesful and list of removed coordinates if not
-    def extend():
-        new_nvec = order_succ2(nvecs[-1])
-        for new_sym in pat_alph[new_nvec[-1]]:
-            pattern[new_nvec] = new_sym
-            for forb in sft.forbs:
-                for f_vec0 in set(nvec[:-1] for nvec in forb):
-                    if all(pattern.get(nvadd(f_nvec, vsub(new_nvec[:-1], f_vec0)), None) == sym
-                           for (f_nvec, sym) in forb.items()):
-                        # Forbidden pattern found, break
-                        break
-                else:
-                    # No forb found, continue
-                    continue
-                # Forb found, break
-                break
-            else:
-                # No forb found, nice
-                nvecs.append(new_nvec)
-                return True, None
-        # If we are here, no symbol was good -> backtrack
-        del pattern[new_nvec]
-        changed = []
-        while pattern[nvecs[-1]] == pat_alph[nvecs[-1][-1]][-1]:
-            changed.append(nvecs[-1])
-            del pattern[nvecs[-1]]
-            del nvecs[-1]
-        changed.append(nvecs[-1])
-        #print(pattern)
-        #print(nvecs)
-        #print(pat_alph)
-        sym_list = pat_alph[nvecs[-1][-1]]
-        pattern[nvecs[-1]] = sym_list[sym_list.index(pattern[nvecs[-1]])+1]
-        return False, changed
 
     learner = DFALearner(struct.alph + list(struct.nodes))
     handle = learner.learn()
@@ -111,13 +182,19 @@ def learn_lex_min(struct, sft, order_succ=None, reset_freq=1):
     print("Entering learning loop")
     while True:
         i += 1
-        if False and i%1 == 0:
-            print("Pattern size", len(pattern))
-            print("Got message", msg, data)
+        if verbose and i%print_freq == 0:
+            print("Learning round", i)
+            print("  Pattern size:", len(builder.pattern))
+            print("  Queries: {} eval ({} in main branch), {} eq ({} in main branch)".\
+                  format(learner.total_eval_count, learner.eval_count, learner.total_eq_count, learner.eq_count))
+            print("  Last query:", msg, data)
         if msg == "eq":
             #print(data.info_string(verbose=True))
             # If learner gives a configuration of the SFT, we are done
             conf = AutomaticConf(struct, data)
+            if conf.is_contained(sft):
+                print("Success, pattern size", len(builder.pattern))
+                return conf
             # Check if we are consistent with the struct language
             lang_dfa = data.map_outputs(lambda c: c is not None)
             struct_dfa = struct.word_dfa.extend_alph(struct.nodes).concat(NFA.one_of(struct.alph + list(struct.nodes), list(struct.nodes))).determinize()
@@ -126,47 +203,33 @@ def learn_lex_min(struct, sft, order_succ=None, reset_freq=1):
                 #print("found in word dfa")
                 (msg, data) = handle.send(("no", tuple(witness), None))
                 continue
-            if conf.is_contained(sft):
-                print("Success, pattern size", len(pattern))
-                return conf
-            if extended:
-                n += 1
-                if False and n >= reset_freq:
-                    #print("too many failed queries, reset search")
-                    n = 0
-                    extended = False
-                    learner = DFALearner(struct.alph + list(struct.nodes))
-                    handle = learner.learn()
-                    (msg, data) = next(handle)
-                    sent = set()
-                    continue
             # Otherwise we have to give a counterexample
             #print("Looking for counterexample")
             # Look for one in the pattern
-            for (nvec, sym) in sorted(pattern.items(), key=lambda p: max(p[0][:-1])):
+            for (nvec, sym) in sorted(builder.pattern.items(), key=lambda p: max(p[0][:-1])):
                 if conf[nvec] != sym:
-                    #print("Found", vec, "in pattern")
+                    #print("Found", nvec, sym, "in pattern", conf[nvec], "in conf")
+                    #print("Word", struct.vec_to_word(nvec[:-1]) + (nvec[-1],))
                     (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]) + (nvec[-1],), None))
                     break
             else:
                 # Now we have to extend the pattern
                 #print("not found, extending")
                 while True:
-                    success, removed = extend()
-                    extended = True
+                    success, changed = builder.extend()
                     if success:
-                        #print("extended at", nvecs[-1], "now size", len(pattern))
-                        if conf[nvecs[-1]] != pattern[nvecs[-1]]:
-                            nvec = nvecs[-1]
-                            (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]) + (nvec[-1],), None))
+                        #if len(builder.pattern)%100 == 0:
+                        #    print("extended at", changed, "now size", len(builder.pattern))
+                        if conf[changed] != builder.pattern[changed]:
+                            (msg, data) = handle.send(("no", struct.vec_to_word(changed[:-1]) + (changed[-1],), None))
                             break
                     else:
                         # Backtracked
-                        if any(w in sent for w in removed):
+                        if any(w in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in removed],
+                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
                                                        None))
-                            for nvec in removed:
+                            for nvec in changed:
                                 sent.discard(nvec)
                             break
         if msg == "eval":
@@ -178,33 +241,32 @@ def learn_lex_min(struct, sft, order_succ=None, reset_freq=1):
             nvec = struct.word_to_vec(data[:-1]) + (data[-1],)
             #print("finding", nvec, "in pattern")
             # Look for the value in the pattern first
-            if nvec in pattern:
+            if nvec in builder.pattern:
                 #print("found")
                 sent.add(nvec)
-                (msg, data) = handle.send(("val", pattern[nvec], nvec))
+                (msg, data) = handle.send(("val", builder.pattern[nvec], nvec))
             else:
                 # Now we have to extend the pattern
                 j = 0
                 while True:
                     j += 1
                     #print("not found, extending")
-                    success, removed = extend()
-                    extended = True
+                    success, changed = builder.extend()
                     if success:
-                        #if j%10000 == 0:
-                        #    print("extended at", vecs[-1], "to size", len(pattern))
+                        #if j%100 == 0:
+                        #    print("extended at", builder.nvecs[-1], "to size", len(builder.pattern))
                         #1/0
-                        if nvec == nvecs[-1]:
+                        if nvec == changed:
                             sent.add(nvec)
-                            (msg, data) = handle.send(("val", pattern[nvec], nvec))
+                            (msg, data) = handle.send(("val", builder.pattern[nvec], data))
                             break
                     else:
                         # Backtracked
-                        if any(w in sent for w in removed):
+                        if any(w in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in removed],
+                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
                                                        None))
-                            for nvec in removed:
+                            for nvec in changed:
                                 sent.discard(nvec)
                             break
 
@@ -218,12 +280,11 @@ def test():
            ("dn", (0,0,()), (0,-1,())),
            ("rt", (0,0,()), (1,0,())),
            ("lt", (0,0,()), (-1,0,()))]
-    forbs = [{(0,0,()):'0', (0,1,()):'0', (1,0,()):'0'},
-             {(0,0,()):'1', (0,1,()):'0', (1,0,()):'0', (1,1,()):'0'}]
+    forbs = [{(0,0,()):'0', (0,1,()):'0', (1,0,()):'0'}]
     the_sft = SFT(dim, nodes, alph, top, forbs=forbs, onesided=[0,1])
     struct = AutomaticStructure.n_ary(2, 2, nodes)
     print("Learning configuration...")
-    conf = learn_lex_min(struct, the_sft, reset_freq=3)
+    conf = learn_lex_min(struct, the_sft, LexMinBuilder(the_sft))
     print("Learning process finished")
     print(conf.info_string(verbose=True))
 
