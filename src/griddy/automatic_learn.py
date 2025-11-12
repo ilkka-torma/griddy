@@ -193,7 +193,11 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
             # If learner gives a configuration of the SFT, we are done
             conf = AutomaticConf(struct, data)
             if conf.is_contained(sft):
-                print("Success, pattern size", len(builder.pattern))
+                if verbose:
+                    print("Success on round", i)
+                    print("  Pattern size:", len(builder.pattern))
+                    print("  Queries: {} eval ({} in main branch), {} eq ({} in main branch)".\
+                          format(learner.total_eval_count, learner.eval_count, learner.total_eq_count, learner.eq_count))
                 return conf
             # Check if we are consistent with the struct language
             lang_dfa = data.map_outputs(lambda c: c is not None)
@@ -215,9 +219,13 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
             else:
                 # Now we have to extend the pattern
                 #print("not found, extending")
+                j=0
                 while True:
                     success, changed = builder.extend()
+                    j+=1
                     if success:
+                        if j%print_freq == 0:
+                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find counterexample")
                         #if len(builder.pattern)%100 == 0:
                         #    print("extended at", changed, "now size", len(builder.pattern))
                         if conf[changed] != builder.pattern[changed]:
@@ -253,8 +261,8 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                     #print("not found, extending")
                     success, changed = builder.extend()
                     if success:
-                        #if j%100 == 0:
-                        #    print("extended at", builder.nvecs[-1], "to size", len(builder.pattern))
+                        if j%print_freq == 0:
+                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find", nvec)
                         #1/0
                         if nvec == changed:
                             sent.add(nvec)

@@ -21,6 +21,8 @@ class DFALearner:
         self.state_words = [tuple()]
         self.sep_words = [tuple()]
         self.output_table = dict()
+        # History is tagged
+        # The current state is generally different from the last saved one
         self.history = []
         self.eval_count = 0
         self.eq_count = 0
@@ -28,6 +30,7 @@ class DFALearner:
         self.total_eq_count = 0
 
     def store(self, tag):
+        "Store the current state in the history list"
         self.history.append((tag, self.state_words, self.sep_words, self.output_table, self.eval_count, self.eq_count))
         self.state_words = self.state_words.copy()
         self.sep_words = self.sep_words.copy()
@@ -35,6 +38,12 @@ class DFALearner:
 
 
     def recall(self, tag):
+        "Backtrack to the moment before we stored tag t"
+        # Tag t corresponds to the state right *before* we asked an eval query and the response was tagged with t
+        # Hence, if we have to backtrack that evaluation, we should
+        # 1) recall the state tagged with t and
+        # 2) forget recent history up to *and including* tag t
+        # Then our next move will be to ask the same eval query
         i = 0
         while i < len(self.history):
             the_tag, state_words, sep_words, output_table, eval_count, eq_count = self.history[i]
@@ -65,9 +74,9 @@ class DFALearner:
                     for w in self.state_words:
                         w2 = w + e
                         if w2 not in self.output_table:
-                            (msg, data, tag) = yield ("eval", w2)
                             self.eval_count += 1
                             self.total_eval_count += 1
+                            (msg, data, tag) = yield ("eval", w2)
                             if msg == "val":
                                 self.store(tag)
                                 self.output_table[w2] = data
@@ -76,9 +85,9 @@ class DFALearner:
                         for a in self.input_alph:
                             w2 = w + (a,) + e
                             if w2 not in self.output_table:
-                                (msg, data, tag) = yield ("eval", w2)
                                 self.eval_count += 1
                                 self.total_eval_count += 1
+                                (msg, data, tag) = yield ("eval", w2)
                                 if msg == "val":
                                     self.store(tag)
                                     self.output_table[w2] = data
@@ -91,18 +100,21 @@ class DFALearner:
                 if change:
                     continue
                 dfa = self.make_dfa()
-                (msg, data, _) = yield ("eq", dfa)
                 self.eq_count += 1
                 self.total_eq_count += 1
+                (msg, data, _) = yield ("eq", dfa)
                 if msg == "yes":
                     # Success
                     return
                 elif msg == "no":
                     # Counterexample
-                    #print("Counterexample", data)
+                    # print("Counterexample", data)
+                    #i = max(i for i in range(len(data)+1) if data[:i] in self.state_words)
+                    #for j in range(i, len(data)+1):
+                    #    if data[j:] not in self.sep_words:
+                    #        self.sep_words.append(data[j:])
                     for i in range(len(data)+1):
                         if data[:i] not in self.state_words:
-                            #print("Storing", data[:i])
                             self.state_words.append(data[:i])
                 else:
                     # Backtrack
