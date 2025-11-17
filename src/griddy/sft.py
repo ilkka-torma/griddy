@@ -2,6 +2,7 @@ from general import *
 from circuit import *
 from configuration import *
 from itertools import chain
+import automatic_conf
 
 
 class Nodes:
@@ -286,6 +287,21 @@ class SFT:
                 transform(circ, tr)
                 if not SAT(circ):
                     return False
+            return True
+        elif isinstance(conf, automatic_conf.AutomaticConf):
+            domain = list(set(nvec for forb in self.forbs for nvec in forb))
+            #print("domain", domain)
+            for patch in conf.struct.patches(domain, conf.dfa):
+                #print("checking patch", patch)
+                for forb in self.forbs:
+                    for (nvec, c) in forb.items():
+                        ix = domain.index(nvec)
+                        #print("checking coord", vec, "at index", ix, "for sym", c)
+                        if patch[ix] != c:
+                            break
+                    else:
+                        #print("Found forb", forb)
+                        return False
             return True
         else:
             raise Exception("Unknown configuration type")

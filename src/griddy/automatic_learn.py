@@ -192,7 +192,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
             #print(data.info_string(verbose=True))
             # If learner gives a configuration of the SFT, we are done
             conf = AutomaticConf(struct, data)
-            if conf.is_contained(sft):
+            if conf in sft:
                 if verbose:
                     print("Success on round", i)
                     print("  Pattern size:", len(builder.pattern))

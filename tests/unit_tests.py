@@ -815,6 +815,15 @@ A7 (0,0;B_2) (1,0;00);
 
 unit_tests.append(("node and symbol names", code))
 
+code = """
+%sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
+%compute_forbidden_patterns x
+%find_automatic_conf c x
+%contains expect=T x c
+"""
+
+unit_tests.append(("automatic conf search", code))
+
 
 if __name__ == "__main__":
 
