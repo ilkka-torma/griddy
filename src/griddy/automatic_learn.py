@@ -13,6 +13,8 @@ class PatternBuilder:
     def __init__(self, sft):
         self.sft = sft
 
+mutkat = 0
+
 class LexMinBuilder(PatternBuilder):
     "Build a lexicographically minimal pattern"
 
@@ -28,30 +30,37 @@ class LexMinBuilder(PatternBuilder):
         #print("radii", self.sft.radii(twosided=True))
         for vec in hyperrect([(-b,-a+extra_rad) for (a,b) in self.sft.radii(twosided=True)]):
             circ = sft.circuit.copy()
-            transform(circ, lambda var: nvadd(var[:-1], vec) + var[-1:])
+            transform(circ, lambda var: nvadd(var[:2], vec) + var[-1:])
             circuits.append(circ)
             for var in circ.get_variables():
                 nvecs.add(var[:-1])
         add_uniqueness_constraints(self.sft.alph, circuits, nvecs)
-        #print("circuits", circuits)
+        print("circuits", circuits)
         self.circuit = AND(*circuits)
         self.circuit_nvecs = list(set(var[:-1] for var in self.circuit.get_variables()))
-        self.circuit_vecs = list(set(nvec[:-1] for nvec in self.circuit_nvecs))
+        self.circuit_vecs = list(set(nvec[0] for nvec in self.circuit_nvecs))
         self.circuit_radii = [(min(vec[i] for vec in self.circuit_vecs),
                                max(vec[i] for vec in self.circuit_vecs))
                               for i in range(sft.dim)]
+        print(self.circuit_vecs)
         self.solver = solver_process(self.circuit, ret_assignment=False)
         _ = next(self.solver)
 
     def extend(self):
         "Extend by a single node vector, or backtrack"
         #print("extend", self.nvecs, self.pattern)
+        global mutkat
+        #if mutkat == 1000:
+        #    print(len(self.nvecs))
+        #    a = bbb
+        mutkat += 1
+        
         last_nvec = self.nvecs[-1]
         assert (last_nvec is None) or (last_nvec in self.pattern)
         next_nvec = max_then_lex(self.sft.dim, self.sft.nodes, last_nvec)
         #print("next_nvec", next_nvec)
         assert next_nvec not in self.pattern
-        success = self._try_extend(next_nvec, self.sft.alph[next_nvec[-1]])
+        success = self._try_extend(next_nvec, self.sft.alph[next_nvec[1]])
         if success:
             assert next_nvec in self.pattern
             return (True, next_nvec)
@@ -64,7 +73,7 @@ class LexMinBuilder(PatternBuilder):
                 changed.append(last_nvec)
                 sym = self.pattern[last_nvec]
                 del self.pattern[last_nvec]
-                syms = self.sft.alph[last_nvec[-1]]
+                syms = self.sft.alph[last_nvec[1]]
                 greater_syms = syms[syms.index(sym)+1:]
                 success = self._try_extend(last_nvec, greater_syms)
                 if success:
@@ -75,21 +84,28 @@ class LexMinBuilder(PatternBuilder):
 
     def _try_extend(self, nvec, syms):
         #if len(self.pattern) < 6:
-        #print("trying to extend", self.pattern, "at", nvec, "using", syms)
+        #print(">>>>trying to extend", self.pattern, "at", nvec, "using", syms)
         # Return True if succeeded, False if failed
         if syms:
             # Bisecting search for the value
             left, right = syms[:len(syms)//2], syms[len(syms)//2:]
             #print("bisecting", left, right)
             sym = right[0]
-            
-            tr_vec = [max(nvec[i], -self.circuit_radii[i][0])
+
+            #print(nvec)
+            tr_vec = [max(nvec[0][i], -self.circuit_radii[i][0])
                       for i in range(self.sft.dim)]
             #if len(self.pattern) < 6:
             #print("tr_vec", tr_vec)
             solver_values = {}
-            for circ_nvec in self.circuit_nvecs:
-                node = circ_nvec[-1]
+            #print(self.circuit_nvecs)
+            # for debugging purposes, we sort as if legacy...
+            cc = list(self.circuit_nvecs)
+            cc = sorted(cc, key=lambda aa:aa[0]+(aa[1],))
+            
+            for circ_nvec in cc: #self.circuit_nvecs:
+                #print("trying", circ_nvec)
+                node = circ_nvec[1]
                 pat_nvec = nvadd(circ_nvec, tr_vec)
                 #print("circ_nvec", circ_nvec, "pat_nvec", pat_nvec)
                 if pat_nvec in self.pattern:
@@ -123,32 +139,34 @@ class LexMinBuilder(PatternBuilder):
 
 def sum_then_lex(dim, nodes, nvec):
     if nvec is None:
-        return (0,)*dim + (list(nodes)[0],)
-    if nvec[-1] != list(nodes)[-1]:
-        return nvec[:-1] + (list(nodes)[list(nodes).index(nvec[-1])+1],)
-    the_sum = sum(nvec[:-1])
-    if nvec[0] == the_sum:
+        return ((0,)*dim, list(nodes)[0])
+    if nvec[1] != list(nodes)[-1]:
+        return nvec[0], list(nodes)[list(nodes).index(nvec[1])+1]
+    the_sum = sum(nvec[0])
+    if nvec[0][0] == the_sum:
         # Max vec of given sum -> min vec of next sum
-        return (0,)*(len(nvec)-2) + (the_sum+1, list(nodes)[0])
+        return (0,)*(len(nvec[0])-1) + (the_sum+1,), list(nodes)[0]
     else:
-        vec = list(nvec[:-1])
+        vec = list(nvec[0])
         i,c = max((i,c) for (i,c) in enumerate(vec) if c != 0)
         vec[-1] += c-1
         vec[i-1] += 1
         vec[i] -= c
-        return tuple(vec) + (list(nodes)[0],)
+        return (tuple(vec), list(nodes)[0])
 
 def max_then_lex(dim, nodes, nvec):
+    #print("in", nvec)
     if nvec is None:
-        return (0,)*dim + (list(nodes)[0],)
+        return ((0,)*dim, list(nodes)[0])
     nlist = list(nodes)
-    if nvec[-1] != nlist[-1]:
-        return nvec[:-1] + (nlist[nlist.index(nvec[-1])+1],)
-    the_max = max(nvec[:-1])
-    if all(n == the_max for n in nvec[:-1]):
+    if nvec[1] != nlist[-1]:
+        return (nvec[0], nlist[nlist.index(nvec[1])+1])
+    the_max = max(nvec[0])
+    if all(n == the_max for n in nvec[0]):
         # increase max
-        return (0,)*(len(nvec)-2) + (the_max+1, nlist[0])
-    vec = list(nvec[:-1])
+        #print("out inc max", 
+        return (0,)*(len(nvec[0])-1) + (the_max+1,), nlist[0]
+    vec = list(nvec[0])
     while True:
         i = len(vec)-1
         while True:
@@ -160,7 +178,8 @@ def max_then_lex(dim, nodes, nvec):
                 break
         if the_max in vec:
             break
-    return tuple(vec) + (nlist[0],)
+    #print("out", tuple(vec), nlist[0])
+    return (tuple(vec), nlist[0])
         
 
 # Let's quickly implement an N^d lex min learner
@@ -214,7 +233,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                 if conf[nvec] != sym:
                     #print("Found", nvec, sym, "in pattern", conf[nvec], "in conf")
                     #print("Word", struct.vec_to_word(nvec[:-1]) + (nvec[-1],))
-                    (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]) + (nvec[-1],), None))
+                    (msg, data) = handle.send(("no", struct.vec_to_word(nvec[0]) + (nvec[1],), None))
                     break
             else:
                 # Now we have to extend the pattern
@@ -225,17 +244,18 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                     j+=1
                     if success:
                         if j%print_freq == 0:
+
                             print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find counterexample")
                         #if len(builder.pattern)%100 == 0:
                         #    print("extended at", changed, "now size", len(builder.pattern))
                         if conf[changed] != builder.pattern[changed]:
-                            (msg, data) = handle.send(("no", struct.vec_to_word(changed[:-1]) + (changed[-1],), None))
+                            (msg, data) = handle.send(("no", struct.vec_to_word(changed[0]) + (changed[1],), None))
                             break
                     else:
                         # Backtracked
                         if any(w in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
+                                                       [struct.vec_to_word(nvec[0])+(nvec[1],) for nvec in changed],
                                                        None))
                             for nvec in changed:
                                 sent.discard(nvec)
@@ -246,7 +266,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                     struct.word_dfa.accepts(data[:-1])):
                 (msg, data) = handle.send(("val", None, data))
                 continue
-            nvec = struct.word_to_vec(data[:-1]) + (data[-1],)
+            nvec = (struct.word_to_vec(data[:-1]),data[-1])
             #print("finding", nvec, "in pattern")
             # Look for the value in the pattern first
             if nvec in builder.pattern:
@@ -262,6 +282,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                     success, changed = builder.extend()
                     if success:
                         if j%print_freq == 0:
+                            #problemm here!!
                             print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find", nvec)
                         #1/0
                         if nvec == changed:
@@ -272,7 +293,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                         # Backtracked
                         if any(w in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
+                                                       [struct.vec_to_word(nvec[0])+(nvec[1],) for nvec in changed],
                                                        None))
                             for nvec in changed:
                                 sent.discard(nvec)

@@ -856,8 +856,8 @@ A7 (0,0;B_2) (1,0;00);
 7A (0,0;01) (1,0;0)
 %info
 """
-
 unit_tests.append(("node and symbol names", code))
+
 
 code = """
 %sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
