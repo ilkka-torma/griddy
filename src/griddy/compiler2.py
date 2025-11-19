@@ -21,6 +21,7 @@ From now on, all circuit variables are just (cell, node, symbol).
 
 # we construct a circuit whose input variables are of the form (u, n)->a --
 # or just (u, n) if alphabet is binary -- and which evaluates to true iff, well.
+# CURRENTLY, ACTUALLY WE NEVER USE (u, n, 0), I DON'T KNOW IF THAT'S A GOOD IDEA THOUGH
 
 # pos_variables tells us which positions the variables point to... of course
 # those positions will correspond to roughly the variables of the actual formula.
@@ -42,7 +43,8 @@ graph.distance
 """
 
 
-def formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
+def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
+                        variables, subst, externals, global_restr):
 
     def is_letter(a):
         return any(a in local_alph for local_alph in alphabet.values())
@@ -487,8 +489,8 @@ def formula_to_circuit(nodes, dim, topology, alphabet, formula, externals, simpl
     newtopology = []
     for t in topology:
         name, offset, fromnode, tonode = t[0], vsub(t[2][:-1], t[1][:-1]), t[1][dim], t[2][dim]
-        # actually from_vector does nothing, but just in case we want to change later
-        newtopology.append((name, graph.from_vector(offset), fromnode, tonode))
+        #newtopology.append((name, graph.moves_to(offset), fromnode, tonode))
+        newtopology.append((name, graph.move_rel(graph.origin(), offset), fromnode, tonode))
     form = formula_to_circuit2(graph, newtopology, nodes, alphabet, formula, externals, simplify)
     # we want something like C!V(0, 0, (), 1)
     # but get C!V((0, 0), (), 1)
@@ -512,16 +514,16 @@ def formula_to_circuit(nodes, dim, topology, alphabet, formula, externals, simpl
 # this will perhaps be used later directly
 def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, simplify=True):
 
-    # if there is no topology, we make a default topology that's just graph moves between any two nodse
-    if topology == []:
+    # if there is no topology, we make a default topology that's just graph moves between any two nodes
+    if topology == [] or topology == None:
         counter = 1044
         topology = []
         for n1 in nodes:
             for n2 in nodes:
                 for m in graph.moves():
-                    topology.append([str(counter), graph.move(graph.origin(), (m, 1)), n1, n2])
+                    topology.append([str(counter), (m, 1), n1, n2])
                     counter += 1
-                    topology.append([str(counter), graph.move(graph.origin(), (m, -1)), n1, n2])
+                    topology.append([str(counter), (m, -1), n1, n2])
                     counter += 1
             
     variables = {}
@@ -819,7 +821,10 @@ def eval_to_position(graph, topology, nodes, expr, pos_variables, top=True):
     return ret
 
 def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
-    # should be name of variable variable
+    #print("e2p context", graph, topology, nodes)
+    #print("expr", expr)
+    #print()
+    # should be name of variable
     if type(expr) != tuple:
         pos = pos_variables[expr]
         # if not tuple, it's a chain of variables, just go down
@@ -832,6 +837,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
         #print("expr is node:", expr)
         return expr
     pos = pos_variables[expr[1]]
+    #print(pos, "kos")
     if type(pos) != tuple:
         pos = eval_to_position_(graph, topology, nodes, pos, pos_variables, nodes, top=False)
 
@@ -850,12 +856,14 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                 name, offset, fromnode, tonode = t
                 if name == i and (pos[1] == () or fromnode == pos[1]):
                     #print("found edge", t)
+                    #print(pos, "kos")
                     if pos[1] == ():
                         #print("cell")
                         pos = graph.move_rel(pos[0], offset), () #vadd(vsub(pos[0], a[0]), b[0]) + ((),)
                     else:
                         #print("node")
                         pos = graph.move_rel(pos[0], offset), tonode #vadd(vsub(pos[0], a[0]), b[0]) + (b[1],)
+                        #print(",a")
                     break
                 
         else:
@@ -898,7 +906,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
             #else:
             #    raise Exception("Could not process transition {} from node {}".format(i, pos))
 
-                        # by just generator without direction
+            # by just generator without direction
             if graph.has_move(pos[0], i):
                 #print("actualy")
                 newpos = graph.move(pos[0], (i, 1))
@@ -906,6 +914,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                     # copy node from previous, all cells have same nodes
                     pos = (newpos, pos[1])
                     continue
+            
             elif graph.has_cell(i):
                 #print("here", pos, i, graph.move_rel(pos[0], i), pos[1])
                 pos = graph.move_rel(pos[0], i), pos[1]

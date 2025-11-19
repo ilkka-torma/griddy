@@ -7,6 +7,10 @@ a Graph has
  * generators -- always positive generators,
    we use (gen, 1), (gen, -1) for pos and neg
  * move(node, generator)
+can have
+ * move_rel that takes cell c and an offset cell c'. If c' = o.m,
+ this is supposed to return c.m. This makes sense for Cayley graphs of monoids.
+ * moves_to that takes cell c and gives moves from origin to c
 """
 class Graph:
     #def origin(self): raise NotImplemented("origin not implemented.")
@@ -37,6 +41,14 @@ class TrivialGroup(Graph):
         return ""
     def move(self, cell, generator):
         return cell
+        
+def sign(i):
+    if i == 0:
+        return 0
+    elif i < 0:
+        return -1
+    else:
+        return 1
 
 class AbelianGroup(Graph):
     def __init__(self, generators):
@@ -62,9 +74,39 @@ class AbelianGroup(Graph):
         gen, power = generator
         idx = self.generators.index(gen)
         return cell[:idx] + (cell[idx]+power,) + cell[idx+1:]
+    def moves_to(self, cell):
+        ret = []
+        for d,i in enumerate(cell):
+            for j in range(abs(i)):
+                ret.append((generators[d], sign(i)))
+        return ret
+                    
     #def __iter__(self):
+    
+# turn a Griddy topology into a graph
+"""
+def TopologyGraph(Graph):
+    def __init__(self, dim, nodes, topology):
+        self.generators = list(t[0] for t in topology)
+    def origin(self):
+        return (0,)*dim + self.first
+    def 
+      
+    
+ * origin()
+ * should implement iterator for getting all cells, to use as default
+ * generators -- always positive generators,
+   we use (gen, 1), (gen, -1) for pos and neg
+ * move(node, generator)
+    CR4d8e2_nodes = sft.Nodes(["big", "small"])
+    CR4d8e2_topology = [('N', (0, 0, 'big'), (0, 1, 'small')),
+                    ('NE', (0, 0, 'big'), (1, 1, 'big')),
+                    ('E', (0, 0, 'big'), (0, 0, 'small')),
+                    ('SE', (0, 0, 'big'), (0, -1, 'big')),
+                    ('S', (0, 0, 'big'), (-1, -1, 'small')),]
+ """
 
-# reduce from the right as much as you can; could just be once since I apply it each time
+# reduce from the right as much as you can; could just be once since we apply it each time
 def free_simplify(word):
     if len(word) < 2:
         return word

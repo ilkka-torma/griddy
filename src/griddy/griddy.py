@@ -1,3 +1,5 @@
+#import debug_print_hook
+
 try:
     import dparser
     import parsy
@@ -55,7 +57,7 @@ class Griddy:
         self.alphabet = {() : ['0', '1'] for node in self.nodes}
         self.dim = 2
         self.topology = grid
-        self.graph = None
+        self.graph = graphs.AbelianGroup([0,1]) #None
         #self.tiler_skew = 1 # actually skew is completely useless
         self.tiler_gridmoves = [(1,0), (0,1)]
         self.tiler_nodeoffsets = {() : (0,0)}
@@ -66,10 +68,16 @@ class Griddy:
     def has_nodes(self):
         return self.nodes != sft.Nodes()
         
+    """
+    if we have no nodes, cells should double as nodes, and
+    thus we pretend to always be in the ()-node of a cell
+    """
     def process_nvec(self, nvec):
+        #print(nvec)
         if not self.has_nodes() and len(nvec) == self.dim:
-            return nvec + ((),)
-        return nvec
+            return (nvec, ())
+        #print((nvec[:self.dim], nvec[-1]))
+        return (nvec[:self.dim], nvec[-1])
 
     def run_file(self, filename):
         with open(fix_filename(filename), 'r') as f:
@@ -77,7 +85,6 @@ class Griddy:
         self.run(code)
 
     def run(self, code, mode="report", print_parsed=False):
-        #print(code)
         try:
             parsed = dparser.parse_griddy(code)
             if print_parsed:
@@ -97,6 +104,10 @@ class Griddy:
             cmd, args, kwds, flags = parsed_line
             #print("cmd", cmd, args, kwds, flags)
             #print("parsed line", parsed_line)
+            #if "ver_golden_mean_shift" in self.sfts:
+                #print(self.sfts["ver_golden_mean_shift"].circs)
+            #print(self.topology)
+            
             
             if cmd == "nodes":
                 #print("nodes", args[0])
@@ -129,6 +140,7 @@ class Griddy:
                         if dr == -1: s = "M"
                         else: s = "P"
                         self.topology.append(("Z"*d+s+"Z"*(dim-d-1), (0,)*(dim+1), (0,)*d + (dr,) + (0,)*(dim-d-1) + (0,)))
+                self.topology = modernize_topology(self.topology, self.dim)
                 
             elif cmd == "alphabet":
                 alph = args[0]
@@ -150,7 +162,7 @@ class Griddy:
             elif cmd == "graph":
                 grph = args[0]
                 if grph == "none":
-                    self.graph = None
+                    self.graph = None # this is outdated, now we should always have a graph!
                 else:
                     self.topology = []
                     if grph == "Aleshin":
@@ -176,7 +188,8 @@ class Griddy:
                 elif top in ["hex", "hexgrid"]:
                     self.dim = 2
                     self.topology = hexgrid
-                    self.nodes = sft.Nodes(['0','1'])
+                    # hex grid is currently implemented with nodes, instead of directly as a graph, so we cannot use nodes with it
+                    self.nodes = sft.Nodes(['0','1']) 
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
                     #self.tiler_skew = 1
                     self.tiler_nodeoffsets = {('0',) : (0,0.15), ('1',) : (0.5,-0.15)}
@@ -219,34 +232,55 @@ class Griddy:
                     self.tiler_nodeoffsets = {"big" : (0,0), "small" : (0.5,0)}
                 else:
                     self.topology = []
+                    legacy = None
                     for edge in top:
-                        #print("edge", edge)
-                        if edge:
-                            if len(edge) > 3:
-                                raise Exception("Bad topology edge: {}; maybe you forgot a semicolon?".format(edge))
-                            if len(edge) < 3:
-                                raise Exception("Bad topology edge: {}".format(edge))
-                            self.topology.append((edge[0],) + tuple(self.process_nvec(nvec) for nvec in edge[1:]))
+                        if legacy == None:
+                            legacy = (len(edge) == 3)
+                            #print("legacy topology? " + str(legacy))
+                        else:
+                            assert legacy == (len(edge) == 3)
+                        if legacy:
+                            if edge:
+                                if len(edge) > 3:
+                                    raise Exception("Bad topology edge: {}; maybe you forgot a semicolon?".format(edge))
+                                if len(edge) < 3:
+                                    raise Exception("Bad topology edge: {}".format(edge))
+                                self.topology.append((edge[0],) + tuple(self.process_nvec(nvec) for nvec in edge[1:]))
+                        else:
+                            if len(edge) == 4:
+                                self.topology.append(edge)
+                            else:
+                                self.topology.append(edge + ((), ()))
+                    if legacy:
+                        self.topology = modernize_topology(self.topology, self.dim)
                 if type(top) == str:
                     alph0 = list(self.alphabet.values())[0]
                     if all(alph == alph0 for alph in self.alphabet.values()):
                         self.alphabet = {node : alph0 for node in self.nodes}
-                #print(topology)
+                """
+                We construct a graph from the topology and nodes, so that commands that use graphs will work.
+                We do not enter full "graph mode", however, where nodes would be on top of the graph.
+                """
+                self.graph = graphs.AbelianGroup(range(self.dim))
+                #print("ki", self.topology)
+                
 
             elif cmd == "save_environment":
                 name = args[0]
-                self.environments[name] = (self.dim, self.nodes, self.topology, self.alphabet)
+                self.environments[name] = (self.dim, self.nodes, self.topology, self.alphabet, self.graph)
 
             elif cmd == "load_environment":
                 name = args[0]
                 if name in self.environments:
-                    self.dim, self.nodes, self.topology, self.alphabet = self.environments[name]
+                    self.dim, self.nodes, self.topology, self.alphabet, self.graph = self.environments[name]
+                    
                 elif name in self.SFTs:
                     the_sft = self.SFTs[name]
                     self.dim = the_sft.dim
                     self.nodes = the_sft.nodes
                     self.topology = the_sft.topology
                     self.alphabet = the_sft.alph
+                    self.graph = the_sft.graph
                     
             elif cmd == "sft":
                 name = args[0]
@@ -258,11 +292,15 @@ class Griddy:
                 if type(defn) == list:
                     forbs = [{self.process_nvec(nvec) : sym for (nvec, sym) in forb.items()} for forb in defn]
                     #print("defn", defn, "forbs", forbs)
-                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, forbs=forbs, onesided=onesided)
+                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
                 elif type(defn) == tuple:
                     #print("defn", defn)
-                    circ = compiler.formula_to_circuit(self.nodes, self.dim, self.topology, self.alphabet,
-                                                       defn, self.externals, simplify="simplify" in flags)
+                    #circ = compiler.formula_to_circuit(self.nodes, self.dim, self.topology, self.alphabet,
+                    #                                   defn, self.externals, simplify="simplify" in flags)
+                    
+                    #graph, topology, nodes, alphabet, formula, externals, simplify
+                    #print(self.topology, "filippo")
+                    circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
                     #vardict = dict()
                     #inst = circuit.circuit_to_sat_instance(circ, vardict)
                     #import abstract_SAT_simplify
@@ -277,10 +315,11 @@ class Griddy:
                             print ("Circuit size", s1, "reduced to", s2)
                         circ = simp
                     
-                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, circuit=circ, formula=defn, onesided=onesided)
+                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ, formula=defn, onesided=onesided)
                 else:
                     raise Exception("Unknown SFT definition: {}".format(defn))
                 #print("CIRCUIT", circ)
+                #print("CIRCUIT", self.SFTs[name].circuit)
                 
             elif cmd == "sofic1D":
                 sofic_name = args[0]
@@ -578,7 +617,7 @@ class Griddy:
                         cycpat = dict()
                         for (tr, subpat) in enumerate(cyc):
                             for (nvec, sym) in subpat.items():
-                                nvec = ((nvec[0]+tr)%len(cyc),) + nvec[1:]
+                                nvec = (((nvec[0][0]+tr)%len(cyc),) + nvec[0][1:], nvec[1])
                                 cycpat[nvec] = sym
                         #print("cycpat", list(sorted(cycpat.items())))
                         conf_periods = []
@@ -601,7 +640,7 @@ class Griddy:
                             vec = (vec[0]%len(cyc),) + vec[1:]
                             #print("patvec", patvec, "into vec", vec)
                             for node in the_sft.nodes:
-                                pat[patvec + (node,)] = cycpat[vec + (node,)]
+                                pat[(patvec, node)] = cycpat[(vec, node)]
                         self.confs[conf_name] = configuration.RecognizableConf(conf_periods, pat, the_sft.nodes)
                 else:
                     dens, minlen, _ = min_data
@@ -877,6 +916,9 @@ class Griddy:
                         print("It already had forbidden patterns; overwriting them.")
                 the_sft.deduce_forbs(rad)
                 print("Found {} patterns.".format(len(the_sft.forbs)))
+                if "verbose" in flags:
+                    for f in the_sft.forbs:
+                        print(f)
                 
                 if filename is not None:
                     with open(filename+".output", 'w') as f:
@@ -941,16 +983,18 @@ class Griddy:
                 else:
                     overlaps = "remove"
                 if domain_name is None:
-                    dom_dim, dom_nodes, dom_top, dom_alph = self.dim, self.nodes, self.topology, self.alphabet
+                    dom_dim, dom_nodes, dom_top, dom_alph, dom_graph = self.dim, self.nodes, self.topology, self.alphabet, self.graph
                 else:
-                    dom_dim, dom_nodes, dom_top, dom_alph = self.environments[domain_name]
+                    dom_dim, dom_nodes, dom_top, dom_alph, graph = self.environments[domain_name]
                 codomain_name = kwds.get("codomain", None)
                 if codomain_name is None:
-                    cod_dim, cod_nodes, cod_top, cod_alph = self.dim, self.nodes, self.topology, self.alphabet
+                    cod_dim, cod_nodes, cod_top, cod_alph, cod_graph = self.dim, self.nodes, self.topology, self.alphabet, self.graph
                 else:
-                    cod_dim, cod_nodes, cod_top, cod_alph = self.environments[codomain_name]
+                    cod_dim, cod_nodes, cod_top, cod_alph, graph = self.environments[codomain_name]
                 if dom_dim != cod_dim:
                     raise Exception("Dimension mismatch: {} is not {}".format(dom_dim, cod_dim))
+                if dom_graph != cod_graph:
+                    raise Exception("Graph mismatch: {} is not {}".format(dom_dim, cod_dim))
                 circuits = [] #dict()
                 for rule in rules:
                     if rule:
@@ -972,10 +1016,17 @@ class Griddy:
                         #print("CA rule", node, sym, formula)
                         circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
                                                            self.externals, simplify="simplify" in flags, graph=self.graph)
+                        #graph, topology, nodes, alphabet, formula, externals, simplify=True
+                        #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
                         circuits.append((node, sym, circ))
                 #print(circuits)
+                """
+                the problem is we should see "up", (0, 1), (), () in compiler, but
+                we see "up", (0,0,()) (0,1,())
+                """
                 self.blockmaps[name] = blockmap.BlockMap(dom_alph, cod_alph, dom_nodes, cod_nodes,
-                                                         dom_dim, circuits, dom_top, cod_top, overlaps=overlaps, verbose=verbose, graph=self.graph)
+                                                         dom_dim, circuits, dom_top, cod_top, dom_graph,
+                                                         overlaps=overlaps, verbose=verbose)
 
             elif cmd == "TFG":
                 name = args[0]
@@ -1012,7 +1063,7 @@ class Griddy:
                 #composands = composands[1:]
                 result = self.blockmaps[composands[-1]]
                 for comp_name in reversed(composands[:-1]):
-                    result = self.blockmaps[comp_name].then(result)
+                    result = self.blockmaps[comp_name].then(result, verbose = "verbose" in flags)
                 self.blockmaps[name] = result
 
             elif cmd == "compute_CA_ball":
@@ -1163,6 +1214,7 @@ class Griddy:
     def add_external(self, name, obj):
         self.externals[name] = obj
 
+             
 
 # for a dict with lists on the right, return all sections
 def get_sections(dicto):
@@ -1386,6 +1438,7 @@ def report_SFT_equal(a, b, mode="report", truth=True, method=None, verbose=False
     bname, bSFT = b
     print("Testing whether SFTs %s and %s are equal." % (aname, bname))
     tim = time.time()
+    #print("inmediate", aSFT.circuit.copy().get_variables())
     res, rad = aSFT.equals(bSFT, return_radius = True, method=method, verbose=verbose)
     tim = time.time() - tim
     if res: 
@@ -1471,13 +1524,34 @@ def fix_filename(filename):
         return filename + ".griddy"
     return filename
 
+# change the topology to modern (graph compatible) format where we just have "command", "movement in cells", "from_node", "to_node"
+def modernize_topology(topology, dim = None):
+    if dim == None: # being called from the explicit list
+        dim = len(topology[0][1]) - 1
+    newtopology = []
+    for t in topology:
+        if len(t) == 4: # seems to be a modern tuple
+            newtopology.append(t)
+        else:
+            # semi legacy format, so label (v,n) (u,m) where v, u are tuples
+            if type(t[1][0]) == tuple:
+                name, offset, fromnode, tonode = t[0], vsub(t[2][0], t[1][0]), t[1][1], t[2][1]
+            else:
+                name, offset, fromnode, tonode = t[0], vsub(t[2][:-1], t[1][:-1]), t[1][dim], t[2][dim]
+                #newtopology.append((name, graph.moves_to(offset), fromnode, tonode))
+            newtopology.append((name, offset, fromnode, tonode))
+    #print(newtopology)
+    return newtopology
 
 line = [("rt", (0,()), (1,())),
         ("lt", (0,()), (-1,()))]
+line = modernize_topology(line)
 grid = [("up", (0,0,()), (0,1,())),
         ("dn", (0,0,()), (0,-1,())),
         ("rt", (0,0,()), (1,0,())),
         ("lt", (0,0,()), (-1,0,()))]
+grid = modernize_topology(grid)
+
 """
 hexgrid = [("up", (0,0,0), (0,1,1)),
            ("dn", (0,0,1), (0,-1,0)),
@@ -1492,6 +1566,7 @@ hexgrid = [("N", (0,0,('0',)), (0,1,('1',))),
            ("sW", (0,0,('0',)), (-1,0,('1',))),
            ("nE", (0,0,('1',)), (1,0,('0',))),
            ("nW", (0,0,('1',)), (0,0,('0',)))]
+hexgrid = modernize_topology(hexgrid)
 
 kinggrid = [("E", (0,0,()), (1,0,())),
             ("NW", (0,0,()), (1,1,())),
@@ -1501,18 +1576,21 @@ kinggrid = [("E", (0,0,()), (1,0,())),
             ("SW", (0,0,()), (-1,-1,())),
             ("S", (0,0,()), (0,-1,())),
             ("SE", (0,0,()), (1,-1,()))]
+kinggrid = modernize_topology(kinggrid)           
 trianglegrid = [("E", (0,0,()), (1,0,())),
             ("Ne", (0,0,()), (1,1,())),
             ("Nw", (0,0,()), (0,1,())),
             ("W", (0,0,()), (-1,0,())),
             ("Sw", (0,0,()), (-1,-1,())),
             ("Se", (0,0,()), (0,-1,()))]
+trianglegrid = modernize_topology(trianglegrid) 
 
 Wang_nodes = ["E", "N", "W", "S"]
 Wang_topology = [("up", (0,0,"N"), (0,1,"S")),
                  ("dn", (0,0,"S"), (0,-1,"N")),
                  ("rt", (0,0,"E"), (1,0,"W")),
                  ("lt", (0,0,"W"), (-1,0,"E"))]
+Wang_topology = modernize_topology(Wang_topology)
 
 # Cundy Rollet 4.8^2, see Wikipedia
 # Euclidean tilings by convex regular polygons
@@ -1529,6 +1607,7 @@ CR4d8e2_topology = [('N', (0, 0, 'big'), (0, 1, 'small')),
                     ('E', (0, 0, 'small'), (1, 0, 'big')),
                     ('S', (0, 0, 'small'), (0, -1, 'big')),
                     ('W', (0, 0, 'small'), (0, 0, 'big'))]
+CR4d8e2_topology = modernize_topology(CR4d8e2_topology)                    
 
 
 # You can toggle this to run a REPL without sending command line arguments.

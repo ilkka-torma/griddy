@@ -73,7 +73,7 @@ def gen_markers_from_minimal(markers, periodic=None, inits=None):
 
 class Conf:
     """
-    A recognizable configuration of some full shift,
+    A configuration of some full shift,
     possibly with missing and/or indeterminate values.
     A missing value (i.e. node where the local rule is not checked) is modeled as None.
     An indeterminate value is modeled as a list of possible values.
@@ -124,7 +124,7 @@ class RecognizableConf(Conf):
                         
         #print("normalized markers to", self.markers)
         
-        self.pat = {vec+(node,) : None
+        self.pat = {(vec, node) : None
                     for vec in hyperrect([(a,d) for (a,_,_,d) in self.markers])
                     for node in nodes}
         

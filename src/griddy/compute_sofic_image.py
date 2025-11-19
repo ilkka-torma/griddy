@@ -137,7 +137,8 @@ def sofic_from_BM_and_sofic(BM, sofic):
     assert BM.from_nodes == sofic.nodes
     assert BM.from_alphabet == sofic.alph
     assert BM.dimension == 1
-    
+
+    #print("BM", sofic.trans) 
     # sofic is a Sofic1D object, convert to (nodes, edges, alphabet)
     states = [n for n in sofic.states]
     # print(nodes, "blump")
@@ -155,9 +156,11 @@ def sofic_from_BM_and_sofic(BM, sofic):
     # then from 1D block map we need (radius, image_alphabet, local rule)
     # get neighborhood as vectors \subset \Z^d
     nbhd = BM.get_neighborhood(only_cells = True)
+    #print(nbhd, "flaka")
     # of course actually d = 1, so we get length-1 vectors
     nbhd = [n[0] for n in nbhd]
     nbhd_min, nbhd_max = min(nbhd), max(nbhd)
+    #print(nbhd_min, nbhd_max)
     radius = nbhd_max - nbhd_min # list(range(, +1)) # make contiguous
     # alphabet is just the image alphabet, use a product
     image_alphabet = list(iter_prod(*(iter(BM.to_alphabet[node])
@@ -170,12 +173,13 @@ def sofic_from_BM_and_sofic(BM, sofic):
         pattern = {}
         for v in nbhd:
             for n_idx, n in enumerate(BM.from_nodes):
+                #print("an node", n_idx, n)
                 for s in BM.from_alphabet[n]:
                     # note that n is a number, not a vector of len 1
                     if w[v + nbhd_min][n_idx] == s:
-                        pattern[v, n, s] = True
+                        pattern[(v,), n, s] = True
                     else:
-                        pattern[v, n, s] = False
+                        pattern[(v,), n, s] = False
         #print(pattern)
         # now evaluate circuits
         result = []
@@ -201,6 +205,7 @@ def sofic_from_BM_and_sofic(BM, sofic):
                         right_resolving=False,
                         onesided=sofic.onesided,
                         debug=False)
+    #print("result of is ", s.trans)
     return s
 
 

@@ -52,7 +52,7 @@ def nvwraps(markers, nvec):
     "Wrap a nodevector around recognizability markers"
     #print("wrapping", nvec, "around", markers)
     ret = []
-    for ((a,b,c,d), x) in zip(markers, nvec):
+    for ((a,b,c,d), x) in zip(markers, nvec[0]):
         if b <= x:
             if x < c:
                 ret.append(x)
@@ -64,21 +64,22 @@ def nvwraps(markers, nvec):
             ret.append(a + (x-a) % (b-a))
         else: # periodic left tail
             ret.append(b + (x-b) % (c-b))
-    ret.append(nvec[-1])
+    #ret.append(nvec[-1])
     #print("nvwraps", markers, nvec, tuple(ret))
-    return tuple(ret)
+    return tuple(ret), nvec[1]
 
 def vneg(vec):
     return tuple(-a for a in vec)
 
+# in these modern times (Nov 2025), positions are (cell,node)
 def nvadd(nvec, vec):
-    return tuple(a+b for (a,b) in zip(nvec, vec)) + nvec[-1:]
+    return (tuple(a+b for (a,b) in zip(nvec[0], vec)), nvec[1])
 
 def nvsub(nvec, vec):
-    return tuple(a-b for (a,b) in zip(nvec, vec)) + nvec[-1:]
+    return (tuple(a-b for (a,b) in zip(nvec[0], vec)), nvec[1])
 
 def nvmul(nvec, scalar):
-    return tuple(a*scalar for a in nvec) + nvec[-1:]
+    return (tuple(a*scalar for a in nvec[0]), nvec[1])
 
 def pats(domain, alph):
     if not domain:
