@@ -98,10 +98,10 @@ class AutomaticStructure:
             
         return True
 
-    def patches(self, domain, dfa):
+    def patches(self, domain, dfa, verbose=False):
         """
         Take a list D of node vectors in N^d and a DFA M, representing a configuration.
-        The DFA reads a word in L(M), then a node, and outputs a symbol.
+        The DFA reads a word in L(M) and outputs a {node : symbol} frozendict.
         Return an iterator for patches w+S occurring in the configuration,
         encoded as length-|D| tuples of symbols.
         """
@@ -114,7 +114,8 @@ class AutomaticStructure:
         # The transducers read the input and feed their outputs to their respective DFAs.
         # We reject if the word DFA or some addition tranducer rejects.
 
-        #print("Finding patches")
+        if verbose:
+            print("Finding patches in automatic configuration")
 
         vecs = list(set(nvec[:-1] for nvec in domain))
         #vec_domain = dict()
@@ -132,7 +133,8 @@ class AutomaticStructure:
         frontier = {the_init}
         seen = {the_init}
         while frontier:
-            #print("Frontier size", len(frontier))
+            if verbose:
+                print("Frontier size", len(frontier))
             new_frontier = set()
             for state in frontier:
                 (w_st, add_d_pairs) = state
@@ -154,7 +156,8 @@ class AutomaticStructure:
                             new_frontier.add(new_state)
             frontier = new_frontier
 
-        #print("Found", len(seen), "states")
+        if verbose:
+            print("Found", len(seen), "states, now generating patches")
 
         seen_patches = set()
         for (w_st, add_d_pairs) in seen:
@@ -165,8 +168,12 @@ class AutomaticStructure:
                 d_sts = {vec : d_st for (vec, (_, d_st)) in zip(vecs, add_d_pairs)}
                 patch = []
                 for nvec in domain:
-                    #print("okoko", dfa(d_sts[nvec[:-1]], nvec[-1]))
-                    patch.append(dfa.outputs[dfa(d_sts[nvec[:-1]], nvec[-1])])
+                    output_dict = dfa.outputs[d_sts[nvec[:-1]]]
+                    if output_dict is None:
+                        patch.append(None)
+                    else:
+                        #print("okoko", d_sts[nvec[:-1]], dfa.outputs[d_sts[nvec[:-1]]], nvec[-1])
+                        patch.append(output_dict[nvec[-1]])
                 if None in patch:
                     raise Exception("Invalid patch {}".format(patch))
                 patch = tuple(patch)
@@ -253,33 +260,14 @@ class AutomaticConf(Conf):
         word = self.struct.vec_to_word(nvec[:-1])
         if word is None:
             return None
-        return self.dfa.output(word + (nvec[-1],))
+        return self.dfa.output(word)[nvec[-1]]
 
-    def info_string(self, verbose=False):
-        s = "Automatic configuration on {} structure".format(self.struct.name)
+    def info_string(self, name, verbose=False):
+        s = "Automatic configuration {} on {} structure defined by".format(name, self.struct.name)
         if verbose:
-            s += " defined by\n" + self.dfa.info_string(verbose=True)
+            s += "\n" + self.dfa.info_string(verbose=True)
+        else:
+            s += " {}-state DFA".format(len(self.dfa.states))
         return s
-
-    def is_contained(self, sft):
-        "Is this configuration in the given SFT?"
-        #print("testing containment for SFT and automatic conf")
-        forbs = sft.forbs
-        #print("forbs", forbs)
-        domain = list(set(nvec for forb in forbs for nvec in forb))
-        #print("domain", domain)
-        for patch in self.struct.patches(domain, self.dfa):
-            #print("checking patch", patch)
-            for forb in forbs:
-                #print("checking forb", forb)
-                for (nvec, c) in forb.items():
-                    ix = domain.index(nvec)
-                    #print("checking coord", vec, "at index", ix, "for sym", c)
-                    if patch[ix] != c:
-                        break
-                else:
-                    #print("Found forb", forb)
-                    return False
-        return True
         
 

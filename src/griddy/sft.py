@@ -257,7 +257,7 @@ class SFT:
             s.append("Circuit (of size {}): {}".format(self.circuit.complexity, self.circuit))
         return "\n".join(s)
 
-    def __contains__(self, conf):
+    def __contains__(self, conf, verbose=False):
         if not isinstance(conf, Conf):
             raise TypeError("Expected Conf, not {}".format(type(conf)))
         elif isinstance(conf, RecognizableConf):
@@ -289,9 +289,10 @@ class SFT:
                     return False
             return True
         elif isinstance(conf, automatic_conf.AutomaticConf):
+            #print("forbs", self.forbs)
             domain = list(set(nvec for forb in self.forbs for nvec in forb))
             #print("domain", domain)
-            for patch in conf.struct.patches(domain, conf.dfa):
+            for patch in conf.struct.patches(domain, conf.dfa, verbose=verbose):
                 #print("checking patch", patch)
                 for forb in self.forbs:
                     for (nvec, c) in forb.items():

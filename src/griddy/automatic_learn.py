@@ -1,11 +1,12 @@
 # Learn an automatic configuration from a process that tries to build it locally
 
 from general import *
-from angluin import DFALearner
+from angluin import DFALearner, infer_dfa
 from automatic_conf import AutomaticStructure, AutomaticConf
 from sft import Nodes, SFT, add_uniqueness_constraints
-from finite_automata import NFA
+from finite_automata import DFA, NFA
 from circuit import AND, solver_process, transform
+from frozendict import frozendict
 
 class PatternBuilder:
     "Abstract pattern builder class"
@@ -139,6 +140,7 @@ def sum_then_lex(dim, nodes, nvec):
         return tuple(vec) + (list(nodes)[0],)
 
 def max_then_lex(dim, nodes, nvec):
+    # first maximum, then lex
     if nvec is None:
         return (0,)*dim + (list(nodes)[0],)
     nlist = list(nodes)
@@ -149,6 +151,7 @@ def max_then_lex(dim, nodes, nvec):
         # increase max
         return (0,)*(len(nvec)-2) + (the_max+1, nlist[0])
     vec = list(nvec[:-1])
+    # now we have some position not max
     while True:
         i = len(vec)-1
         while True:
@@ -161,16 +164,93 @@ def max_then_lex(dim, nodes, nvec):
         if the_max in vec:
             break
     return tuple(vec) + (nlist[0],)
+
+def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_freq=1000):
+
+    alph = struct.alph + list(struct.nodes)
+    words_list = []
+    nvecs_list = []
+    #struct_dfa = struct.word_dfa.extend_alph(struct.nodes).concat(NFA.one_of(alph, list(struct.nodes))).determinize().minimize()
+    old_pattern = dict()
+    
+    while True:
+        n = len(words_list)
+        new_words = list(words(n, struct.alph))
+        words_list.append(new_words)
+        new_nvecs = set(vadd(struct.word_to_vec(word), vec) + (node,)
+                        for word in new_words
+                        for vec in hyperrect([(0,buffer_rad+1)]*struct.dim)
+                        for node in struct.nodes)
+        nvecs_list.append(new_nvecs)
+        #print("words_list", words_list)
+
+        if verbose:
+            print("Extending to cover words of length", n)
+        i = 0
+        while any(nvec not in builder.pattern for nvec in new_nvecs):
+            builder.extend()
+            i += 1
+            if verbose and i%print_freq == 0:
+                print("  Round {}: Extended to size {}".format(i, len(builder.pattern)))
+
+        if verbose:
+            print("Extended to size {}, now building DFAs".format(len(builder.pattern)))
+
+        min_changed = len(nvecs_list)
+        for (k, nvecs) in list(enumerate(nvecs_list[:-1]))[::-1]:
+            if any(old_pattern[nvec] != builder.pattern[nvec]
+                   for nvec in nvecs):
+                min_changed = k
+        #print("min_changed", min_changed)
+
+        old_pattern = builder.pattern.copy()
+            
+        for k in range(min_changed, len(words_list)+1):
+            word_outputs = {word :
+                            frozendict({node : builder.pattern[struct.word_to_vec(word) + (node,)]
+                                        for node in struct.nodes})
+                            for words in words_list[:k]
+                            for word in words}
+
+            dfa = infer_dfa(struct.alph, word_outputs)
+            #trans = dict()
+            #outputs = {None : None}
+            #for st in tuple_dfa.states:
+            #    outputs[st, None] = None
+            #    for sym in struct.alph:
+            #        # simulate tuple dfa
+            #        trans[(st, None), sym] = (tuple_dfa(st, sym), None)
+            #        for node in struct.nodes:
+            #            # go to sink
+            #            trans[(st, node), sym] = None
+            #        trans[None, sym] = None
+            #    for node in struct.nodes:
+            #        # go to node state
+            #        trans[(st, None), node] = (st, node)
+            #        for node2 in struct.nodes:
+            #            trans[(st, node2), node] = None
+            #        trans[None, node] = None
+            #        outputs[st, node] = tuple_dfa.outputs[st][node]
+            #dfa = DFA(alph, trans, (tuple_dfa.init, None), outputs=outputs).minimize()
+            if verbose:
+                print("Built DFA with", len(dfa.states), "states")
+            #lang_dfa = dfa.map_outputs(lambda c: c is not None)
+            #if not lang_dfa.equals(struct_dfa):
+            #    continue
+            conf = AutomaticConf(struct, dfa)
+            if sft.__contains__(conf, verbose=verbose):
+                print("Done, needed pattern of size", len(builder.pattern))
+                return conf
         
 
 # Let's quickly implement an N^d lex min learner
 # Default order of N^d is by sum then lex
-def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
+def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
 
     dim = sft.dim
     pat_alph = sft.alph
 
-    learner = DFALearner(struct.alph + list(struct.nodes))
+    learner = DFALearner(struct.alph)
     handle = learner.learn()
     (msg, data) = next(handle)
     sent = set()
@@ -190,23 +270,24 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
             print("  Last query:", msg, data)
         if msg == "eq":
             #print(data.info_string(verbose=True))
+            # Check if we are consistent with the struct language
+            lang_dfa = data.map_outputs(lambda c: c is not None)
+            eq, witness = lang_dfa.equals(struct.word_dfa, ret_diff=True)
+            if not eq:
+                #print(lang_dfa.info_string(verbose=True))
+                #print(struct.word_dfa.info_string(verbose=True))
+                #print("found in word dfa", witness)
+                (msg, data) = handle.send(("no", tuple(witness), None))
+                continue
             # If learner gives a configuration of the SFT, we are done
             conf = AutomaticConf(struct, data)
-            if conf in sft:
+            if sft.__contains__(conf, verbose=verbose):
                 if verbose:
                     print("Success on round", i)
                     print("  Pattern size:", len(builder.pattern))
                     print("  Queries: {} eval ({} in main branch), {} eq ({} in main branch)".\
                           format(learner.total_eval_count, learner.eval_count, learner.total_eq_count, learner.eq_count))
                 return conf
-            # Check if we are consistent with the struct language
-            lang_dfa = data.map_outputs(lambda c: c is not None)
-            struct_dfa = struct.word_dfa.extend_alph(struct.nodes).concat(NFA.one_of(struct.alph + list(struct.nodes), list(struct.nodes))).determinize()
-            eq, witness = lang_dfa.equals(struct_dfa, ret_diff=True)
-            if not eq:
-                #print("found in word dfa")
-                (msg, data) = handle.send(("no", tuple(witness), None))
-                continue
             # Otherwise we have to give a counterexample
             #print("Looking for counterexample")
             # Look for one in the pattern
@@ -214,7 +295,7 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                 if conf[nvec] != sym:
                     #print("Found", nvec, sym, "in pattern", conf[nvec], "in conf")
                     #print("Word", struct.vec_to_word(nvec[:-1]) + (nvec[-1],))
-                    (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]) + (nvec[-1],), None))
+                    (msg, data) = handle.send(("no", struct.vec_to_word(nvec[:-1]), None))
                     break
             else:
                 # Now we have to extend the pattern
@@ -229,30 +310,29 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                         #if len(builder.pattern)%100 == 0:
                         #    print("extended at", changed, "now size", len(builder.pattern))
                         if conf[changed] != builder.pattern[changed]:
-                            (msg, data) = handle.send(("no", struct.vec_to_word(changed[:-1]) + (changed[-1],), None))
+                            (msg, data) = handle.send(("no", struct.vec_to_word(changed[:-1]), None))
                             break
                     else:
                         # Backtracked
-                        if any(w in sent for w in changed):
+                        if any(w[:-1] in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
+                                                       [struct.vec_to_word(nvec[:-1]) for nvec in changed],
                                                        None))
                             for nvec in changed:
-                                sent.discard(nvec)
+                                sent.discard(nvec[:-1])
                             break
         if msg == "eval":
-            if not (data and data[-1] in struct.nodes and\
-                    all(c not in struct.nodes for c in data[:-1]) and\
-                    struct.word_dfa.accepts(data[:-1])):
+            if not struct.word_dfa.accepts(data):
                 (msg, data) = handle.send(("val", None, data))
                 continue
-            nvec = struct.word_to_vec(data[:-1]) + (data[-1],)
+            vec = struct.word_to_vec(data)
             #print("finding", nvec, "in pattern")
             # Look for the value in the pattern first
-            if nvec in builder.pattern:
+            if all(vec + (node,) in builder.pattern for node in struct.nodes):
                 #print("found")
-                sent.add(nvec)
-                (msg, data) = handle.send(("val", builder.pattern[nvec], nvec))
+                sent.add(vec)
+                (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec + (node,)]
+                                                              for node in struct.nodes}), vec))
             else:
                 # Now we have to extend the pattern
                 j = 0
@@ -262,20 +342,21 @@ def learn_lex_min(struct, sft, builder, verbose=False, print_freq=1000):
                     success, changed = builder.extend()
                     if success:
                         if j%print_freq == 0:
-                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find", nvec)
+                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find", vec)
                         #1/0
-                        if nvec == changed:
-                            sent.add(nvec)
-                            (msg, data) = handle.send(("val", builder.pattern[nvec], data))
+                        if all(vec + (node,) in builder.pattern for node in struct.nodes):
+                            sent.add(vec)
+                            (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec + (node,)]
+                                                              for node in struct.nodes}), vec))
                             break
                     else:
                         # Backtracked
-                        if any(w in sent for w in changed):
+                        if any(w[:-1] in sent for w in changed):
                             (msg, data) = handle.send(("backtrack",
-                                                       [struct.vec_to_word(nvec[:-1])+(nvec[-1],) for nvec in changed],
+                                                       [struct.vec_to_word(nvec[:-1]) for nvec in changed],
                                                        None))
                             for nvec in changed:
-                                sent.discard(nvec)
+                                sent.discard(nvec[:-1])
                             break
 
 def test():

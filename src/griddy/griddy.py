@@ -658,15 +658,21 @@ class Griddy:
                 sft_name = args[1]
                 arity = kwds.get("arity", 2)
                 extra_rad = kwds.get("extra_rad", 0)
+                buffer_rad = kwds.get("buffer_rad", 0)
                 print_freq = kwds.get("print_freq", 1000)
+                search_mode = kwds.get("mode", "gold")
                 verb = "verbose" in flags
                 try:
-                    the_sft = self.SFTs[name]
+                    the_sft = self.SFTs[sft_name]
                 except KeyError:
                     raise Exception("No SFT named {}".format(sft_name))
                 struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, arity, the_sft.nodes) # for now
+                builder = automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad)
                 print("Finding automatic configuration in SFT", sft_name)
-                conf = automatic_learn.learn_lex_min(struct, the_sft, automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad), verbose=verb, print_freq=print_freq)
+                if search_mode == "angluin":
+                    conf = automatic_learn.learn_lex_min_angluin(struct, the_sft, builder, verbose=verb, print_freq=print_freq)
+                elif search_mode == "gold":
+                    conf = automatic_learn.learn_lex_min_gold(struct, the_sft, builder, verbose=verb, print_freq=print_freq, buffer_rad=buffer_rad)
                 self.confs[conf_name] = conf
 
             elif cmd == "show_formula" and mode == "report":

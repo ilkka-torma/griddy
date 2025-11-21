@@ -1,3 +1,7 @@
+
+from general import words
+from finite_automata import DFA
+
 # Learn a DFA with output from evaluation and equivalence queries with backtracking
 # Extension of Angluin's algorithm L*
 # https://www.sciencedirect.com/science/article/pii/0890540187900526
@@ -6,8 +10,6 @@
 # To an incorrect equivalence query the teacher must give a counterexample
 # The teacher is, at any point, allowed to backtrack some evaluations
 # This means it can say "evaluations of words w1, ..., wk that I gave earlier are possibly incorrect, ignore them"
-
-from finite_automata import DFA
 
 class BacktrackException(Exception):
     def __init__(self, data):
@@ -173,7 +175,72 @@ class DFALearner:
         return tuple(self.output_table[w+e] for e in self.sep_words)
 
 
-def test():
+# Gold's algorithm: infer a DFA from given outputs for all words up to length k
+
+def infer_dfa(alph, word_outputs):
+    "Given a dict of word : output containing all words up to length k, infer a DFA."
+    # merges[w] points to the earliest word that w has been merged with
+    #print("inferring", alph, word_outputs)
+    if len(word_outputs) == 1:
+        # singleton, special case
+        return DFA(alph, {(0, sym): 0 for sym in alph}, 0, outputs={0 : min(word_outputs.values())})
+    merges = dict()
+    states = []
+    for (word, out) in sorted(word_outputs.items(), key=lambda p: (len(p[0]), p)):
+        #print("processing", word, out)
+        for st_word in states:
+            if consistent(word, st_word, alph, word_outputs, merges):
+                # found not-inequivalent processed state, merge them
+                #print("merging with", st_word)
+                merges[word] = st_word
+                break
+        else:
+            # no mergable processed state
+            states.append(word)
+            merges[word] = word
+
+    # create transition table
+    trans = dict()
+    for word in states:
+        for sym in alph:
+            if word + (sym,) in merges:
+                trans[word, sym] = merges[word + (sym,)]
+            else:
+                # find a not-inequivalent state and use it
+                for st in states:
+                    if consistent(st, word + (sym,), alph, word_outputs, merges):
+                        trans[word, sym] = st
+                        break
+                else:
+                    raise Exception("No mergable state (this should not happen)")
+    outputs = {word : word_outputs[word]
+               for word in states}
+    dfa = DFA(alph, trans, (), outputs=outputs)
+    dfa.rename()
+    return dfa
+    
+
+def consistent(st1, st2, alph, outputs, merges, seen=None):
+    "Do all words lead into equivalent states (or nothing)?"
+    if seen is None:
+        seen = set()
+    if (st1, st2) in seen or st1 not in outputs or st2 not in outputs:
+        return True
+    if outputs[st1] != outputs[st2]:
+        return False
+    seen.add((st1, st2))
+    for sym in alph:
+        new_st1 = st1 + (sym,)
+        if new_st1 in merges:
+            new_st1 = merges[st1]
+        new_st2 = st2 + (sym,)
+        if new_st2 in merges:
+            new_st2 = merges[new_st2]
+        if not consistent(new_st1, new_st2, alph, outputs, merges, seen=seen):
+            return False
+    return True
+
+def test_angluin():
     # Let's test with words that begin and end with 01
     f = lambda w: len(w) >= 2 and w[:2] == (0,1) and w[-2:] == (0,1)
     counterexamples = [(0,1),(1,0,1)]
@@ -229,5 +296,13 @@ def test():
             else:
                 break
 
+def test_gold():
+    alph = [0,1]
+    word_outputs = {word : sum(1 for i in range(len(word)) if word[i:i+2] == (1,1))%3
+                    for k in range(6)
+                    for word in words(k, alph)}
+    dfa = infer_dfa(alph, word_outputs)
+    print(dfa.info_string(verbose=True))
+
 if __name__ == "__main__":
-    test()
+    test_gold()
