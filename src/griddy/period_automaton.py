@@ -1,3 +1,5 @@
+#import debug_print_hook
+
 import math
 from fractions import Fraction as fr
 import time
@@ -9,6 +11,7 @@ import argparse
 import fractions
 import frozendict as fd
 from sft import *
+from general import *
 
 class CompMode(Enum):
     SQUARE_CYCLE = 0 # don't recompute, use O(n^2) space, return cycle
@@ -33,19 +36,23 @@ def hyperrectangle(heights):
                 yield (coord,) + vec
 
 def pats(domain, alph, forbs, i=0):
+    print("AM DOING PATS", domain, alph, forbs, i)
     if i >= len(domain):
         yield dict()
     else:
         nvec = domain[i]
+        print(nvec)
+        if (nvec) == (0,0,()):
+            raise Exception("da fuq")
         for pat in pats(domain, alph, forbs, i=i+1):
-            for c in alph[nvec[-1]][:-1]:
+            for c in alph[nvec[1]][:-1]:
                 pat2 = pat.copy()
                 pat2[nvec] = c
                 if all(any(pat2.get(v, None) != c
                            for (v, c) in forb.items())
                        for forb in forbs):
                     yield pat2
-            pat[nvec] = alph[nvec[-1]][-1]
+            pat[nvec] = alph[nvec[1]][-1]
             if all(any(pat.get(v, None) != c
                        for (v, c) in forb.items())
                    for forb in forbs):
@@ -104,17 +111,19 @@ def normalize_periods(pmat):
 
 def wrap(pmat, nvec):
     "Wrap a vector into the (essentially one-dimensional) fundamental domain of the period matrix"
-    vec = list(nvec[:-1])
+    #print("wreap", pmat, nvec)
+    vec = list(nvec[0])
     for (i, pvec) in enumerate(pmat, start=1):
         q = vec[i] // pvec[i]
         vec[0] -= q*pvec[0]
         vec[i] = vec[i] % pvec[i]
         for j in range(i+1,len(vec)):
             vec[j] -= q*pvec[j]
-    return tuple(vec)+(nvec[-1],)
+    #print("kitttt", (tuple(vec), nvec[1]))
+    return (tuple(vec), nvec[1])
     
-def nvadd(nvec, vec):
-    return tuple(a+b for (a,b) in zip(nvec, vec)) + (nvec[-1],)
+#def nvadd(nvec, vec):
+#    return tuple(a+b for (a,b) in zip(nvec, vec)) + (nvec[-1],)
 
 class PeriodAutomaton:
     # Transition labels are either frontier patterns or their weights
@@ -130,7 +139,7 @@ class PeriodAutomaton:
         self.sft = sft
         if check_periods:
             if len(periods) != sft.dim-1:
-                raise Exception("periods must form a basis with (1,0...0)")
+                raise Exception("periods must form a rational basis with (1,0...0)")
             pmat = normalize_periods(periods)
             if verbose:
                 print("normalized periods", pmat)
@@ -144,25 +153,29 @@ class PeriodAutomaton:
             x = self.border_at(vec)
             self.frontier.add((x,) + vec)
             for forb in sft.forbs:
+                print("derp frob", forb)
                 new_forb = dict()
                 good = True
                 for (nvec, c) in forb.items():
+                    print(nvec, c)
                     nvec2 = wrap(pmat, nvadd(nvec, (x,)+vec))
+                    print(nvec2, "milis")
                     if nvec2 in new_forb and new_forb[nvec2] != c:
                         good = False
                         break
                     else:
                         new_forb[nvec2] = c
                 else:
+                    print("news",new_forb)
                     tr = 0
-                    while any(nvec[0]+tr < self.border_at(nvec[1:-1]) for nvec in new_forb):
+                    while any(nvec[0][0]+tr < self.border_at(nvec[0][1:]) for nvec in new_forb):
                         tr += 1
-                    while all(nvec[0]+tr > self.border_at(nvec[1:-1]) for nvec in new_forb):
+                    while all(nvec[0][0]+tr > self.border_at(nvec[0][1:]) for nvec in new_forb):
                         tr -= 1
-                    new_forb = {(nvec[0]+tr,)+nvec[1:] : c for (nvec, c) in new_forb.items()}
+                    new_forb = {((nvec[0][0]+tr,)+nvec[0][1:], nvec[1]) : c for (nvec, c) in new_forb.items()}
                 if good and new_forb not in self.border_forbs:
                     self.border_forbs.append(new_forb)
-        self.node_frontier = list(sorted(nvec+(q,) for nvec in self.frontier for q in self.sft.nodes))
+        self.node_frontier = list(sorted((vec, q) for vec in self.frontier for q in self.sft.nodes))
         self.states = set([0])
         self.trans = dict()
         if verbose:
@@ -171,6 +184,8 @@ class PeriodAutomaton:
         self.sym_bound = sym_bound
         self.rotate = rotate
         self.all_labels = all_labels
+
+        #TODO here, just found out that frontier and node_fronteir were broken, maybe frontier still is
 
         self.weights = weights
         if weights == None:
@@ -190,6 +205,8 @@ class PeriodAutomaton:
                 numerator, denominator = asrat.numerator, asrat.denominator
                 self.weight_numerators[a] = numerator * self.weight_denominator // denominator
             #print (self.weight_denominator, self.weight_numerators)
+        print("frontier is", self.frontier)
+        print("frontier is", self.node_frontier)
 
     def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000):
         debug_verbose = False
@@ -693,9 +710,9 @@ class PeriodAutomaton:
             for (forb, tr) in shifted:
                 pat_forb = dict()
                 for (nvec, c) in forb.items():
-                    if nvec[0]-tr > border_at(self.pmat, nvec[1:-1]):
+                    if nvec[0][0]-tr > border_at(self.pmat, nvec[0][1:]):
                         break
-                    tr_nvec = (nvec[0]-tr,) + nvec[1:]
+                    tr_nvec = ((nvec[0][0]-tr,) + nvec[0][1:], nvec[1])
                     if tr_nvec in frontier:
                         pat_forb[tr_nvec] = c
                 else:
@@ -714,12 +731,12 @@ class PeriodAutomaton:
                     forb, tr = pair
                     over = False
                     for (nvec, c) in forb.items():
-                        x = nvec[0]
-                        ys = nvec[1:-1]
-                        q = nvec[-1]
+                        x = nvec[0][0]
+                        ys = nvec[0][1:]
+                        q = nvec[1]
                         if x-tr > border_at(self.pmat, ys):
                             over = True
-                        if new_front.get(wrap(self.pmat, (x-tr,)+ys+(q,)), c) != c:
+                        if new_front.get(wrap(self.pmat, ((x-tr,)+ys,q)), c) != c:
                             # this forb can be discarded
                             break
                     else:
@@ -737,7 +754,7 @@ class PeriodAutomaton:
                         for rots in hyperrectangle(heights):
                             new_state = 0
                             for (forb, tr) in new_pairs:
-                                ix = self.border_forbs.index({(nvec[0],) + vrot(nvec[1:-1], rots, heights) + (nvec[-1],):c for (nvec, c) in forb.items()})
+                                ix = self.border_forbs.index({((nvec[0][0],) + vrot(nvec[0][1:], rots, heights), nvec[1]):c for (nvec, c) in forb.items()})
                                 new_state += 2**(numf*tr + ix)
                             min_state = min(min_state, new_state)
                         new_state = min_state
@@ -851,7 +868,9 @@ def border_at(pmat, vec):
         return (vec[0]*i)//j
     return 0 # TODO: change
 
-def populate_worker(pmat, alph, border_forbs, frontier, sym_bound, rotate, task_queue, res_queue, weights, chunk_size):
+def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
+                    rotate, task_queue, res_queue, weights, chunk_size):
+    print("populating", border_forbs)
     numf = len(border_forbs)
     #border_sets = [set(forb) for forb in border_forbs]
     if rotate:
@@ -871,17 +890,21 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound, rotate, task_
                     shifted.append((border_forbs[ix], tr+1))
                 n = n//2
                 i += 1
+            print(shifted)
             pat_forbs = set()
             for (forb, tr) in shifted:
                 pat_forb = dict()
                 for (nvec, c) in forb.items():
-                    if nvec[0]-tr > border_at(pmat, nvec[1:-1]):
+                    print(nvec, c)
+                    print(frontier)
+                    if nvec[0][0]-tr > border_at(pmat, nvec[0][1:]):
                         break
-                    tr_nvec = (nvec[0]-tr,) + nvec[1:]
+                    tr_nvec = ((nvec[0][0]-tr,) + nvec[0][1:]), nvec[1]
                     if tr_nvec in frontier:
                         pat_forb[tr_nvec] = c
                 else:
                     pat_forbs.add(fd.frozendict(pat_forb))
+            print("pfff", pat_forbs)
             for new_front in pats(frontier, alph, pat_forbs):
                 new_pairs = []
                 sym_pairs = dict()
@@ -889,13 +912,13 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound, rotate, task_
                     forb, tr = pair
                     over = False
                     for (nvec, c) in forb.items():
-                        x = nvec[0]
-                        ys = nvec[1:-1]
-                        q = nvec[-1]
+                        x = nvec[0][0]
+                        ys = nvec[0][1:]
+                        q = nvec[1]
                         if x-tr > border_at(pmat, ys):
                             over = True
                         #print("did", x-tr, ys, q, (x-tr,)+ys+(q,))
-                        if new_front.get(wrap(pmat, (x-tr,)+ys+(q,)), c) != c:
+                        if new_front.get(wrap(pmat, ((x-tr,)+ys,q,)), c) != c:
                             # this forb can be discarded
                             break
                     else:
@@ -914,7 +937,7 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound, rotate, task_
                         for rots in hyperrectangle(heights):
                             new_state = 0
                             for (forb, tr) in new_pairs:
-                                ix = border_forbs.index({(nvec[0],) + vrot(nvec[1:-1], rots, heights) + (nvec[-1],):c for (nvec, c) in forb.items()})
+                                ix = border_forbs.index({((nvec[0][0],) + vrot(nvec[0][1:], rots, heights), nvec[1]) : c for (nvec, c) in forb.items()})
                                 # symmetry only available along first non-horizontal coordinate
                                 if sym_bound is not None:
                                     sym_pairs[ix%(numf//2), tr] = 1 - sym_pairs.get((ix%(numf//2), tr), 0)

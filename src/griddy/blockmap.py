@@ -13,17 +13,26 @@ overlaps should be "ignore", "check" or "remove"
 """
 class BlockMap:
     def __init__(self, from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology,
-                 to_topology, overlaps="remove", verbose=False, graph=None):
+                 to_topology, graph, overlaps="remove", verbose=False):
+
+        #print(circuits)
+                     
+        #print(from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology, to_topology, overlaps, graph)
+        
         self.from_alphabet = from_alphabet
         self.to_alphabet = to_alphabet
         self.from_nodes = from_nodes
         self.to_nodes = to_nodes
         self.dimension = dimension
-        self.graph = graph # this overrides dimension if not None, for things that implement it
+        self.graph = graph
         self.from_topology = from_topology
         self.to_topology = to_topology
+        self.graph = graph
 
         #assert type(circuits) == dict
+        if verbose:
+            print("constructing CA of dim", dimension, "from nodes", from_nodes, "and alphabet", from_alphabet, "to", to_nodes, to_alphabet)
+            
 
         #  dict is only used internally, assume disjointness and full specification
         if type(circuits) == dict:
@@ -61,6 +70,24 @@ class BlockMap:
                         if verbose:
                             print("Using {} as default symbol for node {} in block map".format(first_sym, n))
                         self.circuits[(n, first_sym)] = AND(*(NOT(circs[b]) for b in circs if b != first_sym))
+                        
+        if verbose:
+            for n in to_nodes:
+                for a in to_alphabet[n]:
+                    print("Circuit for out node", n, "letter", a, "is", self.circuits[(n, a)])
+
+        """
+        # check dimensions...
+        for n in to_nodes:
+            for a in to_alphabet[n]:
+                
+                print("check", n, a)
+                for q in self.circuits[(n, a)].get_variables():
+                    assert len(q[0]) == self.dimension
+                print((n,a), "ok")
+        """
+                    
+            
                         
     def info_string(self, name, verbose=False):
         s = ["{}-dimensional block map {}".format(self.dimension, name)]
@@ -112,7 +139,13 @@ class BlockMap:
         return mocircuits.MOCircuit(self.circuits)
 
     # compose with other; other is done after
-    def then(self, other):
+    def then(self, other, verbose = False):
+        if verbose:
+            print("composing block map")
+            print(self)
+            print("with")
+            print(other)
+        assert self.graph == other.graph
         assert self.to_alphabet == other.from_alphabet
         assert self.to_nodes == other.from_nodes
         assert self.dimension == other.dimension
@@ -121,23 +154,26 @@ class BlockMap:
         other_cells = set()
         for c in other.circuits:
             for s in other.circuits[c].get_variables():
-                other_cells.add(s[:-2]) # just need to know the shifts
+                #print(s)
+                other_cells.add(s[0]) # just need to know the cells
                 
         # Make shifted copies of our circuits, one for each cell used by other.
         # Note that the circuits that do not get used are actually killed by
         # Python's GC, because they are literally not going to be involved in
         # the final circuit.
         circuits = {}
-        for s in other_cells: # ns = node, symbol
+        for s in other_cells: 
             for ns in self.circuits:
                 circuit_copy = self.circuits[ns].copy()
                 def shift(v):
-                    return vadd(v[:-2], s) + v[-2:]
+                    #print("shifting", v, "by", s)
+                    return (vadd(v[0], s),) + v[1:] # TODO replace with graph.move_rel
                 #print("transforming")
                 #print(circuit_copy, s)
                 transform(circuit_copy, shift)
                 #print(circuit_copy)
-                circuits[s + ns] = circuit_copy
+                #print((s,) + ns, " is where")
+                circuits[(s,) + ns] = circuit_copy
 
         # now the circuits dict has for each relevant position-symbol combo a circuit
         # we just combine them with the other circuit by literally replacing
@@ -151,11 +187,11 @@ class BlockMap:
             transform(ret_circuit, lambda a:circuits[a])
             ret_circuits[ns] = ret_circuit
 
-        ret = BlockMap(self.from_alphabet, other.to_alphabet, self.from_nodes, other.to_nodes, self.dimension, ret_circuits, self.from_topology, other.to_topology)
+        ret = BlockMap(self.from_alphabet, other.to_alphabet, self.from_nodes, other.to_nodes, self.dimension, ret_circuits, self.from_topology, other.to_topology, self.graph)
         return ret
 
-    def after(self, other):
-        return other.then(self)
+    def after(self, other, verbose = False):
+        return other.then(self, verbose)
 
     def __eq__(self, other):
         if self.from_alphabet != other.from_alphabet:
@@ -292,11 +328,13 @@ class BlockMap:
         for var in sft_circ.get_variables():
             substitute(sft_circ, var, V(var+(None,))) # prevent accidental repeated substitutions
         for var in sft_circ.get_variables():
-            vec, node, sym = var[:-3], var[-3], var[-2]
+            #print("mummeli", var)
+            vec, node, sym = var[:3]
             bm_circ = self.circuits[node, sym].copy()
-            transform(bm_circ, lambda var2: vadd(vec, var2[:-2]) + var2[-2:])
+            #print(bm_circ.get_variables())
+            transform(bm_circ, lambda var2: (vadd(vec, var2[0]),) + var2[1:])
             substitute(sft_circ, var, bm_circ)
-        return SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, circuit=sft_circ)
+        return SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, self.graph, circuit=sft_circ)
 
     def relation(self, tracks=None):
         "The relation defining this block map (as an SFT), i.e. its graph"
@@ -314,11 +352,11 @@ class BlockMap:
         anded = []
         for ((node, sym), circ) in self.circuits.items():
             new_circ = circ.copy()
-            transform(new_circ, lambda var: var[:-2] + ((tracks[0],) + var[-2],) + var[-1:])
+            transform(new_circ, lambda var: (var[0], ((tracks[0],) + var[1])) + var[-1:])
             if sym != cod_alph[node][0]:
-                anded.append(IFF(V((0,)*dim + ((tracks[1],) + node, sym)), new_circ))
+                anded.append(IFF(V(((0,)*dim, (tracks[1],) + node, sym)), new_circ))
             else:
-                not_others = AND(*(NOT(V((0,)*dim + ((tracks[1],) + node, sym2)))
+                not_others = AND(*(NOT(V(((0,)*dim, (tracks[1],) + node, sym2)))
                                    for sym2 in cod_alph[node][1:]))
                 anded.append(IFF(not_others, new_circ))
                 
@@ -334,10 +372,10 @@ class BlockMap:
                 topo = self.to_topology
             for t in topo:
                 # t[:1] is the name of an edge. We make a copy with track added.
-                topology.append(t[:1] + tuple(vec[:-1] + ((tr,) + vec[-1],) for vec in t[1:]))
+                topology.append(t[:2] + tuple(((tr,) + n) for n in t[2:]))
         #print(topology)
         
-        return SFT(dim, nodes, alph, topology, circuit=AND(*anded))
+        return SFT(dim, nodes, alph, topology, self.graph, circuit=AND(*anded))
 
     def is_CA(self):
         return self.to_alphabet == self.from_alphabet and self.to_nodes == self.from_nodes # and self.to_topology == self.from_topology
@@ -352,11 +390,11 @@ class BlockMap:
         for ((node, sym), circ) in self.circuits.items():
             new_circ = circ.copy()
             if sym != alph[node][0]:
-                anded.append(IMP(V((0,)*dim + (node, sym)), new_circ))
+                anded.append(IMP(V(((0,)*dim, node, sym)), new_circ))
             else:
-                not_others = AND(*(NOT(V((0,)*dim + (node, sym2))) for sym2 in alph[node][1:]))
+                not_others = AND(*(NOT(V(((0,)*dim, node, sym2))) for sym2 in alph[node][1:]))
                 anded.append(IMP(not_others, new_circ))
-        return SFT(dim, nodes, alph, self.from_topology, circuit=AND(*anded))
+        return SFT(dim, nodes, alph, self.from_topology, self.graph, circuit=AND(*anded))
 
     def spacetime_diagram(self, onesided=True, time_axis=None):
         "The SFT of spacetime diagrams of this CA"
@@ -370,9 +408,10 @@ class BlockMap:
 
         anded = []
         for ((node, sym), circ) in self.circuits.items():
+            #print("circ info", node, sym, circ)
             new_circ = circ.copy()
-            transform(new_circ, lambda var: var[:time_axis] + (0,) + var[time_axis:])
-            val_vec = (0,)*time_axis + (1,) + (0,)*(dim-time_axis) + (node,)
+            transform(new_circ, lambda var: (var[0][:time_axis] + (0,) + var[0][time_axis:], var[1], var[2]))
+            val_vec = ((0,)*time_axis + (1,) + (0,)*(dim-time_axis), node)
             local_alph = alph[node]
             if sym == local_alph[0]:
                 is_val = AND(*(NOT(V(val_vec + (sym2,))) for sym2 in local_alph[1:]))
@@ -383,25 +422,26 @@ class BlockMap:
         #print(self.from_topology)
 
         topology = []
-        for t in self.from_topology:
-            # append the new dimension in the edges
-            topology.append(t[:1] + tuple(tt[:time_axis] + (0,) + tt[time_axis:] for tt in t[1:]))
-            # add the time direction, default name is "fut"
-        for  n in nodes:
-            topology.append(("fut", (0,)*(dim+1) + (n,), (0,)*time_axis + (1,) + (0,)*(dim-time_axis) + (n,)))
-            topology.append(("past", (0,)*time_axis + (1,) + (0,)*(dim-time_axis) + (n,), (0,)*(dim+1) + (n,)))
+        for t in self.from_topology: 
+            # append the new dimension in the edges, t[:1] is the (label,)
+            #topology.append(t[:1] + tuple(tt[:time_axis] + (0,) + tt[time_axis:] for tt in t[1:])) <- old format
+            topology.append(t[:1] + (t[1][:time_axis] + (0,) + t[1][time_axis:], t[2], t[3]))
+            # add the time direction, default name is "fut"/"past"
+        for n in nodes:
+            topology.append(("fut", (0,)*time_axis + (1,) + (0,)*(dim-time_axis) + (n, n)))
+            topology.append(("past", (0,)*time_axis + (-1,) + (0,)*(dim-time_axis) + (n, n)))
             
-        return SFT(dim+1, nodes, alph, topology, circuit=AND(*anded), onesided=[time_axis] if onesided else [])
+        return SFT(dim+1, nodes, alph, topology, self.graph, circuit=AND(*anded), onesided=[time_axis] if onesided else [])
 
     def get_neighborhood(self, only_cells):
-        if not only_cells :
+        if not only_cells:
             raise Exception("Neighborhood in terms of nodes not implemented.")
         circs = self.circuits
         neighborhood = set()
         for n in self.to_nodes:
             for s in self.to_alphabet[n]:
                 for q in circs[n, s].get_variables():
-                    vec = q[:-2]
+                    vec = q[0]
                     neighborhood.add(vec) # drop node and symbol
                     
         # to prevent bugs and maybe remove special cases
@@ -471,9 +511,9 @@ def find_relations(CAs, rad):
     identityrule = {}
     for n in nodes:
         for a in alphabet[n][1:]:
-            identityrule[(n, a)] = V((0,)*dimension + (n, a))
+            identityrule[(n, a)] = V(((0,)*dimension, n, a))
     # topology None because it really does not matter
-    idca = BlockMap(alphabet, alphabet, nodes, nodes, dimension, identityrule, None, None)
+    idca = BlockMap(alphabet, alphabet, nodes, nodes, dimension, identityrule, None, None, CAs[0].graph)
     #assert idca.then(idca) == idca
     mod[idca.tomocircuit()] = (idca, ())
     #print("idcirc", idca.circuits)

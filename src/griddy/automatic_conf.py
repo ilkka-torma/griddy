@@ -117,7 +117,7 @@ class AutomaticStructure:
         if verbose:
             print("Finding patches in automatic configuration")
 
-        vecs = list(set(nvec[:-1] for nvec in domain))
+        vecs = list(set(nvec[0] for nvec in domain))
         #vec_domain = dict()
         #for nvec in domain:
         #    vec = nvec[:-1]
@@ -168,12 +168,11 @@ class AutomaticStructure:
                 d_sts = {vec : d_st for (vec, (_, d_st)) in zip(vecs, add_d_pairs)}
                 patch = []
                 for nvec in domain:
-                    output_dict = dfa.outputs[d_sts[nvec[:-1]]]
+                    output_dict = dfa.outputs[d_sts[nvec[0]]]
                     if output_dict is None:
                         patch.append(None)
                     else:
-                        #print("okoko", d_sts[nvec[:-1]], dfa.outputs[d_sts[nvec[:-1]]], nvec[-1])
-                        patch.append(output_dict[nvec[-1]])
+                        patch.append(output_dict[nvec[1]])
                 if None in patch:
                     raise Exception("Invalid patch {}".format(patch))
                 patch = tuple(patch)
@@ -257,10 +256,10 @@ class AutomaticConf(Conf):
         self.dim = dim
 
     def __getitem__(self, nvec):
-        word = self.struct.vec_to_word(nvec[:-1])
+        word = self.struct.vec_to_word(nvec[0])
         if word is None:
             return None
-        return self.dfa.output(word)[nvec[-1]]
+        return self.dfa.output(word)[nvec[1]]
 
     def info_string(self, name, verbose=False):
         s = "Automatic configuration {} on {} structure defined by".format(name, self.struct.name)

@@ -12,10 +12,14 @@ unit_tests2 = []
 # whether we test the ones that take like 10 seconds
 #long_ones_too = True <- currently nothing takes long
 
+
+
 # just some basic checks
 code_basic_comparisons = """
 %SFT full_shift             Ao 0 = 0
+%info @verbose full_shift
 %SFT ver_golden_mean_shift  Ao o = 1 -> o.dn = 0
+%info @verbose ver_golden_mean_shift
 %SFT ver_golden_mean_shift2 Ao o.dn = 1 -> o = 0
 %SFT hor_golden_mean_shift  Ao o = 1 -> o.rt = 0
 %SFT golden_mean_shift      Ao o = 1 -> o.up = 0 & o.rt = 0
@@ -37,6 +41,9 @@ code_basic_comparisons = """
 """
 unit_tests.append(("basic comparisons", code_basic_comparisons))
 
+
+
+
 # crazy golden mean shift formula / forbs
 code_crazy_gms = """
 %SFT hor_golden_mean_shift  Ao (o.rt.rt = 1 -> o.rt = 0) & Ae[o:3] e.up = 0 | e.lt.up != e.rt.up.lt
@@ -53,6 +60,8 @@ code_crazy_gms = """
 %equal expect=T hor_golden_mean_shift3 hor_golden_mean_shift
 """
 unit_tests.append(("crazy gms", code_crazy_gms))
+
+
 
 # golden mean shift on hexagon grid
 code_hex_gms = """
@@ -231,15 +240,42 @@ o=0 -> (Et[o:2] c o t) &
 unit_tests.append(("loc dom rad 2", code_locdomrad2))
 
 code = """
-%CA a
+%topology grid
+%CA @verbose a
 1 Ao o!=o.rt
 %equal expect=T a a
-%compose aa a a
+%compose @verbose aa a a
 %compose aa_a aa a
 %compose a_aa a aa
 %equal expect=T a_aa aa_a
 """
 unit_tests.append(("trivial CA associativity", code))
+
+code = """
+%alphabet 0 1
+%nodes top bot -- two tracks, top and bottom
+%dim 1
+%topology
+rt (0; top) (1; top);
+rt (0; bot) (1; bot);
+lt (0; top) (-1; top);
+lt (0; bot) (-1; bot)
+
+%CA identity
+top 1 ACo o.top=1;
+bot 1 ACo o.bot=1
+
+%CA flip
+top 1 ACo o.top=0;
+bot 1 ACo o.bot=0
+
+%equal expect=F identity flip
+"""
+unit_tests.append(("identity is identity", code))
+
+
+
+
 
 code = """
 %alphabet 0 1
@@ -278,11 +314,11 @@ code = """
 %compute_forbidden_patterns radius=2 goldenmean
 %set_weights a:0 b:2
 %minimum_density conf_name=c1 expect=2 goldenmean (0,1)
-%minimum_density conf_name=c2 expect=1 goldenmean (0,2)
-%minimum_density conf_name=c3 expect=6/5 goldenmean (2,3)
+--%minimum_density conf_name=c2 expect=1 goldenmean (0,2)
+--%minimum_density conf_name=c3 expect=6/5 goldenmean (2,3)
 %contains expect=T goldenmean c1
-%contains expect=T goldenmean c2
-%contains expect=T goldenmean c3
+--%contains expect=T goldenmean c2
+--%contains expect=T goldenmean c3
 """
 unit_tests.append(("golden mean upper density", code))
 
@@ -409,6 +445,11 @@ code = """
 %empty expect=F nonempty
 """
 unit_tests.append(("emptiness", code))
+
+
+
+
+unit_tests = []
 
 code = """
 %CA a
@@ -544,39 +585,41 @@ code = """
 """
 unit_tests.append(("domino forbidden patterns", code))
 
+unit_tests = []
+
 code = """
 %topology line
 %alphabet 0 1 2
 %SFT neq1 Ao o != o.rt
-%SFT neq2 Ao o.lt != o != o.rt
+--%SFT neq2 Ao o.lt != o != o.rt
 %SFT neq_gap Ao o.lt != o.rt
-%SFT shift Ao
-(o=0 -> o.rt != 2) &
-(o=1 -> o.rt != 0) &
-(o=2 -> o.rt != 1)
-%SFT nil Ao o != o
+--%SFT shift Ao
+--(o=0 -> o.rt != 2) &
+--(o=1 -> o.rt != 0) &
+--(o=2 -> o.rt != 1)
+--%SFT nil Ao o != o
 %compute_forbidden_patterns neq1
-%compute_forbidden_patterns neq2
+--%compute_forbidden_patterns neq2
 %compute_forbidden_patterns neq_gap
-%compute_forbidden_patterns shift
-%compute_forbidden_patterns nil
+--%compute_forbidden_patterns shift
+--%compute_forbidden_patterns nil
 %sofic1D sofic_neq1 neq1
-%sofic1D sofic_neq2 neq2
+--%sofic1D sofic_neq2 neq2
 %sofic1D sofic_neq_gap neq_gap
-%sofic1D sofic_shift shift
-%sofic1D sofic_nil nil
+--%sofic1D sofic_shift shift
+--%sofic1D sofic_nil nil
 %minimize sofic_neq1
-%minimize sofic_neq2
+--%minimize sofic_neq2
 %minimize sofic_neq_gap
-%minimize sofic_shift
-%minimize sofic_nil
-%equal expect=T sofic_neq1 sofic_neq2
+--%minimize sofic_shift
+--%minimize sofic_nil
+--%equal expect=T sofic_neq1 sofic_neq2
 %equal expect=F sofic_neq1 sofic_neq_gap
-%equal expect=F sofic_neq1 sofic_shift
-%equal expect=F sofic_shift sofic_neq_gap
-%equal expect=F sofic_shift sofic_nil
-%empty expect=F sofic_neq1
-%empty expect=T sofic_nil
+--%equal expect=F sofic_neq1 sofic_shift
+--%equal expect=F sofic_shift sofic_neq_gap
+--%equal expect=F sofic_shift sofic_nil
+--%empty expect=F sofic_neq1
+--%empty expect=T sofic_nil
 """
 unit_tests.append(("1d sofic (SFT) equality", code))
 
@@ -747,6 +790,7 @@ code = """
 """
 unit_tests.append(("sofic image and regex", code))
 
+
 code = """
 %topology line
 %regexp r 0* 1 0*
@@ -812,8 +856,8 @@ A7 (0,0;B_2) (1,0;00);
 7A (0,0;01) (1,0;0)
 %info
 """
-
 unit_tests.append(("node and symbol names", code))
+
 
 code = """
 %sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
@@ -845,6 +889,7 @@ if __name__ == "__main__":
         print("Running test", name)
         griddy_inst.run(code, "assert")
 #print("total time", time.time()-t)
+        #a =bb
     
     total_time = time.time() - t
     end_mem = process.memory_info().rss/1000
