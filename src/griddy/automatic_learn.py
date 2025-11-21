@@ -36,14 +36,14 @@ class LexMinBuilder(PatternBuilder):
             for var in circ.get_variables():
                 nvecs.add(var[:-1])
         add_uniqueness_constraints(self.sft.alph, circuits, nvecs)
-        print("circuits", circuits)
+        #print("circuits", circuits)
         self.circuit = AND(*circuits)
         self.circuit_nvecs = list(set(var[:-1] for var in self.circuit.get_variables()))
         self.circuit_vecs = list(set(nvec[0] for nvec in self.circuit_nvecs))
         self.circuit_radii = [(min(vec[i] for vec in self.circuit_vecs),
                                max(vec[i] for vec in self.circuit_vecs))
                               for i in range(sft.dim)]
-        print(self.circuit_vecs)
+        #print(self.circuit_vecs)
         self.solver = solver_process(self.circuit, ret_assignment=False)
         _ = next(self.solver)
 
@@ -314,7 +314,7 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
                                                        [struct.vec_to_word(nvec[0]) for nvec in changed],
                                                        None))
                             for nvec in changed:
-                                sent.discard(nvec[:-1])
+                                sent.discard(nvec[0])
                             break
         if msg == "eval":
             if not struct.word_dfa.accepts(data):
@@ -326,7 +326,7 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
             if all((vec, node) in builder.pattern for node in struct.nodes):
                 #print("found")
                 sent.add(vec)
-                (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec + (node,)]
+                (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec, node]
                                                               for node in struct.nodes}), vec))
             else:
                 # Now we have to extend the pattern
@@ -341,7 +341,7 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
                         #1/0
                         if all((vec, node) in builder.pattern for node in struct.nodes):
                             sent.add(vec)
-                            (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec + (node,)]
+                            (msg, data) = handle.send(("val", frozendict({node: builder.pattern[vec, node]
                                                               for node in struct.nodes}), vec))
                             break
                     else:
@@ -351,7 +351,7 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
                                                        [struct.vec_to_word(nvec[1]) for nvec in changed],
                                                        None))
                             for nvec in changed:
-                                sent.discard(nvec[:-1])
+                                sent.discard(nvec[0])
                             break
 
 def test():

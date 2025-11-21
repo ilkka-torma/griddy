@@ -190,7 +190,7 @@ def add_uniqueness_constraints(alphabet, circuits, nvecs):
 
 def nonnegative_patterns(dim, tr_dims, patterns):
     "Translate the pattern to have nonnegative coordinates along the specified dimensions"
-    print("nonneg öat", patterns)
+    #print("nonneg öat", patterns)
     tr_vec = []
     for i in range(dim):
         if i in tr_dims:

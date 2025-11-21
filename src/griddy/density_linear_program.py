@@ -14,7 +14,7 @@ import time
 # yield values are dicts : nvec -> pat
 # they are shared, i.e. should not be modified by the consumer
 def surroundings(the_sft, specs, radius, save_surr_to=None, load_surr_from=None):
-    print(specs, "speculature")
+    #print(specs, "speculature")
     bigdomain = set(nvsub(nvec, vec) for (vecs, domain) in specs for nvec in domain for vec in vecs+[(0,)*the_sft.dim])
     if load_surr_from is None:
         bigpat_enum = the_sft.all_patterns(bigdomain, extra_rad=radius)

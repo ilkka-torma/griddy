@@ -274,9 +274,6 @@ bot 1 ACo o.bot=0
 unit_tests.append(("identity is identity", code))
 
 
-
-
-
 code = """
 %alphabet 0 1
 %nodes top bot -- two tracks, top and bottom
@@ -449,7 +446,7 @@ unit_tests.append(("emptiness", code))
 
 
 
-unit_tests = []
+#unit_tests = []
 
 code = """
 %CA a
@@ -585,7 +582,7 @@ code = """
 """
 unit_tests.append(("domino forbidden patterns", code))
 
-unit_tests = []
+#unit_tests = []
 
 code = """
 %topology line

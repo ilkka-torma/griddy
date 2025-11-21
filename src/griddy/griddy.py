@@ -548,7 +548,7 @@ class Griddy:
                 self.SFTs[sofic_image_name] = compute_sofic_image.sofic_from_BM_and_sofic(the_ca, the_sofic)
                 
             elif cmd == "minimum_density":
-                verbose_here = True#False
+                verbose_here = False
                 sft_name = args[0]
                 if sft_name not in self.SFTs:
                     raise Exception("{} is not an SFT".format(sft_name))
@@ -991,16 +991,16 @@ class Griddy:
                 if domain_name is None:
                     dom_dim, dom_nodes, dom_top, dom_alph, dom_graph = self.dim, self.nodes, self.topology, self.alphabet, self.graph
                 else:
-                    dom_dim, dom_nodes, dom_top, dom_alph, graph = self.environments[domain_name]
+                    dom_dim, dom_nodes, dom_top, dom_alph, dom_graph = self.environments[domain_name]
                 codomain_name = kwds.get("codomain", None)
                 if codomain_name is None:
                     cod_dim, cod_nodes, cod_top, cod_alph, cod_graph = self.dim, self.nodes, self.topology, self.alphabet, self.graph
                 else:
-                    cod_dim, cod_nodes, cod_top, cod_alph, graph = self.environments[codomain_name]
+                    cod_dim, cod_nodes, cod_top, cod_alph, cod_graph = self.environments[codomain_name]
                 if dom_dim != cod_dim:
                     raise Exception("Dimension mismatch: {} is not {}".format(dom_dim, cod_dim))
                 if dom_graph != cod_graph:
-                    raise Exception("Graph mismatch: {} is not {}".format(dom_dim, cod_dim))
+                    raise Exception("Graph mismatch: {} is not {}".format(dom_graph, cod_graph))
                 circuits = [] #dict()
                 for rule in rules:
                     if rule:
@@ -1059,7 +1059,7 @@ class Griddy:
 
             elif cmd == "compose":
                 name = args[0]
-                composands = [arg[0] for arg in args[1]]
+                composands = args[1]
                 print("Composing block maps %s." % composands)#, self.CAs)
                 """
                 result_CA = self.CAs[composands[1]]
@@ -1402,7 +1402,7 @@ def report_SFT_empty(a, mode="report", truth=True, verbose=False):
     name, the_sft = a
     print("Testing whether %s is empty." % name)
     if isinstance(the_sft, sft.SFT):
-        empty = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, onesided=the_sft.onesided, circuit=circuit.F)
+        empty = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, onesided=the_sft.onesided, circuit=circuit.F)
     else:
         empty = sofic1d.Sofic1D(the_sft.nodes, the_sft.alph, the_sft.topology, dict(), onesided=the_sft.onesided)
     tim = time.time()

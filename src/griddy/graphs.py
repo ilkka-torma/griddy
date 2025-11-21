@@ -80,7 +80,13 @@ class AbelianGroup(Graph):
             for j in range(abs(i)):
                 ret.append((generators[d], sign(i)))
         return ret
-                    
+
+    def __repr__(self):
+        return "Abelian group with generators {}".format(self.generators)
+    def __eq__(self, other):
+        if not isinstance(other, AbelianGroup):
+            return False
+        return self.generators == other.generators
     #def __iter__(self):
     
 # turn a Griddy topology into a graph

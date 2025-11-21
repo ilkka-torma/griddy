@@ -36,12 +36,12 @@ def hyperrectangle(heights):
                 yield (coord,) + vec
 
 def pats(domain, alph, forbs, i=0):
-    print("AM DOING PATS", domain, alph, forbs, i)
+    #print("AM DOING PATS", domain, alph, forbs, i)
     if i >= len(domain):
         yield dict()
     else:
         nvec = domain[i]
-        print(nvec)
+        #print(nvec)
         if (nvec) == (0,0,()):
             raise Exception("da fuq")
         for pat in pats(domain, alph, forbs, i=i+1):
@@ -153,20 +153,20 @@ class PeriodAutomaton:
             x = self.border_at(vec)
             self.frontier.add((x,) + vec)
             for forb in sft.forbs:
-                print("derp frob", forb)
+                #print("derp frob", forb)
                 new_forb = dict()
                 good = True
                 for (nvec, c) in forb.items():
-                    print(nvec, c)
+                    #print(nvec, c)
                     nvec2 = wrap(pmat, nvadd(nvec, (x,)+vec))
-                    print(nvec2, "milis")
+                    #print(nvec2, "milis")
                     if nvec2 in new_forb and new_forb[nvec2] != c:
                         good = False
                         break
                     else:
                         new_forb[nvec2] = c
                 else:
-                    print("news",new_forb)
+                    #print("news",new_forb)
                     tr = 0
                     while any(nvec[0][0]+tr < self.border_at(nvec[0][1:]) for nvec in new_forb):
                         tr += 1
@@ -205,8 +205,8 @@ class PeriodAutomaton:
                 numerator, denominator = asrat.numerator, asrat.denominator
                 self.weight_numerators[a] = numerator * self.weight_denominator // denominator
             #print (self.weight_denominator, self.weight_numerators)
-        print("frontier is", self.frontier)
-        print("frontier is", self.node_frontier)
+        #print("frontier is", self.frontier)
+        #print("frontier is", self.node_frontier)
 
     def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000):
         debug_verbose = False
@@ -870,7 +870,7 @@ def border_at(pmat, vec):
 
 def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                     rotate, task_queue, res_queue, weights, chunk_size):
-    print("populating", border_forbs)
+    #print("populating", border_forbs)
     numf = len(border_forbs)
     #border_sets = [set(forb) for forb in border_forbs]
     if rotate:
@@ -890,13 +890,13 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                     shifted.append((border_forbs[ix], tr+1))
                 n = n//2
                 i += 1
-            print(shifted)
+            #print(shifted)
             pat_forbs = set()
             for (forb, tr) in shifted:
                 pat_forb = dict()
                 for (nvec, c) in forb.items():
-                    print(nvec, c)
-                    print(frontier)
+                    #print(nvec, c)
+                    #print(frontier)
                     if nvec[0][0]-tr > border_at(pmat, nvec[0][1:]):
                         break
                     tr_nvec = ((nvec[0][0]-tr,) + nvec[0][1:]), nvec[1]
@@ -904,7 +904,7 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                         pat_forb[tr_nvec] = c
                 else:
                     pat_forbs.add(fd.frozendict(pat_forb))
-            print("pfff", pat_forbs)
+            #print("pfff", pat_forbs)
             for new_front in pats(frontier, alph, pat_forbs):
                 new_pairs = []
                 sym_pairs = dict()
