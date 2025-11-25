@@ -183,7 +183,7 @@ def max_then_lex(dim, nodes, nvec):
     return (tuple(vec), nlist[0])
 
 
-def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_freq=1000):
+def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_freq=1000, infer_print_freq=500, backtrack_depth=0):
 
     words_list = []
     nvecs_list = []
@@ -216,10 +216,11 @@ def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_
         if verbose:
             print("Extended to size {}, now inferring DFAs".format(len(builder.pattern)))
 
-        min_changed = len(nvecs_list)
-        for (k, nvecs) in enumerate(nvecs_list[:-1], start=1):
-            if any(old_pattern[nvec] != builder.pattern[nvec]
-                   for nvec in nvecs):
+        min_changed = len(words_list)
+        for (k, the_words) in enumerate(words_list[:-1], start=1):
+            if any(old_pattern[struct.word_to_vec(word), node] != builder.pattern[struct.word_to_vec(word), node]
+                   for word in the_words
+                   for node in struct.nodes):
                 min_changed = k-1
                 break
         #print("min_changed", min_changed)
@@ -231,10 +232,10 @@ def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_
             word_outputs = {word :
                             frozendict({node : builder.pattern[struct.word_to_vec(word), node]
                                         for node in struct.nodes})
-                            for words in words_list[:k]
-                            for word in words}
-            #print("dede", len(words_list), k, word_outputs)
-            dfa = infer_dfa(struct.alph, word_outputs, is_valid=is_valid, verbose=verbose, print_freq=print_freq)
+                            for the_words in words_list[:k]
+                            for word in the_words}
+            
+            dfa = infer_dfa(struct.alph, word_outputs, is_valid=is_valid, verbose=verbose, print_freq=infer_print_freq, backtrack_depth=backtrack_depth)
             if dfa is None:
                 continue
 
