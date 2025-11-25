@@ -98,12 +98,13 @@ class AutomaticStructure:
             
         return True
 
-    def patches(self, domain, dfa, verbose=False):
+    def patches(self, domain, dfa, verbose=False, incomplete=False, print_freq=1):
         """
         Take a list D of node vectors in N^d and a DFA M, representing a configuration.
         The DFA reads a word in L(M) and outputs a {node : symbol} frozendict.
         Return an iterator for patches w+S occurring in the configuration,
         encoded as length-|D| tuples of symbols.
+        incomplete=True means that the dfa may not have all transitions
         """
         # We construct the states of a nondeterministic automaton for the configuration
         # over the patches and extract its possible outputs.
@@ -114,10 +115,11 @@ class AutomaticStructure:
         # The transducers read the input and feed their outputs to their respective DFAs.
         # We reject if the word DFA or some addition tranducer rejects.
 
-        if verbose:
-            print("Finding patches in automatic configuration")
+        #if verbose:
+        #    print("Finding patches in automatic configuration")
 
         vecs = list(set(nvec[0] for nvec in domain))
+        #print("domain", domain, "vecs",vecs)
         #vec_domain = dict()
         #for nvec in domain:
         #    vec = nvec[:-1]
@@ -132,22 +134,56 @@ class AutomaticStructure:
                     tuple((adder.init, dfa.init) for adder in adders))
         frontier = {the_init}
         seen = {the_init}
+        seen_patches = set()
+        i = 0
         while frontier:
-            if verbose:
-                print("Frontier size", len(frontier))
+            i += 1
+            if verbose and i%print_freq == 0:
+                print("Round {} of finding patches: frontier size {}, found {} states and {} patches".format(i, len(frontier), len(seen), len(seen_patches)))
             new_frontier = set()
             for state in frontier:
                 (w_st, add_d_pairs) = state
+                
+                # if the word_dfa and adder states are accepting, we generate a patch
+                if self.word_dfa.outputs[w_st] and\
+                   all(add_st in adder.finals
+                       for (adder, (add_st, _)) in zip(adders, add_d_pairs)):
+                    # Feed nodes to DFAs
+                    d_sts = {vec : d_st for (vec, (_, d_st)) in zip(vecs, add_d_pairs)}
+                    patch = []
+                    for nvec in domain:
+                        output_dict = dfa.outputs[d_sts[nvec[0]]]
+                        if output_dict is None:
+                            patch.append(None)
+                        else:
+                            patch.append(output_dict[nvec[1]])
+                    if None in patch:
+                        raise Exception("Invalid patch {}".format(patch))
+                    patch = tuple(patch)
+                    if patch not in seen_patches:
+                        #print("Found patch", patch)
+                        seen_patches.add(patch)
+                        yield patch
+                        
+                # then we generate new states
                 for sym in self.alph + [None]:
                     if sym is None:
                         new_w_st = w_st
                     else:
                         new_w_st = self.word_dfa(w_st, sym)
                     results_list = []
-                    for (adder, (add_st, d_st)) in zip(adders, add_d_pairs):
-                        # We put all the new states in the list and take the product
-                        results_list.append(iter([(new_add_st, dfa.read_word(d_st, add_out))
-                                                  for (new_add_st, add_out) in adder(add_st, sym)]))
+                    try:
+                        for (adder, (add_st, d_st)) in zip(adders, add_d_pairs):
+                            # We put all the new states in the list and take the product
+                            results_list.append(iter([(new_add_st, dfa.read_word(d_st, add_out))
+                                                      for (new_add_st, add_out) in adder(add_st, sym)]))
+                    except KeyError as e:
+                        if incomplete:
+                            # the dfa did not have a transition implemented, so we ignore this branch
+                            continue
+                        else:
+                            # otherwise this should not happen
+                            raise e
                     new_add_d_states = iter_prod(*results_list)
                     for new_add_d_pairs in new_add_d_states:
                         new_state = (new_w_st, tuple(new_add_d_pairs))
@@ -156,30 +192,7 @@ class AutomaticStructure:
                             new_frontier.add(new_state)
             frontier = new_frontier
 
-        if verbose:
-            print("Found", len(seen), "states, now generating patches")
 
-        seen_patches = set()
-        for (w_st, add_d_pairs) in seen:
-            if self.word_dfa.outputs[w_st] and\
-               all(add_st in adder.finals
-                   for (adder, (add_st, _)) in zip(adders, add_d_pairs)):
-                # Feed nodes to DFAs
-                d_sts = {vec : d_st for (vec, (_, d_st)) in zip(vecs, add_d_pairs)}
-                patch = []
-                for nvec in domain:
-                    output_dict = dfa.outputs[d_sts[nvec[0]]]
-                    if output_dict is None:
-                        patch.append(None)
-                    else:
-                        patch.append(output_dict[nvec[1]])
-                if None in patch:
-                    raise Exception("Invalid patch {}".format(patch))
-                patch = tuple(patch)
-                if patch not in seen_patches:
-                    #print("Found patch", patch)
-                    seen_patches.add(patch)
-                    yield patch
 
     @classmethod
     def n_ary(self, dim, arity, nodes):
@@ -204,6 +217,7 @@ class AutomaticStructure:
             return tuple(vec)
 
         def v2w(vec):
+            #print("v2w", vec)
             if any(i<0 for i in vec):
                 return None
             word = []

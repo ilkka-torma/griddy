@@ -177,42 +177,114 @@ class DFALearner:
 
 # Gold's algorithm: infer a DFA from given outputs for all words up to length k
 
-def infer_dfa(alph, word_outputs):
+def infer_dfa(alph, word_outputs, is_valid=None, backtrack_depth=0, verbose=False, print_freq=1000):
     "Given a dict of word : output containing all words up to length k, infer a DFA."
-    # merges[w] points to the earliest word that w has been merged with
-    #print("inferring", alph, word_outputs)
-    if len(word_outputs) == 1:
+    if is_valid is None:
+        is_valid = lambda _: True
+    if verbose:
+        print("Inferring DFA from {} words".format(len(word_outputs)))
+    #if len(word_outputs) == 1:
         # singleton, special case
-        return DFA(alph, {(0, sym): 0 for sym in alph}, 0, outputs={0 : min(word_outputs.values())})
-    merges = dict()
+    #    return DFA(alph, {(0, sym): 0 for sym in alph}, 0, outputs={0 : min(word_outputs.values())})
+    remaining = list(word_outputs.keys())
+    remaining.sort(key=lambda w: (len(w), w))
+    temp_trans = {(word, sym) : word + (sym,)
+                  for word in word_outputs
+                  for sym in alph
+                  if word + (sym,) in word_outputs}
+    history = []
     states = []
-    for (word, out) in sorted(word_outputs.items(), key=lambda p: (len(p[0]), p)):
-        #print("processing", word, out)
+    i = 0
+    while remaining:
+        i += 1
+        if verbose and i%print_freq == 0:
+            print("Round {} of merging: {} certain states, {} unprocessed".format(i, len(states), len(remaining)))
+        word = remaining.pop(0)
+        #print("processing", word, "with", temp_trans)
         for st_word in states:
-            if consistent(word, st_word, alph, word_outputs, merges):
-                # found not-inequivalent processed state, merge them
-                #print("merging with", st_word)
-                merges[word] = st_word
+            if consistent(word, st_word, alph, word_outputs, temp_trans):
+                #print("found not-ineq", st_word)
+                # found not-inequivalent states, merge them and their descendants
+                # by pointing all parents of word to st_word instead
+                # and removing descendants of word from unprocessed
+                old_temp_trans = temp_trans.copy()
+                for (pair, target) in list(temp_trans.items()):
+                    #print("checking", pair, target)
+                    if target == word:
+                        #print("redirect", pair, "from", word, "to", st_word)
+                        temp_trans[pair] = st_word
+                if not is_valid(DFA(alph, temp_trans, (), outputs=word_outputs)):
+                    temp_trans = old_temp_trans
+                    continue
+                desc = set([word])
+                while desc:
+                    desc = set(temp_trans[w, sym]
+                               for w in desc
+                               for sym in alph
+                               if (w, sym) in temp_trans)
+                    #print("removing descendants", desc)
+                    for w in desc:
+                        remaining.remove(w)
+                #if len(unprocessed) > 5: 1/0
                 break
         else:
-            # no mergable processed state
+            #print("making it a state")
             states.append(word)
-            merges[word] = word
 
-    # create transition table
+    # trim transition table
     trans = dict()
-    for word in states:
-        for sym in alph:
-            if word + (sym,) in merges:
-                trans[word, sym] = merges[word + (sym,)]
+    seen = {()}
+    frontier = {()}
+    while frontier:
+        new_frontier = set()
+        for st in frontier:
+            for sym in alph:
+                try:
+                    new_st = temp_trans[st, sym]
+                except KeyError:
+                    continue
+                trans[st, sym] = new_st
+                if new_st not in seen:
+                    seen.add(new_st)
+                    new_frontier.add(new_st)
+        frontier = new_frontier
+
+    # complete transition table
+    #print(len(states), "states, completing trans table")
+    unprocessed = [[word, sym, list(states)]
+                   for word in states
+                   for sym in alph
+                   if (word, sym) not in trans]
+    i = 0
+    j = 0
+    while i < len(unprocessed):
+        j += 1
+        if verbose and j%print_freq == 0:
+            print("Round {} of completing: {} transitions remain".format(j, len(unprocessed)-i))
+        if backtrack_depth is not None:
+            for k in range(0, i - backtrack_depth):
+                unprocessed[k][2] = []
+        #print("unproc", [len(p[2]) for p in unprocessed])
+        word, sym, the_states = unprocessed[i]
+        st = the_states.pop(0)
+        if consistent(st, word + (sym,), alph, word_outputs, temp_trans):
+            trans[word, sym] = st
+            if is_valid(DFA(alph, trans, (), outputs=word_outputs)):
+                i += 1
             else:
-                # find a not-inequivalent state and use it
-                for st in states:
-                    if consistent(st, word + (sym,), alph, word_outputs, merges):
-                        trans[word, sym] = st
+                # backtrack
+                del trans[word, sym]
+                while True:
+                    if unprocessed[i][2]:
+                        # we have states left to try
                         break
-                else:
-                    raise Exception("No mergable state (this should not happen)")
+                    else:
+                        # we backtrack
+                        unprocessed[i][2] = list(states)
+                        i -= 1
+                        if i == -1:
+                            return None
+
     outputs = {word : word_outputs[word]
                for word in states}
     dfa = DFA(alph, trans, (), outputs=outputs)
@@ -220,23 +292,24 @@ def infer_dfa(alph, word_outputs):
     return dfa
     
 
-def consistent(st1, st2, alph, outputs, merges, seen=None):
+def consistent(st1, st2, alph, outputs, trans, seen=None):
     "Do all words lead into equivalent states (or nothing)?"
     if seen is None:
         seen = set()
-    if (st1, st2) in seen or st1 not in outputs or st2 not in outputs:
+    if (st1, st2) in seen:
+        return False
+    seen.add((st1, st2))
+    if st1 not in outputs or st2 not in outputs:
         return True
     if outputs[st1] != outputs[st2]:
         return False
-    seen.add((st1, st2))
     for sym in alph:
-        new_st1 = st1 + (sym,)
-        if new_st1 in merges:
-            new_st1 = merges[st1]
-        new_st2 = st2 + (sym,)
-        if new_st2 in merges:
-            new_st2 = merges[new_st2]
-        if not consistent(new_st1, new_st2, alph, outputs, merges, seen=seen):
+        try:
+            new_st1 = trans[st1, sym]
+            new_st2 = trans[st2, sym]
+        except KeyError:
+            continue
+        if not consistent(new_st1, new_st2, alph, outputs, trans, seen=seen):
             return False
     return True
 

@@ -859,8 +859,6 @@ unit_tests.append(("node and symbol names", code))
 code = """
 %sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
 %sft y onesided=[0 1] Ao o=1 -> (o.up = o.up.up = o.up.up.rt = 0)
-%compute_forbidden_patterns x
-%compute_forbidden_patterns y
 %find_automatic_conf mode=angluin c x
 %contains expect=T x c
 %contains expect=F y c

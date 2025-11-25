@@ -276,7 +276,7 @@ class SFT:
             s.append("Circuit (of size {}): {}".format(self.circuit.complexity, self.circuit))
         return "\n".join(s)
 
-    def __contains__(self, conf, verbose=False):
+    def __contains__(self, conf, verbose=False, incomplete=False, print_freq=1):
         if not isinstance(conf, Conf):
             raise TypeError("Expected Conf, not {}".format(type(conf)))
         elif isinstance(conf, RecognizableConf):
@@ -316,19 +316,18 @@ class SFT:
             return True
         elif isinstance(conf, automatic_conf.AutomaticConf):
             #print("forbs", self.forbs)
-            domain = list(set(nvec for forb in self.forbs for nvec in forb))
-            #print("domain", domain)
-            for patch in conf.struct.patches(domain, conf.dfa, verbose=verbose):
-                #print("checking patch", patch)
-                for forb in self.forbs:
-                    for (nvec, c) in forb.items():
-                        ix = domain.index(nvec)
-                        #print("checking coord", vec, "at index", ix, "for sym", c)
-                        if patch[ix] != c:
-                            break
-                    else:
-                        #print("Found forb", forb)
-                        return False
+            domain = list(set(var[:-1] for var in self.circuit.get_variables()))
+            patch_solver = solver_process(self.circuit)
+            _ = next(patch_solver)
+            
+            for patch in conf.struct.patches(domain, conf.dfa, verbose=verbose, incomplete=incomplete, print_freq=print_freq):
+                #print("patch", patch)
+                solver_values = dict()
+                for (nvec, patch_sym) in zip(domain, patch):
+                    for sym in self.alph[nvec[1]][1:]:
+                        solver_values[nvec + (sym,)] = patch_sym == sym
+                if not patch_solver.send(solver_values):
+                    return False
             return True
         else:
             raise Exception("Unknown configuration type")
@@ -814,6 +813,7 @@ class SFT:
         #print("alph", self.alph)
         verbose_deb = True
         var_nvecs = [var[:-1] for var in self.circuit.get_variables()]
+        #print("var_nvecs", var_nvecs)
         if domain_or_rad is None:
             domain_or_rad = 0
         if type(domain_or_rad) == int:

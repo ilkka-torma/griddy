@@ -1,7 +1,7 @@
 # Learn an automatic configuration from a process that tries to build it locally
 
 from general import *
-from angluin import DFALearner, infer_dfa
+from infer_dfa import DFALearner, infer_dfa
 from automatic_conf import AutomaticStructure, AutomaticConf
 from sft import Nodes, SFT, add_uniqueness_constraints
 from finite_automata import DFA, NFA
@@ -21,6 +21,9 @@ class LexMinBuilder(PatternBuilder):
 
     def __init__(self, sft, extra_rad=0):
         super().__init__(sft)
+
+        if any(i not in sft.onesided for i in range(sft.dim)):
+            raise Exception("Lex min builder only supported for fully one-sided SFTs")
 
         self.pattern = dict()
         self.nvecs = [None]
@@ -178,13 +181,17 @@ def max_then_lex(dim, nodes, nvec):
         if the_max in vec:
             break
     return (tuple(vec), nlist[0])
+
+
 def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_freq=1000):
 
-    alph = struct.alph + list(struct.nodes)
     words_list = []
     nvecs_list = []
     #struct_dfa = struct.word_dfa.extend_alph(struct.nodes).concat(NFA.one_of(alph, list(struct.nodes))).determinize().minimize()
     old_pattern = dict()
+
+    def is_valid(dfa):
+        return sft.__contains__(AutomaticConf(struct, dfa), incomplete=True, verbose=verbose, print_freq=20)
     
     while True:
         n = len(words_list)
@@ -207,14 +214,16 @@ def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_
                 print("  Round {}: Extended to size {}".format(i, len(builder.pattern)))
 
         if verbose:
-            print("Extended to size {}, now building DFAs".format(len(builder.pattern)))
+            print("Extended to size {}, now inferring DFAs".format(len(builder.pattern)))
 
         min_changed = len(nvecs_list)
-        for (k, nvecs) in list(enumerate(nvecs_list[:-1]))[::-1]:
+        for (k, nvecs) in enumerate(nvecs_list[:-1], start=1):
             if any(old_pattern[nvec] != builder.pattern[nvec]
                    for nvec in nvecs):
-                min_changed = k
+                min_changed = k-1
+                break
         #print("min_changed", min_changed)
+        #if n>1: min_changed=1 # for now
 
         old_pattern = builder.pattern.copy()
             
@@ -224,17 +233,14 @@ def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_
                                         for node in struct.nodes})
                             for words in words_list[:k]
                             for word in words}
+            #print("dede", len(words_list), k, word_outputs)
+            dfa = infer_dfa(struct.alph, word_outputs, is_valid=is_valid, verbose=verbose, print_freq=print_freq)
+            if dfa is None:
+                continue
 
-            dfa = infer_dfa(struct.alph, word_outputs)
             if verbose:
-                print("Built DFA with", len(dfa.states), "states")
-            #lang_dfa = dfa.map_outputs(lambda c: c is not None)
-            #if not lang_dfa.equals(struct_dfa):
-            #    continue
-            conf = AutomaticConf(struct, dfa)
-            if sft.__contains__(conf, verbose=verbose):
                 print("Done, needed pattern of size", len(builder.pattern))
-                return conf
+            return AutomaticConf(struct, dfa)
         
 
 # Let's quickly implement an N^d lex min learner
@@ -253,7 +259,8 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
     n = 0
     i = 0
     extended = False
-    print("Entering learning loop")
+    if verbose:
+        print("Entering learning loop")
     while True:
         i += 1
         if verbose and i%print_freq == 0:

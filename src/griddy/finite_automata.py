@@ -148,7 +148,7 @@ class DFA:
         self.trans = {(st, sym) : st2 for ((st, sym), st2) in self.trans.items()
                       if st in reachables}
         self.states &= reachables
-        self.outputs = {st : c for (st,c) in self.outputs if st in reachables}
+        self.outputs = {st : c for (st,c) in self.outputs.items() if st in reachables}
         if verbose:
             print("Trimmed to {} states".format(len(self.states)))
 
@@ -199,8 +199,8 @@ class DFA:
         new_states = {new_coloring[st] for st in self.states}
         return DFA(self.alph, new_trans_dict, new_coloring[self.init], outputs=new_outputs, states=new_states)
 
-    def equals(self, other, ret_diff=False):
-        # If other is not NFA, acceptor only
+    def equals(self, other, ret_diff=False, incomplete=True):
+        # If other is not DFA, acceptor only
         if isinstance(other, DFA):
             reachables = {(self.init, other.init) : []}
             frontier = list(reachables)
@@ -214,7 +214,13 @@ class DFA:
                         else:
                             return False
                     for sym in self.alph:
-                        new = (self(st1, sym), other(st2, sym))
+                        try:
+                            new = (self(st1, sym), other(st2, sym))
+                        except KeyError as e:
+                            if incomplete:
+                                continue
+                            else:
+                                raise e
                         if new not in reachables:
                             reachables[new] = reachables[st1, st2] + [sym]
                             newfrontier.append(new)
@@ -227,7 +233,7 @@ class DFA:
         else:
             return self.contains(other) and other.contains(self)
 
-    def contains(self, other, track=False, verbose=False):
+    def contains(self, other, track=False, verbose=False, incomplete=True):
         # DFA-XFA containment, acceptor only
         if isinstance(other, DFA):
             if track:
@@ -245,7 +251,13 @@ class DFA:
                         else:
                             return False
                     for sym in self.alph:
-                        new = (self(st1, sym), other(st2, sym))
+                        try:
+                            new = (self(st1, sym), other(st2, sym))
+                        except KeyError as e:
+                            if incomplete:
+                                continue
+                            else:
+                                raise e
                         if new not in reachables:
                             if track:
                                 reachables[new] = reachables[st1, st2] + [sym]
