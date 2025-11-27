@@ -15,8 +15,8 @@ def normalize_markers(i, markers, domain=None):
     "Normalize a marker specification into a quadruple"
     #print("normalizing", i, markers)
     if markers is None: # Here domain should not be None
-        minpos = min(nvec[i] for nvec in domain)
-        maxpos = max(nvec[i] for nvec in domain)
+        minpos = min(nvec[0][i] for nvec in domain)
+        maxpos = max(nvec[0][i] for nvec in domain)
         return (minpos-1, minpos, maxpos+1, maxpos+2)
     elif type(markers) == int:
         return (0,0, markers,markers)
@@ -169,7 +169,7 @@ class RecognizableConf(Conf):
             for p in range(1, b-a):
                 if all(self.can_be_equal_at(nvec, nvadd(nvec, (0,)*i + (-p,) + (0,)*(self.dim-i-1)))
                        for nvec in self.pat
-                       if nvec[i] < b):
+                       if nvec[0][i] < b):
                     markers[i] = (b-p, b, c, d)
                     break
             (a, b, c, d) = markers[i]
@@ -178,7 +178,7 @@ class RecognizableConf(Conf):
             for p in range(1, d-c):
                 if all(self.can_be_equal_at(nvec, nvadd(nvec, (0,)*i + (p,) + (0,)*(self.dim-i-1)))
                        for nvec in self.pat
-                       if nvec[i] >= c):
+                       if nvec[0][i] >= c):
                     markers[i] = (a, b, c, c+p)
                     break
             (a, b, c, d) = markers[i]
@@ -194,14 +194,14 @@ class RecognizableConf(Conf):
             t = min(t for t in range(b+1, c+1)
                     if all(self.can_be_equal_at(nvec, nvadd(nvec, (0,)*i + (d-c,) + (0,)*(self.dim-i-1)))
                            for nvec in self.pat
-                           if nvec[i] >= t))
+                           if nvec[0][i] >= t))
             #print("right tail", b+1, c+1, t)
             #print(self.pat)
             # rewind left tail
             s = max(s for s in range(a, b+1)
                     if all(self.can_be_equal_at(nvec, nvadd(nvec, (0,)*i + (a-b,) + (0,)*(self.dim-i-1)))
                            for nvec in self.pat
-                           if nvec[i] < s))
+                           if nvec[0][i] < s))
             #print("left tail", a, b+1, s)
             markers[i] = (s-b+a, s, t, t+d-c)
             #print(4, i, markers[i])
@@ -233,7 +233,7 @@ class RecognizableConf(Conf):
         new_pat = dict()
         for vec in hyperrect([(a,d) for (a,_,_,d) in new_markers]):
             for node in nodes:
-                nvec = vec + (node,)
+                nvec = (vec, node)
                 new_pat[nvec] = self[nvec]
         
         return RecognizableConf(new_markers, new_pat, nodes, onesided=self.onesided)

@@ -521,7 +521,7 @@ class SFT:
             filled = dict()
             for vec in hyperrect([(-i,i+1) for _ in range(self.dim)]):
                 for node in self.nodes:
-                    nvec = vec + (node,)
+                    nvec = (vec, node)
                     filled[nvec] = conf[nvec]
             finite_conf = RecognizableConf(None, filled, self.nodes)
             #print("finite_conf", finite_conf.display_str())
@@ -536,8 +536,8 @@ class SFT:
         
         #print("deduce(", conf.display_str(), ")")
                 
-        diff_vecs = set(var[:-2] for var in self.circuit.get_variables())
-        vec_domain = set(vsub(nvec[:-1], dvec)
+        diff_vecs = set(var[0] for var in self.circuit.get_variables())
+        vec_domain = set(vsub(nvec[0], dvec)
                          for nvec in conf.pat
                          for dvec in diff_vecs)
                          

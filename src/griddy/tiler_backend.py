@@ -1,5 +1,5 @@
 from general import *
-import compiler
+import compiler2
 import sft
 from configuration import *
 from automatic_conf import *
@@ -28,10 +28,10 @@ def replace_syms(conf, pat, axis_states):
             (a, b, c, d) = marker
             #assert a == b and c == d <- this failed, I misunderstand something I guess
             for nvec in pat:
-                if nvec[i] < a:
-                    a = a-((a-nvec[i])//(c-a)+1)*(c-a)
+                if nvec[0][i] < a:
+                    a = a-((a-nvec[0][i])//(c-a)+1)*(c-a)
                 elif nvec[i] >= c:
-                    c = c+((nvec[i]-c)//(c-a)+1)*(c-a)
+                    c = c+((nvec[0][i]-c)//(c-a)+1)*(c-a)
             new_markers.append((a,a, c,c))
         elif axis_states[i] == AxisState.RECOG:
             # markers can be anything
@@ -46,11 +46,11 @@ def replace_syms(conf, pat, axis_states):
             elif c == d:
                 d = c+(c-b)
             for nvec in pat:
-                if nvec[i] < b:
-                    new_b = b-((b-nvec[i])//(b-a))*(b-a)
+                if nvec[0][i] < b:
+                    new_b = b-((b-nvec[0][i])//(b-a))*(b-a)
                     a, b = new_b-(b-a), new_b
-                elif nvec[i] >= c:
-                    new_c = c+((nvec[i]-c)//(d-c)+1)*(d-c)
+                elif nvec[0][i] >= c:
+                    new_c = c+((nvec[0][i]-c)//(d-c)+1)*(d-c)
                     c, d = new_c, new_c+(d-c)
             new_markers.append((a,b,c,d))
     
@@ -70,7 +70,7 @@ class TilerState:
     
     def __init__(self, conf=None, selection=None, dim=None, nodes=None, alph=None, sizes=None, periodic=None):
         if conf is None: # sizes+periodic used if no initial config
-            pat = {vec + (node,) : (list(alph[node]), False)
+            pat = {(vec, node,) : (list(alph[node]), False)
                    for vec in hyperrect([(0,sizes[d]) for d in range(dim)])
                    for node in nodes}
             if periodic is None:
@@ -144,11 +144,11 @@ class TilerBackend:
         self.project_to = project_to
             
     def project(self, nvec):
-        return tuple(nvec[i] for i in self.project_to) + (nvec[-1],)
+        return (tuple(nvec[0][i] for i in self.project_to), nvec[-1])
         
     def deproject(self, nvec):
-        return tuple(nvec[self.project_to.index(i)] if i in self.project_to else 0
-                     for i in range(self.sft.dim)) + (nvec[-1],)
+        return tuple(nvec[0][self.project_to.index(i)] if i in self.project_to else 0
+                     for i in range(self.sft.dim)), nvec[-1]
         
     def conf(self):
         return self.history[self.history_index].conf
@@ -254,7 +254,7 @@ class TilerBackend:
         Copy the current selection (translated to origin) to clipboard.
         Also remove the selection and save the state.
         """
-        min_vec = [min(nvec[i] for nvec in self.selection())
+        min_vec = [min(nvec[0][i] for nvec in self.selection())
                    for i in range(self.sft.dim)]
         self.clipboard = {nvsub(nvec, min_vec) : self.conf()[nvec]
                           for nvec in self.selection()}

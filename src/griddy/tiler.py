@@ -1,6 +1,6 @@
 #from language3 import *
 import math
-import compiler
+import compiler2
 import sft
 import pygame
 import configuration
@@ -265,7 +265,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     #print(topology)
 
     # check dimension in the first command of topology
-    dimension = len(topology[0][1]) - 1
+    dimension = len(topology[0][1]) # - 1
     print("dimension %s" % dimension)
     #print("dimension %s" % dimension)
     # we force topology 2-dimensional
@@ -273,8 +273,8 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
         #print(topology)
         newtopology = []
         for t in topology:
-            print(t)
-            newtopology.append((t[0],) + tuple(i[:-1] + (0, i[-1]) for i in t[1:]))
+            #print(t)
+            newtopology.append((t[0], (0, t[1]), t[2], t[3])) #(t[0],) + tuple(i[:-1] + (0, i[-1]) for i in t[1:]))
         #print (newtopology)
         topology = newtopology
     elif dimension not in [1, 2]:
@@ -348,7 +348,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     print("alph", alphabets)
     print("colors", colors)
 
-    origin = (0,)*dimension + (nodes[0],)
+    origin = ((0,)*dimension), nodes[0]
 
     #que = Queue()
 
@@ -531,7 +531,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     #    print(x0, y0, n, vadd(to_screen(x0, y0), smul(zoom,nodeoffsets[nodes[n]]), d, x, y)
                     if d < dist:
                         dist = d
-                        closest = (x0, y0, n)
+                        closest = ((x0, y0), n)
         return closest
         
         
@@ -554,7 +554,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         continue
                     nodeu, nodev = vadd(to_screen(x, y), vmul(zoom, nodeoffsets[nodes[n]]))
                     if min(u1,u2) <= nodeu <= max(u1,u2) and min(v1,v2) <= nodev <= max(v1,v2):
-                        res.append((x,y,n))
+                        res.append(((x,y),n))
         
         return res
     # print(get_node(0,7))
@@ -720,27 +720,28 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     if drawcolor == FIXITY:
                         paint_fixity = None
                         conf = backend.conf()
-                        for (x,y,n) in sel:
-                            val = conf[x,y,nodes[n]]
+                        for ((x,y),n) in sel:
+                            val = conf[(x,y),nodes[n]]
                             if val is not None:
                                 paint_fixity = False
                                 if not val[1]:
                                     paint_fixity = True
                                     break
                         if paint_fixity is not None:
-                            for (x,y,n) in sel:
-                                val = conf[x,y,nodes[n]]
+                            for ((x,y),n) in sel:
+                                val = conf[(x,y),nodes[n]]
                                 if val is not None and (type(val) != list or len(val) == 1):
-                                    patch[x,y,nodes[n]] = (val[0], paint_fixity)
+                                    patch[(x,y),nodes[n]] = (val[0], paint_fixity)
                     else:
-                        for (x,y,n) in sel:
+                        for ((x,y),n) in sel:
                             if drawcolor == EMPTY:
-                                patch[x,y,n] = None
+                                patch[(x,y),n] = None
                             elif drawcolor == UNKNOWN:
-                                patch[x,y,n] = (list(the_SFT.alph[n]), False)
+                                patch[(x,y),n] = (list(the_SFT.alph[n]), False)
                             else:
                                 if drawcolor[1] < len(the_SFT.alph[n]):
-                                    patch[x,y,n] = (the_SFT.alph[n][drawcolor[1]], True)
+                                    patch[(x,y),n] = (the_SFT.alph[n][drawcolor[1]], True)
+                    
                     backend.replace_patch(patch)
                     currentstate = TILING_UNKNOWN
                     #backend.update_selection(set(), save=False)
@@ -932,7 +933,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
         """
         
         if pasting and node != None:
-            x, y, _ = node
+            (x, y), _ = node
             backend.paste_clipboard((x,y))
 
         # cases where grid is perhaps clicked
@@ -946,16 +947,17 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
             #        period_ok = False
             # cases where we should change
             currentstate = TILING_UNKNOWN
-            node = node[:-1] + (nodes[node[-1]],)
+            node = (node[0], nodes[node[-1]])
             if drawcolor == EMPTY:
                 patch = {node : None}
                 for n in hidden_nodes: # TODO: this is repeated many times
-                    patch[node[:-1] + (n,)] = None
+                    patch[node[0], n] = None
+                
                 backend.replace_patch(patch)
             elif drawcolor == UNKNOWN:
                 patch = {node : (list(alphabets[node[-1]]), False)}
                 for n in hidden_nodes: # TODO: this is repeated many times
-                    patch[node[:-1] + (n,)] = (alphabets[n], False)
+                    patch[node[0], n] = (alphabets[n], False)
                 backend.replace_patch(patch)
             elif drawcolor == FIXITY:
                 conf = backend.conf()
@@ -971,7 +973,8 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 
                 patch = {node : (alphabets[node[-1]][drawcolor[1]], True)}
                 for n in hidden_nodes:
-                    patch[node[:-1] + (n,)] = (alphabets[n], False)
+                    patch[node[0], n] = (alphabets[n], False)
+                print("replacing", patch)
                 backend.replace_patch(patch)
                     
 
@@ -988,7 +991,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 if selection_anchor is not None:
                     u1, v1 = mpos
                     u2, v2 = selection_anchor
-                    selection = set((x,y,nodes[n]) for (x,y,n) in get_nodes_in_rect(u1, screenheight-v1, u2, v2))
+                    selection = set(((x,y),nodes[n]) for ((x,y),n) in get_nodes_in_rect(u1, screenheight-v1, u2, v2))
             elif mouserchanged:
                 if shift_modifier:
                     backend.update_selection(backend.selection() | selection)
@@ -1000,7 +1003,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 selection = set()
 
         if node is not None and mouseisdown and mousechanged and cursor_state == CursorState.MOVE_MARKERS and not cancel_non_UI:
-            x, y, _ = node
+            (x, y), _ = node
             if moving_marker is None:
                 for (axis, marker) in enumerate(backend.conf().markers):
                     if any([x,y][axis] == mark for mark in marker):
@@ -1054,16 +1057,16 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                             continue
 
                         #print("apbara", conf.display_str(), x, y, nodes[n])
-                        if Noneish(conf[x, y, nodes[n]]):
+                        if Noneish(conf[(x, y), nodes[n]]):
                             continue
                         for t in topology:
                             a, b = t[1], t[2]
                             if a[-1] in hidden_nodes:
                                 continue
                             if a[-1] == nodes[n]:
-                                xx, yy, nn = vadd((x, y), vsub(b[:-1], a[:-1])) + (b[2],)
+                                (xx, yy), nn = (vadd((x, y), vsub(b[:-1], a[:-1])), b[2])
                                 #print(xx,yy,nn,nodes,conf)
-                                if not Noneish(conf[xx, yy, nn]):
+                                if not Noneish(conf[(xx, yy), nn]):
                                     p = vadd(to_screen(x, y), vmul(zoom, nodeoffsets[nodes[n]]))
                                     #pp = to_screen(*vadd((xx, yy), nodeoffsets[nn]))
                                     pp = vadd(to_screen(xx, yy), vmul(zoom, nodeoffsets[nn]))
@@ -1079,15 +1082,15 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         continue
                     p = vadd(to_screen(x, y), vmul(zoom, nodeoffsets[nodes[n]]))
                     # highlight selected nodes and nodes currently being selected
-                    if (x,y,nodes[n]) in selection:
-                        if (x,y,nodes[n]) in backend.selection():
+                    if ((x,y),nodes[n]) in selection:
+                        if ((x,y),nodes[n]) in backend.selection():
                             pygame.draw.circle(screen, GREEN, cp_to_screen(p), nodesize+6)
                         else:
                             pygame.draw.circle(screen, YELLOW, cp_to_screen(p), nodesize+6)
-                    elif (x,y,nodes[n]) in backend.selection():
+                    elif ((x,y),nodes[n]) in backend.selection():
                         pygame.draw.circle(screen, BLUE, cp_to_screen(p), nodesize+6)
                         
-                    if Noneish(conf[x,y,nodes[n]]):
+                    if Noneish(conf[(x,y),nodes[n]]):
                         continue
                     else:
 
@@ -1098,9 +1101,9 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         #print(grid[(x,y,n)] )
                         #print("seeing", conf[x,y,nodes[n]], "at", (x,y,nodes[n]))
                         if isinstance(conf, RecognizableConf):
-                            sym, fixed = conf[x,y,nodes[n]]
+                            sym, fixed = conf[(x,y),nodes[n]]
                         elif isinstance(conf, AutomaticConf):
-                            sym = conf[x,y,nodes[n]]
+                            sym = conf[(x,y),nodes[n]]
                             fixed = False
                         #print(sym, fixed)
                         if type(sym) == list:
