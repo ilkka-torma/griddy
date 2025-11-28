@@ -1,0 +1,56 @@
+-- Define the Robinson tile set.
+-- We only list the south and west color (and the parity bits) of each tile
+-- and get the north and east color from its neighbors.
+%nodes H V S W
+%alphabet {H : [0 1] V : [0 1] S : [D R L d r l] W : [D L R d l r]}
+-- On S, capital letters are down and others are up.
+-- On W, capital letters are left and others are right.
+-- Side arrow positions are from the perspective of the main arrow.
+%SFT robinson onesided=[0 1] ACo
+let cross n e s w :=
+  (n = d & e = d & s = L & w = R) |
+  (n = d & e = l & s = R & w = D) |
+  (n = l & e = r & s = D & w = D) |
+  (n = r & e = d & s = D & w = L)
+in
+let downarrow n e s w :=
+  (s = n = D | s = n = L | s = n = R) &
+  (e = D & w = d | e = L & w = r)
+in
+let uparrow n e s w :=
+  (s = n = d | s = n = l | s = n = r) &
+  (e = D & w = d | e = R & w = l)
+in
+let leftarrow n e s w :=
+  (e = w = D | e = w = L | e = w = R) &
+  (n = D & s = d | n = R & s = l)
+in
+let rightarrow n e s w :=
+  (e = w = d | e = w = l | e = w = r) &
+  (n = D & s = d | n = L & s = r)
+in
+  (cross o.(0,1).S o.(1,0).W o.S o.W |
+  ((o.H=1 | o.V=1) &
+   (downarrow  o.(0,1).S o.(1,0).W o.S o.W |
+    uparrow    o.(0,1).S o.(1,0).W o.S o.W |
+    leftarrow  o.(0,1).S o.(1,0).W o.S o.W |
+    rightarrow o.(0,1).S o.(1,0).W o.S o.W
+    )))
+   
+   &
+  -- Update parity.
+  o.H = o.(0,1).H &
+  o.H != o.(1,0).H &
+  o.V = o.(1,0).V &
+  o.V != o.(0,1).V
+
+-- Find an automatic configuration over the Robinson tiles.
+-- This takes a few minutes.
+%find_automatic_conf c robinson extra_rad=2 @verbose print_freq=10000 infer_print_freq=500
+
+-- Show the configuration in the visualizer
+%tiler robinson initial=c
+  node_offsets={S : [1/2 0] W : [0 1/2] H : [2/5 1/2] V : [3/5 1/2]}
+  pictures={S : [robU_r270 robUR_r270 robUL_r270 robU_r90 robUR_r90 robUL_r90]
+  	    W : [robU_r180 robUL_r180 robUR_r180 robU robUL robUR]}
+  colors={D : [128 128 128] d : [128 128 128] R : [255 128 128] r : [255 128 128] l : [128 255 128] L : [128 255 128] 0 : [128 128 128] 1 :[128 128 128]}
