@@ -702,13 +702,14 @@ class Griddy:
                 infer_print_freq = kwds.get("infer_print_freq", 1000)
                 search_mode = kwds.get("mode", "gold")
                 backtrack_depth = kwds.get("backtrack_depth", 0)
+                max_lookahead = kwds.get("max_lookahead", None)
                 verb = "verbose" in flags
                 try:
                     the_sft = self.SFTs[sft_name]
                 except KeyError:
                     raise Exception("No SFT named {}".format(sft_name))
                 struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, arity, the_sft.nodes) # for now
-                builder = automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad)
+                builder = automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad, max_lookahead=max_lookahead)
                 print("Finding automatic configuration in SFT", sft_name)
                 if search_mode == "angluin":
                     conf = automatic_learn.learn_lex_min_angluin(struct, the_sft, builder, verbose=verb, print_freq=print_freq)
