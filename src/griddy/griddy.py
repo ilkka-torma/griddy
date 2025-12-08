@@ -711,11 +711,13 @@ class Griddy:
                 struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, arity, the_sft.nodes) # for now
                 builder = automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad, max_lookahead=max_lookahead)
                 print("Finding automatic configuration in SFT", sft_name)
+                tim = time.time()
                 if search_mode == "angluin":
                     conf = automatic_learn.learn_lex_min_angluin(struct, the_sft, builder, verbose=verb, print_freq=print_freq)
                 elif search_mode == "gold":
                     conf = automatic_learn.learn_lex_min_gold(struct, the_sft, builder, verbose=verb, print_freq=print_freq, infer_print_freq=infer_print_freq, buffer_rad=buffer_rad, backtrack_depth=backtrack_depth)
                 self.confs[conf_name] = conf
+                print("Calculation took", time.time()-tim, "seconds")
 
             elif cmd == "show_formula" and mode == "report":
                 name = args[0]
