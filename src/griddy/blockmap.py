@@ -59,8 +59,6 @@ class BlockMap:
                 for a in to_alphabet[n]:
                     if (n, a) in self.circuits:
                         circs[a] = self.circuits[(n, a)]
-                    else:
-                        print(n, a, self.circuits.keys())
                 # check if we should add default case because one is explicitly missing
                 if len(circs) < len(to_alphabet[n]):
                     default_found = False

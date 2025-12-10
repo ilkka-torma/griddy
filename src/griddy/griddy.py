@@ -1109,9 +1109,16 @@ class Griddy:
                 the_bm = self.blockmaps[name]
                 # by default, we try to find inverse of radius 1 -- could be radius of given tho
                 rad = kwds.get("radius", 1) 
-                if mode == "report":
-                    print("Checking existence of post inverse (retraction) with radius %s." % rad)
-                print(the_bm.injective_to_graph_ball(int(rad)))
+                #if mode == "report":
+                print("Checking existence of post inverse (retraction) with radius %s." % rad)
+                result = the_bm.injective_to_graph_ball(int(rad))
+                print("Result?", result)
+
+                expect = kwds.get("expect", None)
+                print(expect)
+                if expect is not None and mode == "assert":
+                    print(result, "=", expect)
+                    assert result == (expect == "T")
                 
             elif cmd == "tiler":
                 import tiler

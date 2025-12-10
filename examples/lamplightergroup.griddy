@@ -20,8 +20,9 @@ top 1 ACo o.top=1;
 bot 1 ACo o.bot=1
 %compose ARRRALLLLLARR A R R R A L L L L L A R R
 %compose LLARRRRRALLLA L L A R R R R R A L L L A
-%equal ARRRALLLLLARR LLARRRRRALLLA -- A A^{L^3} A^{R^2} = A^{R^2} A^{L^3} A
+%equal ARRRALLLLLARR LLARRRRRALLLA expect=T -- A A^{L^3} A^{R^2} = A^{R^2} A^{L^3} A
 %compose ARRRALLLLARR A R R R A L L L L A R R
 %compose LLARRRRALLLA L L A R R R R A L L L A
 %spacetime_diagram st ARRRALLLLARR
-%equal ARRRALLLLARR LLARRRRALLLA -- A A^{L^3} A^R R != A^{R^2} A^{L^2} A^R L
+%equal ARRRALLLLARR LLARRRRALLLA expect=F -- A A^{L^3} A^R R != A^{R^2} A^{L^2} A^R L
+%has_retraction ARRRALLLLARR radius=2 expect=T

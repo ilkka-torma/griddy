@@ -274,6 +274,9 @@ bot 1 ACo o.bot=0
 unit_tests.append(("identity is identity", code))
 
 
+# The following is the usual faithful lamplighter group action
+# by cellular automata. We check some identities, construct 
+# the spacetime subshift, and check injectivity of some composition.
 code = """
 %alphabet 0 1
 %nodes top bot -- two tracks, top and bottom
@@ -302,6 +305,8 @@ bot 1 ACo o.bot=1
 %compose LLARRRRALLLA L L A R R R R A L L L A
 %spacetime_diagram st ARRRALLLLARR
 %equal expect=F ARRRALLLLARR LLARRRRALLLA
+%has_retraction ARRRALLLLARR radius=1 expect=F
+%has_retraction ARRRALLLLARR radius=2 expect=T
 """
 unit_tests.append(("lamplighter", code))
 
@@ -868,7 +873,6 @@ code = """
 """
 
 unit_tests.append(("automatic conf search", code))
-
 
 code = """
 %nodes a b
