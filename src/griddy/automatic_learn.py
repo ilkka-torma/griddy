@@ -112,6 +112,7 @@ class LexMinBuilder(PatternBuilder):
                     del self.last_nvecs[-1]
             ret = (False, changed)
         self.max_size = max(self.max_size, len(self.pattern))
+        return ret
 
     def _try_extend(self, nvec, syms, proc_vars=None):
         #if len(self.pattern) < 6:
@@ -366,9 +367,8 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
                     success, changed = builder.extend()
                     j+=1
                     if success:
-                        if j%print_freq == 0:
-
-                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find counterexample")
+                        if verbose and j%print_freq == 0:
+                            print("  Extended at", changed, "to size", len(builder.pattern), "to find counterexample")
                         #if len(builder.pattern)%100 == 0:
                         #    print("extended at", changed, "now size", len(builder.pattern))
                         if conf[changed] != builder.pattern[changed]:
@@ -403,8 +403,8 @@ def learn_lex_min_angluin(struct, sft, builder, verbose=False, print_freq=1000):
                     #print("not found, extending")
                     success, changed = builder.extend()
                     if success:
-                        if j%print_freq == 0:
-                            print("  Extended at", builder.nvecs[-1], "to size", len(builder.pattern), "to find", vec)
+                        if verbose and j%print_freq == 0:
+                            print("  Extended at", changed, "to size", len(builder.pattern), "to find", vec)
                         #1/0
                         if all((vec, node) in builder.pattern for node in struct.nodes):
                             sent.add(vec)
