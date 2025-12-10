@@ -870,6 +870,30 @@ code = """
 unit_tests.append(("automatic conf search", code))
 
 
+code = """
+%nodes a b
+%alphabet {a:[0 1 2] b:[0 1]}
+%topology
+up (0, 0; a) (0, 1; a);
+up (0, 0; b) (0, 1; b);
+dn (0, 0; a) (0, -1; a);
+dn (0, 0; b) (0, -1; b);
+lt (0, 0; a) (-1, 0; a);
+lt (0, 0; b) (-1, 0; b);
+rt (0, 0; a) (1, 0; a);
+rt (0, 0; b) (1, 0; b);
+%CA test
+a 0 Ao o.a=0;
+a 1 Ao (o.a=2 & o.up.rt.b=1) | (o.a=1 & o.rt.up.b=0);
+a 2 Ao (o.a=1 & o.rt.up.b=1) | (o.a=2 & o.up.rt.b=0);
+b 0 Ao o.b=0;
+b 1 Ao o.b=1;
+%has_post_inverse test radius=0 expect=F
+%has_post_inverse test radius=1 expect=F
+%has_post_inverse test radius=2 expect=T
+"""
+unit_tests.append(("Post-inverses of CA (= injectivity)", code))
+
 if __name__ == "__main__":
 
     t = time.time()

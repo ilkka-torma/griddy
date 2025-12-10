@@ -826,7 +826,8 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
     #print()
     # should be name of variable
     if type(expr) != tuple:
-        pos = pos_variables[expr]
+        # this may raise keyerror, which we catch...
+        pos = pos_variables[expr] 
         # if not tuple, it's a chain of variables, just go down
         if type(pos) != tuple:
             return eval_to_position_(graph, topology, nodes, pos, pos_variables, top=False)

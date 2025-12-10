@@ -15,7 +15,7 @@ class BlockMap:
     def __init__(self, from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology,
                  to_topology, graph, overlaps="remove", verbose=False):
 
-        #print(circuits)
+        ##print(circuits)
                      
         #print(from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology, to_topology, overlaps, graph)
         
@@ -45,11 +45,22 @@ class BlockMap:
             
             self.circuits = self.circuits_from_list(circuits, overlaps)
 
+            # check that there are no additional circuits, just to catch bugs
+            for (n, a) in self.circuits:
+                if n not in to_nodes:
+                    raise Exception(n, "is not a node in range of CA")
+                if a not in to_alphabet[n]:
+                    raise Exception(a, "is not in alphabet of node", n, "in range of CA")
+            
+            ##print("here", self.circuits)
+
             for n in to_nodes:
                 circs = {}
                 for a in to_alphabet[n]:
                     if (n, a) in self.circuits:
                         circs[a] = self.circuits[(n, a)]
+                    else:
+                        print(n, a, self.circuits.keys())
                 # check if we should add default case because one is explicitly missing
                 if len(circs) < len(to_alphabet[n]):
                     default_found = False
@@ -266,7 +277,7 @@ class BlockMap:
         return ret
     """
 
-    def injective_to_graph_ball(self, r):
+    def injective_to_graph_ball(self, r, img_alphabet = None):
         # two circuits per position per letter
         # force images same
         # force preimage different at origin
@@ -281,10 +292,13 @@ class BlockMap:
                     # and also add x at the end, we make two copies of each
                     # def move_rel(self, cell, offset): = move to cell that is at offset relative to the input cell
                     # x[2] is the VALUE of the cell, so label should be before for ldaccing to work
-                    def shift(x, label): return self.graph.move_rel(p, x[0]), x[1], label, x[2] #return vadd(v[:-2], p) + v[-2:] + (x,)
+                    def shift(x, label):
+                        return self.graph.move_rel(p, x[0]), x[1], label, x[2] #return vadd(v[:-2], p) + v[-2:] + (x,)
                     transform(circA, lambda y:shift(y, "A"))
                     #circuits[p + (n, a, 0)] = circA
+                    #print("circA", circA)
                     transform(circB, lambda y:shift(y, "B"))
+                    #print("circB", circB)
                     #circuits[p + (n, a, 1)] = circB
                     eq_circuits.append(IFF(circA, circB))
                     #print(IFF(circA, circB))
@@ -292,12 +306,11 @@ class BlockMap:
         origin = self.graph.origin()
         differents = []
         for n in self.from_nodes:
-            for a in self.from_alphabet[n]:
+            for a in self.from_alphabet[n][1:]:
                 differents.append(XOR(V((origin, n, "A", a)), V((origin, n, "B", a))))
+        #print(differents)
         # all images must be the same, and some central node has diff preimage
-        def lda(a):
-            #print(self.from_alphabet, a)
-            return self.from_alphabet[a[1]]
+        def lda(a): return self.from_alphabet[a[1]]
         ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents)), LDAC2(lda))
         return ret
         

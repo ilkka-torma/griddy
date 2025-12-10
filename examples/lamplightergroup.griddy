@@ -2,10 +2,10 @@
 %nodes top bot -- two tracks, top and bottom
 %dim 1
 %topology
-rt (0, top) (1, top);
-rt (0, bot) (1, bot);
-lt (0, top) (-1, top);
-lt (0, bot) (-1, bot)
+rt (0; top) (1; top);
+rt (0; bot) (1; bot);
+lt (0; top) (-1; top);
+lt (0; bot) (-1; bot)
 %CA R -- partial right shift on the top track
 top 1 ACo o.rt.top=1;
 bot 1 ACo o.bot=1

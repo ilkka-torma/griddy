@@ -1027,6 +1027,7 @@ class Griddy:
                         #print("CA rule", node, sym, formula)
                         circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
                                                            self.externals, simplify="simplify" in flags, graph=self.graph)
+                        #print(circ)
                         #graph, topology, nodes, alphabet, formula, externals, simplify=True
                         #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
                         circuits.append((node, sym, circ))

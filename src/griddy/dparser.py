@@ -518,7 +518,7 @@ commands = [
             flags = ["verbose"]),
     Command("has_post_inverse",
             [var_label],
-            opts = ["radius"],
+            opts = ["radius", "expect"],
             aliases = ["has_retraction"]),
     Command("relation",
             [var_label, var_label],
