@@ -1112,13 +1112,34 @@ class Griddy:
                 #if mode == "report":
                 print("Checking existence of post inverse (retraction) with radius %s." % rad)
                 result = the_bm.injective_to_graph_ball(int(rad))
-                print("Result?", result)
+                if result:
+                    if the_bm.partial:
+                        print("A post inverse might exist (the blockmap is partial!)")
+                    else:
+                        print("A post inverse exists.")
+                else:
+                    print("A post inverse of that radius does not exist.")
 
                 expect = kwds.get("expect", None)
-                print(expect)
+                #print(expect)
                 if expect is not None and mode == "assert":
                     print(result, "=", expect)
                     assert result == (expect == "T")
+
+            # restrict alphabets of codomain
+            elif cmd == "restrict_codomain":
+                name = args[0]
+                codomain_name = args[1]
+
+                cod_dim, cod_nodes, cod_top, cod_alph, cod_graph = self.environments[codomain_name]
+
+                # we just restrict to a partial CA, which will work for injectivity and surj checks
+                # since a blockmap has exact circuits for all symbols, now it just doesn't cover all
+                self.blockmaps[name].to_alphabet = cod_alph
+                self.blockmaps[name].partial = True
+                # some basic checks at least
+                assert self.blockmaps[name].to_nodes == cod_nodes
+                assert self.blockmaps[name].to_topology == cod_top
                 
             elif cmd == "tiler":
                 import tiler

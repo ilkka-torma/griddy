@@ -29,6 +29,8 @@ class BlockMap:
         self.to_topology = to_topology
         self.graph = graph
 
+        self.partial = True
+
         #assert type(circuits) == dict
         if verbose:
             print("constructing CA of dim", dimension, "from nodes", from_nodes, "and alphabet", from_alphabet, "to", to_nodes, to_alphabet)
@@ -275,14 +277,20 @@ class BlockMap:
         return ret
     """
 
-    def injective_to_graph_ball(self, r, img_alphabet = None):
+    def injective_to_graph_ball(self, r):
         # two circuits per position per letter
         # force images same
         # force preimage different at origin
+
+        #print(self.to_alphabet)
+        
+        # construct circuits saying that two have same image
         eq_circuits = []
+        # we allow a partial CA, but injectivity only checked if we actually specify _some_ image everywhere
+        some_image = []
         for p in self.graph.ball(r):
-            #print(p)
             for n in self.to_nodes:
+                some_letter = []
                 for a in self.to_alphabet[n]:
                     circA = self.circuits[(n, a)].copy()
                     circB = self.circuits[(n, a)].copy()
@@ -299,17 +307,19 @@ class BlockMap:
                     #print("circB", circB)
                     #circuits[p + (n, a, 1)] = circB
                     eq_circuits.append(IFF(circA, circB))
+                    some_letter.append(circA) # one of these should say yes
                     #print(IFF(circA, circB))
+                # check that one says yes
+                some_image.append(OR(*some_letter)) 
                     
         origin = self.graph.origin()
         differents = []
         for n in self.from_nodes:
             for a in self.from_alphabet[n][1:]:
                 differents.append(XOR(V((origin, n, "A", a)), V((origin, n, "B", a))))
-        #print(differents)
-        # all images must be the same, and some central node has diff preimage
+        # all images must be the same, and some central node has diff preimage, and all images have to be specified
         def lda(a): return self.from_alphabet[a[1]]
-        ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents)), LDAC2(lda))
+        ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda))
         return ret
         
     def __repr__(self):

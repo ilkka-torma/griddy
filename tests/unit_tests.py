@@ -898,6 +898,25 @@ b 1 Ao o.b=1;
 """
 unit_tests.append(("Post-inverses of CA (= injectivity)", code))
 
+code = """
+%alphabet 0 1 2 wut
+%topology line
+%save_environment big
+%alphabet 0 1 2
+%save_environment small
+%CA test codomain=big --@verbose
+--0 Ao let sz a b := a=0&b=0|a=1&b=2|a=2&b=1 in
+--let so a b := a=1&b=0|a=0&b=1|a=2&b=2 in
+--let st a b := a=2&b=0|a=0&b=2|a=1&b=1 in
+--sz o o.rt;
+0 Ao o=0&o.rt=1 | o=1&o.rt=2;
+wut Ao o@o
+%has_post_inverse test radius=4 expect=F
+%restrict_codomain test small
+%has_post_inverse test radius=4 expect=T
+"""
+unit_tests.append(("Post-inverses of partial CA", code))
+
 if __name__ == "__main__":
 
     t = time.time()

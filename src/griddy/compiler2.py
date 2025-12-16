@@ -475,6 +475,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         raise Exception("Unknown operation: " + op)
     #print ("from formula", formula)
     #print("ret", ret)
+    #print(op)
     return ret
 
 # wrap to graph, use the new compiler, go back

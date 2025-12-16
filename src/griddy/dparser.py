@@ -516,6 +516,8 @@ commands = [
             [var_label,
              ["MANY", var_label]],
             flags = ["verbose"]),
+    Command("restrict_codomain",
+            [var_label, var_label]),
     Command("has_post_inverse",
             [var_label],
             opts = ["radius", "expect"],
