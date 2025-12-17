@@ -282,17 +282,24 @@ class Griddy:
                     self.alphabet = the_sft.alph
                     self.graph = the_sft.graph
                     
-            elif cmd == "sft":
+            elif cmd == "sft" or cmd == "clopen":
                 name = args[0]
                 defn = args[1]
                 onesided = kwds.get("onesided", [])
+                if cmd == "sft":
+                    constructor = sft.SFT
+                else:
+                    constructor = sft.Clopen
                 if "verbose" in flags:
-                    print("Defining SFT named", name)
+                    if cmd == "sft":
+                        print("Defining SFT named", name)
+                    else:
+                        print("Defining clopen set named", name)
                 # Definition is either a list of forbidden patterns or a formula
                 if type(defn) == list:
                     forbs = [{self.process_nvec(nvec) : sym for (nvec, sym) in forb.items()} for forb in defn]
                     #print("defn", defn, "forbs", forbs)
-                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
+                    self.SFTs[name] = constructor(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
                 elif type(defn) == tuple:
                     #print("defn", defn)
                     #circ = compiler.formula_to_circuit(self.nodes, self.dim, self.topology, self.alphabet,
@@ -315,7 +322,7 @@ class Griddy:
                             print ("Circuit size", s1, "reduced to", s2)
                         circ = simp
                     
-                    self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ, formula=defn, onesided=onesided)
+                    self.SFTs[name] = constructor(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ, formula=defn, onesided=onesided)
                 else:
                     raise Exception("Unknown SFT definition: {}".format(defn))
                 #print("CIRCUIT", circ)
@@ -381,7 +388,7 @@ class Griddy:
                         raise Exception("Incompatible alphabets: {} and {}".format(first.alph, other.alph))
                     if first.onesided != other.onesided:
                         raise Exception("Cannot intersect onesided and twosided SFT")
-                if isinstance(first, sft.SFT):
+                if isinstance(first, sft.SFT) or isinstance(first, sft.Clopen) or isinstance(first, sft.CSIntersection):
                     self.SFTs[isect_name] = sft.intersection(*sfts)
                 else:
                     self.SFTs[isect_name] = sofic1d.intersection(*sfts)
@@ -1435,7 +1442,7 @@ def forbos_to_formula(fof):
 def report_SFT_empty(a, mode="report", truth=True, verbose=False):
     name, the_sft = a
     print("Testing whether %s is empty." % name)
-    if isinstance(the_sft, sft.SFT):
+    if isinstance(the_sft, sft.SFT) or isinstance(the_sft, sft.Clopen) or isinstance(the_sft, sft.CSIntersection):
         empty = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, onesided=the_sft.onesided, circuit=circuit.F)
     else:
         empty = sofic1d.Sofic1D(the_sft.nodes, the_sft.alph, the_sft.topology, dict(), onesided=the_sft.onesided)
@@ -1447,7 +1454,7 @@ def report_SFT_empty(a, mode="report", truth=True, verbose=False):
     else:
         print("%s is NONEMPTY (radius %s, time %s)" % (name, rad, tim))
         if mode == "report":
-            print("Separated by " + conf.display_str())
+            print("Has element: " + conf.display_str())
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
@@ -1466,7 +1473,7 @@ def report_SFT_contains(a, b, mode="report", truth=True, method=None, verbose=Fa
     else:
         print("%s DOES NOT CONTAIN %s (radius %s, time %s)" % (aname, bname, rad, tim))
         if mode == "report":
-            print("Separated by " + conf.display_str())
+            print("Separated by: " + conf.display_str())
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")

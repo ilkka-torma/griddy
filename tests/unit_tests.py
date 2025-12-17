@@ -917,6 +917,21 @@ wut Ao o@o
 """
 unit_tests.append(("Post-inverses of partial CA", code))
 
+code = """
+%topology grid
+%info
+%sft goldenmean @verbose Ao (o=0|o.rt=0) & (o=0|o.up=0)
+%clopen test Ao o=1 & o.rt.rt = 1
+%clopen test2 Ao o.rt=1
+%intersection int goldenmean test
+%intersection int2 goldenmean test2
+%empty int expect=F
+%empty int2 expect=F
+%intersection int3 int int2
+%empty int3 expect=T
+"""
+unit_tests.append(("Intersecting SFTs and clopen sets", code))
+
 if __name__ == "__main__":
 
     t = time.time()

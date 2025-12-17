@@ -229,6 +229,298 @@ def product_patterns(prod_pat):
                 new_pat[nvec] = sym
                 yield new_pat
 
+class CSIntersection:
+    "intersection of clopen and SFT"
+    
+    def __init__(self, sft, clopen):
+        # basically inheritance, but we prefer to duck it
+
+    
+        self.sft = sft
+        self.clopen = clopen
+        #print("made inter", self.sft, self.clopen, hash(self))
+
+    @property
+    def nodes(self):
+        return self.sft.nodes
+    
+    @property
+    def alph(self):
+        return self.sft.alph
+
+    @property
+    def topology(self):
+        return self.sft.topology
+
+    @property
+    def onesided(self):
+        return self.sft.onesided
+
+    @property
+    def dim(self):
+        return self.sft.dim
+
+    @property
+    def graph(self):
+        return self.sft.graph
+
+    def ball_forces_allowed(self, other, r):
+        assert isinstance(other, SFT) # for now
+        # says yes (incorrectly! when sft = goldenmean and clopen = 1
+        all_positions = set()
+        circuits = []
+
+        #print(self.sft.circuit, self.cl<open.circuit)
+
+        bounds = [(0 if i in self.onesided else -r, r) for i in range(self.dim)]
+        
+        for vec in hyperrect(bounds):
+            circ = self.sft.circuit.copy()
+            transform(circ, lambda var: nvadd(var[:-1], vec) + (var[-1],))
+            for var in circ.get_variables():
+                all_positions.add(var[:-1]) # drop letter
+                #print(rel_pos)
+            #print("position", vec, "add", circ)
+            circuits.append(circ)
+        circuits.append(self.clopen.circuit.copy())
+        #for c in circuits:
+        #    print("circa", c)
+
+        #print (other.circuit.copy().get_variables())
+
+        not_other = NOT(other.circuit.copy())
+        for var in not_other.get_variables():
+            all_positions.add(var[:-1])
+        circuits.append(not_other)
+        #print(not_other) # true!!
+
+        #print("megalodontix")
+        #for c in circuits:
+            #print(c)
+            #print(c.get_variables())
+            #print()
+
+        # the following could be an UNSAT_under call.
+        add_uniqueness_constraints(self.alph, circuits, all_positions)
+        #print("no22")
+        m = SAT(AND(*circuits))
+        if m == False:
+            return True
+        return False
+
+    # the circuit is what is checked precisely at the origin, as this is what
+    # we happen to need in ball_forces_allowed, but it is not very meaningful in general.
+    #@property
+    #def circuit(self):
+    #    return AND(self.sft.circuit, self.clopen.circuit)
+
+
+    # Find recognizable configuration (i.e. uniformly eventually periodic in each orthogonal direction) in self which is not in other
+    # The semilinear structure is a periodic rectangular tiling, and the contents of a rectangle depend on which axes its lowest corner lies in
+    # We could also have the sizes of the rectangles depend on this, but this is simpler for now
+    # Some directions can be declared fully periodic instead of eventually periodic
+    # For a onesided non-periodic direction, only consider translates of the formula whose variables are on the nonnegative part of the axis
+    # NB. COPY PASTE FROM SFT; OF COURSE SHOULD BE REFACTORED
+    def exists_recognizable_not_in(self, other, radii, periodics=None, return_conf=False):
+
+        #print("here", hash(self))
+
+        # force other to be also CSIntersection
+        other = CSIntersectify(other)
+        #print(other.sft.circuit, other.clopen.circuit, "milli") # other should be EMPTY
+        #print(self.sft.circuit, self.clopen.circuit, "maki")
+        
+
+        if periodics is None:
+            periodics = []
+        
+        my_vecs = set(var[0] for var in self.sft.circuit.get_variables())
+        if not my_vecs:
+            my_vecs.add((0,)*self.dim)
+        other_vecs = set(var[0] for var in other.sft.circuit.get_variables())
+        if not other_vecs:
+            other_vecs.add((0,)*self.dim)
+        #print("my_vecs", my_vecs, "other_vecs", other_vecs)
+        conf_bounds = [(0 if i in self.onesided+periodics else -rad,
+                        rad if i in periodics else 2*rad)
+                       for (i, rad) in enumerate(radii)]
+        all_vecs = set(hyperrect(conf_bounds))
+        #print("all_vecs", all_vecs)
+        tr_bounds = []
+        for (i, rad) in enumerate(radii):
+            if i in self.onesided+periodics:
+                min_bound = 0
+            else:
+                min_bound = -rad - max(vec[i] for vec in chain(my_vecs, other_vecs))
+            if i in periodics:
+                max_bound = rad
+            else:
+                max_bound = 2*rad - min(vec[i] for vec in chain(my_vecs, other_vecs))
+            tr_bounds.append((min_bound, max_bound))
+        #print("radii", radii)
+        #print("conf_bounds", conf_bounds)
+        #print("tr_bounds", tr_bounds)
+
+        def wrap(var):
+            #print("var", var)
+            ret = []
+            for (i, (r,x)) in enumerate(zip(radii, var[0])):
+                if i in periodics:
+                    ret.append(x%r)
+                elif x < 0:
+                    ret.append(x%r - r)
+                elif x < r:
+                    ret.append(x)
+                else:
+                    ret.append(x%r + r)
+            ret = (tuple(ret),) + var[-2:]
+            #print("ret", ret)
+            return ret
+
+        circuits = []
+        others = []
+        # for sft part, require everywhere in bounds that circuits (ours) satisfied, but one of circs of others is not
+        for vec in hyperrect(tr_bounds):
+            #if any(vadd(vec, my_vec) in all_vecs for my_vec in my_vecs) and\
+            if all(vec[i]+my_vec[i] >= 0 for my_vec in my_vecs for i in self.onesided):
+                #print("adding my circ")
+                circ = self.sft.circuit.copy()
+                transform(circ, lambda var: wrap(nvadd(var[:-1], vec) + var[-1:]))
+                circuits.append(circ)
+                #print(vec, "self-add", circ)
+            if any(vadd(vec, other_vec) in all_vecs for other_vec in other_vecs) and\
+               all(vec[i]+other_vec[i] >= 0 for other_vec in other_vecs for i in self.onesided) and\
+               all(vec[i] == 0 or i not in periodics for i in range(self.dim)):
+                #print("adding other circ")
+                not_other = NOT(other.sft.circuit.copy())
+                transform(not_other, lambda var: wrap(nvadd(var[:-1], vec) + var[-1:]))
+                #print(vec, "other-add (not-other)", not_other)
+                others.append(not_other)
+        # for clopen part, require that our clopen circuit is ok at origin, and include circ of other in others-list
+        circ = self.clopen.circuit.copy()
+        transform(circ, lambda var: wrap(nvadd(var[:-1], (0,)*self.dim) + var[-1:]))
+        #print("ooad", circ)
+        circuits.append(circ)
+        not_other = NOT(other.clopen.circuit.copy())
+        transform(not_other, lambda var: wrap(nvadd(var[:-1], (0,)*self.dim) + var[-1:]))
+        others.append(not_other)
+        #print("sadf", not_other)
+        circuits.append(OR(*others))
+
+        #print(circuits)
+        add_uniqueness_constraints(self.alph, circuits, [vec + (node,) for vec in all_vecs for node in self.nodes])
+
+        m = SAT(AND(*circuits), True)
+        
+        if m == False:
+            if return_conf:
+                return False, None
+            else:
+                return False
+            
+        #print("model", m)
+        if return_conf:
+            pat = dict()
+            for vec in hyperrect(conf_bounds):
+                for node in self.nodes:
+                    for sym in self.alph[node][1:]:
+                        var = (vec, node, sym)
+                        if m.get(var, False):
+                            pat[(vec, node)] = sym
+                            break
+                    else:
+                        pat[(vec, node)] = self.alph[node][0]
+            #print("making separating conf from", pat, radii, periodics, self.onesided)
+            markers = []
+            for (i,r) in enumerate(radii):
+                if i in periodics:
+                    markers.append((0,0, r,r))
+                else:
+                    markers.append((-r,0,r,2*r))
+            conf = RecognizableConf(markers, pat, self.nodes, onesided=self.onesided)
+            return True, conf
+        return True
+
+    """
+    def equals(self, other, limit = None, return_radius = False, method=None, verbose=False):
+        test = self.inconsistent_with(other, verbose=verbose)
+        if test:
+            if return_radius:
+                return False, 0
+            else:
+                return False
+        if verbose:
+            print("Testing containment 1")
+        c12, rad, _ = self.contains(other, limit, return_radius_and_sep = True, method=method, verbose=verbose)
+        if c12 == None:
+            return None, limit
+        elif c12 == False:
+            return False, rad
+        if verbose:
+            print("Testing containment 2")
+        c21, rad2, _ = other.contains(self, limit, return_radius_and_sep = True, method=method, verbose=verbose)
+        if c21 == None:
+            return None, limit
+        return c21, max(rad, rad2)
+    """
+
+
+
+    
+
+def CSIntersectify(some):
+    if isinstance(some, SFT):
+        #print("from sft to", some.circuit)
+        some = CSIntersection(some, Clopen(some.dim, some.nodes, some.alph, some.topology, some.graph, circuit = T))
+    elif isinstance(some, Clopen):
+        #print("from clopen to", some.circuit)
+        some = CSIntersection(SFT(some.dim, some.nodes, some.alph, some.topology, some.graph, circuit = T), some)
+    #print(some.sft.circuit, some.clopen.circuit)
+    return some
+
+
+class Clopen:
+    "a clopen set -- like an SFT, but rules checked only at the origin"
+    
+    def __init__(self, dim, nodes, alph, topology, graph, forbs=None, circuit=None, formula=None, onesided=None):
+        # basically inheritance, but we prefer to duck it
+        self.sft = SFT(dim, nodes, alph, topology, graph, forbs=forbs, circuit=circuit, formula=formula, onesided=onesided)
+
+    @property
+    def circuit(self):
+        return self.sft.circuit
+
+    @property
+    def dim(self):
+        return self.sft.dim
+
+    @property
+    def nodes(self):
+        return self.sft.nodes
+
+    @property
+    def alph(self):
+        return self.sft.alph
+
+    @property
+    def topology(self):
+        return self.sft.topology
+
+    @property
+    def graph(self):
+        return self.sft.graph
+
+    @property
+    def onesided(self):
+        return self.sft.onesided
+
+    def ball_forces_allowed(self, other, r):
+        return CSIntersectify(self).ball_forces_allowed(other, r)
+
+    def exists_recognizable_not_in(self, other, radii, periodics=None, return_conf=False):
+        
+        return CSIntersectify(self).exists_recognizable_not_in(other, radii, periodics=periodics, return_conf=return_conf)
+    
 class SFT:
     "dim-dimensional SFT on a gridlike graph"
 
@@ -447,6 +739,7 @@ class SFT:
         return True
 
     def ball_forces_allowed(self, other, r):
+        #print("ah", self.circuit, other.circuit)
         all_positions = set()
         circuits = []
 
@@ -930,10 +1223,12 @@ class SFT:
         while limit is None or r <= limit:
             if verbose:
                 print("Trying radius", r)
+            # Check that an r-ball locally legal for other forces our circuit to eval to True.
             if other.ball_forces_allowed(self, r):
                 if return_radius_and_sep:
                     return True, r, None
                 return True
+            # Try to find a configuration that is in other, but not in this.
             if method == "recognizable":
                 res, sep = other.exists_recognizable_not_in(self, [r]*self.dim, return_conf=return_radius_and_sep)
             elif method == "periodic":
@@ -1078,10 +1373,38 @@ class SFT:
             print("Solved instance in {} seconds".format(time.time() - tim))
         return not (m == False)
 
+# intersection allows clopen sets and other intersection objects
 def intersection(*sfts):
-    assert all(node in sfts[0].nodes for other in sfts[1:] for node in other.nodes)
-    circuit = AND(*(sft.circuit.copy() for sft in sfts))
-    return SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology, sfts[0].graph, circuit=circuit, onesided=sfts[0].onesided)
+    #print("making inter", [(sft.circuit, type(sft)) for sft in sfts])
+    actually_sfts = []
+    actually_clopens = []
+    for i in sfts:
+        if isinstance(i, SFT):
+            actually_sfts.append(i)
+        elif isinstance(i, Clopen):
+            actually_clopens.append(i)
+        elif isinstance(i, CSIntersection):
+            actually_sfts.append(i.sft)
+            actually_clopens.append(i.clopen)
+
+    # we will use the nodes of the first sft.
+    first_nodes = sfts[0].nodes
+    
+    assert all(node in first_nodes for other in sfts[1:] for node in other.nodes)
+    sft_circuit = AND(*(sft.circuit.copy() for sft in actually_sfts))
+    clopen_circuit = AND(*(sft.circuit.copy() for sft in actually_clopens))
+
+    # since for now SFTs have much more functionality, return them when possible
+    if actually_clopens == []:
+        return SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
+                              sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided)
+    
+    #print(sft_circuit)
+    #print(clopen_circuit)
+    return CSIntersection(SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
+                              sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided),
+                          Clopen(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
+                                 sfts[0].graph, circuit=clopen_circuit, onesided=sfts[0].onesided))
 
 def product(*sfts, track_names=None):
     if track_names is None:

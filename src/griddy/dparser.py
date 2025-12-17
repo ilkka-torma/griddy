@@ -454,6 +454,17 @@ commands = [
             aliases = ["SFT"],
             opts = ["onesided"],
             flags = ["simplify", "verbose"]),
+
+    # This is copy/paste from SFT, could be an alias but
+    # as far as I know we can't detect which cmd was used then.
+    Command("clopen",
+            [var_label,
+             ["OR",
+              quantified,
+              ["MANY", ["MAP", vector, const_label]]]],
+            opts = ["onesided"],
+            flags = ["simplify", "verbose"]),
+    
     Command("sofic1D",
             [var_label, var_label],
             aliases = ["sofic1d"],
