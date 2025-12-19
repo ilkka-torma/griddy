@@ -3,6 +3,7 @@ from circuit import *
 from configuration import *
 from itertools import chain
 import automatic_conf
+import graphs
 
 
 class Nodes:
@@ -178,16 +179,6 @@ def minimize_solution_(circuit, vals, necessary_vals):
 
     return minimize_solution_(circuit, rest, necessary_vals + [first])
 
-# vecs is a list of vectors
-def add_uniqueness_constraints(alphabet, circuits, nvecs):
-    #print(nvecs, alphabet)
-    for nvec in nvecs:
-        #print("mekga", alphabet)
-        #print(nvec)
-        local_alph = alphabet[nvec[-1]]
-        if len(local_alph) > 2:
-            circuits.append(ATMOSTONE(*(V(nvec + (sym,)) for sym in local_alph[1:])))
-
 def nonnegative_patterns(dim, tr_dims, patterns):
     "Translate the pattern to have nonnegative coordinates along the specified dimensions"
     #print("nonneg öat", patterns)
@@ -201,6 +192,7 @@ def nonnegative_patterns(dim, tr_dims, patterns):
 
 # tr_dims are the dimensions translated to nonnegative (usually one-sided directions)
 def nonnegative_circuit(dim, tr_dims, circ):
+
     circ = circ.copy()
     variables = circ.get_variables()
     #print(variables," kikkoman")
@@ -545,7 +537,10 @@ class SFT:
             self.circuit = None
             self.deduce_circuit()
         else:
-            self.circuit = nonnegative_circuit(self.dim, self.onesided, circuit)
+            if isinstance(self.graph, graphs.AbelianGroup):
+                self.circuit = nonnegative_circuit(self.dim, self.onesided, circuit)
+            else:
+                self.circuit = circuit
         #print(self.circuit.complexity)
 
     def __str__(self):
@@ -1430,6 +1425,18 @@ def product(*sfts, track_names=None):
             topology.append(t[:2] + tuple(((tr,) + n) for n in t[2:]))
     #print(topology)
     return SFT(sfts[0].dim, nodes, alph, topology, sfts[0].graph, circuit=AND(*anded), onesided=sfts[0].onesided)
+
+# vecs is a list of vectors
+def add_uniqueness_constraints(alphabet, circuits, nvecs):
+    #print(nvecs, alphabet)
+    for nvec in nvecs:
+        #print("mekga", alphabet)
+        #print(nvec)
+        local_alph = alphabet[nvec[-1]]
+        if len(local_alph) > 2:
+            circuits.append(ATMOSTONE(*(V(nvec + (sym,)) for sym in local_alph[1:])))
+
+            
 
 
 

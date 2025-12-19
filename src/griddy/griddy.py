@@ -85,17 +85,20 @@ class Griddy:
         self.run(code)
 
     def run(self, code, mode="report", print_parsed=False):
+        #print("mode", mode)
+        # some commands accumulate results to this list, returned at the end
+        results = []
         try:
             parsed = dparser.parse_griddy(code)
             if print_parsed:
                 print(parsed)
         except parsy.ParseError as e:
-            print("Parse error: {}".format(e))
+            if mode != "silent": print("Parse error: {}".format(e))
             linenum, lineindex = parsy.line_info_at(e.stream, e.index)
             the_line = e.stream.splitlines()[linenum]
-            print(the_line)
-            print(" "*lineindex + "^")
-            if mode == "assert":
+            if mode != "silent": print(the_line)
+            if mode != "silent": print(" "*lineindex + "^")
+            if mode == "assert" or mode == "silent":
                 raise Exception("Parse error")
             return None
         #print (parsed)
@@ -292,9 +295,9 @@ class Griddy:
                     constructor = sft.Clopen
                 if "verbose" in flags:
                     if cmd == "sft":
-                        print("Defining SFT named", name)
+                        if mode != "silent": print("Defining SFT named", name)
                     else:
-                        print("Defining clopen set named", name)
+                        if mode != "silent": print("Defining clopen set named", name)
                 # Definition is either a list of forbidden patterns or a formula
                 if type(defn) == list:
                     forbs = [{self.process_nvec(nvec) : sym for (nvec, sym) in forb.items()} for forb in defn]
@@ -319,7 +322,7 @@ class Griddy:
                         s1 = sum(1 for _ in circ.internal_nodes(vars_too=True))
                         s2 = sum(1 for _ in simp.internal_nodes(vars_too=True))
                         if "verbose" in flags:
-                            print ("Circuit size", s1, "reduced to", s2)
+                            if mode != "silent": print ("Circuit size", s1, "reduced to", s2)
                         circ = simp
                     
                     self.SFTs[name] = constructor(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ, formula=defn, onesided=onesided)
@@ -348,7 +351,7 @@ class Griddy:
                 if "minimize" in flags:
                     aut = aut.determinize().minimize()
                 if verbose:
-                    print("Produced {}-state {}.".format(len(aut.states), "DFA" if isinstance(aut, finite_automata.DFA) else "NFA"))
+                    if mode != "silent": print("Produced {}-state {}.".format(len(aut.states), "DFA" if isinstance(aut, finite_automata.DFA) else "NFA"))
                 self.automata[name] = aut
                 
             elif cmd == "determinize":
@@ -475,7 +478,7 @@ class Griddy:
                 verbose = "verbose" in flags
                 extra_rad = kwds.get("extra_rad", 0)
                 if verbose:
-                    print("Extracting trace of size {} and spec {} from SFT {}".format(trace_size, trace_spec, sft_name))
+                    if mode != "silent": print("Extracting trace of size {} and spec {} from SFT {}".format(trace_size, trace_spec, sft_name))
                 the_trace = sofic1d.Sofic1D.trace(the_sft, trace_size, trace_spec, verbose=verbose, extra_rad=extra_rad)
                 self.SFTs[trace_name] = the_trace
 
@@ -574,34 +577,34 @@ class Griddy:
                 chunk_size = kwds.get("chunk_size", 200)
                 sym_bound = kwds.get("symmetry", None)
                 if sym_bound is not None and any(n%2 for n in periods[0]):
-                    print("First period vector must be even for symmetry breaking")
+                    if mode != "silent": print("First period vector must be even for symmetry breaking")
                     break
-                print_freq_pop = kwds.get("print_freq_pop", 5000)
-                print_freq_cyc = kwds.get("print_freq_cyc", 1000)
+                print_freq_pop = kwds.get("print_freq_pop", 5000) and (mode != "silent")
+                print_freq_cyc = kwds.get("print_freq_cyc", 1000) and (mode != "silent")
                 verb = "verbose" in flags
                 rot = "rotate" in flags
                 if rot and (the_sft.dim != 2 or periods[0][0] != 0):
                     raise Exception("Rotation only available in 2D and with periods (N,0)")
-                print("Computing minimum density for %s restricted to period(s) %s"%(sft_name, periods) + (" using weights {}".format(self.weights) if self.weights is not None else ""))
+                if mode != "silent": print("Computing minimum density for %s restricted to period(s) %s"%(sft_name, periods) + (" using weights {}".format(self.weights) if self.weights is not None else ""))
                 nfa = period_automaton.PeriodAutomaton(the_sft, periods, weights=self.weights, verbose=verb, rotate=rot, sym_bound=sym_bound)
                 border_size = len(the_sft.nodes)*len(nfa.frontier)
                 pmat = nfa.pmat
-                if verbose_here: print("const")
+                if mode != "silent" and verbose_here: print("const")
                 nfa.populate(verbose=verb, num_threads=threads, chunk_size=chunk_size, report=print_freq_pop)
-                if verbose_here: print("popula")
+                if mode != "silent" and verbose_here: print("popula")
                 nfa.minimize(verbose=verb)
-                if verbose_here: print("minim")
+                if mode != "silent" and verbose_here: print("minim")
                 comps = list(nfa.strong_components())
                 if not comps:
-                    print("No configurations exist with given period(s)")
+                    if mode != "silent": print("No configurations exist with given period(s)")
                     continue
-                if verbose_here: print("strng com")
+                if mode != "silent" and verbose_here: print("strng com")
                 del nfa
                 min_data = (math.inf,)
                 min_aut = None
                 for (ic, comp) in enumerate(comps):
                     if verb:
-                        print("Component {}/{} ({} states)".format(ic+1, len(comps), len(comp.trans)))
+                        if mode != "silent": print("Component {}/{} ({} states)".format(ic+1, len(comps), len(comp.trans)))
                     if comp_mode == 'Q':
                         data = comp.square_min_density_cycle(verbose=verb, num_threads=threads, report=print_freq_cyc)
                     elif comp_mode == 'S':
@@ -611,14 +614,14 @@ class Griddy:
                     if data[:1] < min_data[:1]:
                         min_data = data
                         min_aut = comp
-                if verbose_here: print("kikek")
+                if mode != "silent" and verbose_here: print("kikek")
                 if comp_mode in 'QS':
                     dens, minlen, stcyc, cyc = min_data
                     true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else b for fr in cyc for b in fr.values()),
                                                         len(cyc)*border_size)
-                    print("Density", true_dens, "~", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", len(cyc))
+                    if mode != "silent": print("Density", true_dens, "~", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", len(cyc))
                     if conf_name is None:
-                        print([(nvadd(nvec,(tr,)+(0,)*(the_sft.dim-1)),c) for (tr,pat) in enumerate(cyc) for (nvec,c) in sorted(pat.items())])
+                        if mode != "silent": print([(nvadd(nvec,(tr,)+(0,)*(the_sft.dim-1)),c) for (tr,pat) in enumerate(cyc) for (nvec,c) in sorted(pat.items())])
                     else:
                         # TODO: this should be in period_automaton
                         cycpat = dict()
@@ -626,17 +629,13 @@ class Griddy:
                             for (nvec, sym) in subpat.items():
                                 nvec = (((nvec[0][0]+tr)%len(cyc),) + nvec[0][1:], nvec[1])
                                 cycpat[nvec] = sym
-                        #print("cycpat", list(sorted(cycpat.items())))
                         conf_periods = []
                         for i in reversed(range(1, the_sft.dim)):
                             running_lcm = math.lcm(len(cyc), pmat[i-1][i])
                             for (j, per) in enumerate(conf_periods, start=1):
                                 running_lcm = math.lcm(running_lcm, per, pmat[i-1][the_sft.dim-j])
                             conf_periods.append(running_lcm)
-                        #print("cycpat", cycpat)
                         conf_periods = [len(cyc)] + conf_periods[::-1]
-                        #print("cpers", conf_periods)
-                        #print("pmat", pmat)
                         pat = dict()
                         for vec in hyperrect([(0,per) for per in conf_periods]):
                             patvec = vec
@@ -651,12 +650,12 @@ class Griddy:
                         self.confs[conf_name] = configuration.RecognizableConf(conf_periods, pat, the_sft.nodes)
                 else:
                     dens, minlen, _ = min_data
-                    print("Density", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", minlen, "in minimized automaton")
+                    if mode != "silent": print("Density", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", minlen, "in minimized automaton")
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
-                    print(true_dens, "=", expect)
+                    if mode != "silent": print(true_dens, "=", expect)
                     assert true_dens == expect
-                print("Calculation took", time.time() - tim, "seconds.")
+                if mode != "silent": print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "density_lower_bound":
                 sft_name = args[0]
@@ -684,20 +683,20 @@ class Griddy:
                 data = density_linear_program.optimal_density(the_sft, specs, rad, weights=self.weights, verbose=verb, print_freq=print_freq, ret_shares=show_rules, load_constr=load_constr, save_constr=save_constr)
                 if show_rules:
                     dens, rules = data
-                    print("Discharging rules")
+                    if mode != "silent": print("Discharging rules")
                     for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
                         if amounts:
-                            print("on {}:".format(dict(fr_pat)))
+                            if mode != "silent": print("on {}:".format(dict(fr_pat)))
                             for (vec, amount) in sorted(amounts.items()):
-                                print("send {} to {}".format(amount, vec))
+                                if mode != "silent": print("send {} to {}".format(amount, vec))
                 else:
                     dens = data
-                print("Lower bound", dens)
+                if mode != "silent": print("Lower bound", dens)
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
-                    print(dens, "=", expect)
+                    if mode != "silent": print(dens, "=", expect)
                     assert dens == expect
-                print("Calculation took", time.time() - tim, "seconds.")
+                if mode != "silent": print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "find_automatic_conf":
                 conf_name = args[0]
@@ -717,14 +716,14 @@ class Griddy:
                     raise Exception("No SFT named {}".format(sft_name))
                 struct = automatic_conf.AutomaticStructure.n_ary(the_sft.dim, arity, the_sft.nodes) # for now
                 builder = automatic_learn.LexMinBuilder(the_sft, extra_rad=extra_rad, max_lookahead=max_lookahead)
-                print("Finding automatic configuration in SFT", sft_name)
+                if mode != "silent": print("Finding automatic configuration in SFT", sft_name)
                 tim = time.time()
                 if search_mode == "angluin":
                     conf = automatic_learn.learn_lex_min_angluin(struct, the_sft, builder, verbose=verb, print_freq=print_freq)
                 elif search_mode == "gold":
                     conf = automatic_learn.learn_lex_min_gold(struct, the_sft, builder, verbose=verb, print_freq=print_freq, infer_print_freq=infer_print_freq, buffer_rad=buffer_rad, backtrack_depth=backtrack_depth)
                 self.confs[conf_name] = conf
-                print("Calculation took", time.time()-tim, "seconds")
+                if mode != "silent": print("Calculation took", time.time()-tim, "seconds")
 
             elif cmd == "show_formula" and mode == "report":
                 name = args[0]
@@ -736,9 +735,9 @@ class Griddy:
                     formula = self.blockmaps[name].circuits
                 else:
                     raise Exception("No set named %s" % name)
-                print("Showing compiled formula(s) for %s." % name)
-                print(formula)
-                print()
+                if mode != "silent": print("Showing compiled formula(s) for %s." % name)
+                if mode != "silent": print(formula)
+                if mode != "silent": print()
                 
             elif cmd == "show_parsed" and mode == "report":
                 name = args[0]
@@ -748,9 +747,9 @@ class Griddy:
                     formula = self.clopens[name][2]
                 else:
                     raise Exception("No set named %s" % name)
-                print("Showing parsed formula for %s." % name)
-                print(formula)
-                print()
+                if mode != "silent": print("Showing parsed formula for %s." % name)
+                if mode != "silent": print(formula)
+                if mode != "silent": print()
 
             elif cmd == "show_graph" and mode == "report":
                 name = args[0]
@@ -758,52 +757,52 @@ class Griddy:
                     trans = self.SFTs[name].trans
                 else:
                     raise Exception("No sofic shift named %s" % name)
-                print("Showing transition graph of %s." % name)
-                print(trans)
-                print()
+                if mode != "silent": print("Showing transition graph of %s." % name)
+                if mode != "silent": print(trans)
+                if mode != "silent": print()
 
             elif cmd == "show_environment":
                 name = kwds.get("sft", None)
                 if name == None:
-                    print (self.dim, self.nodes, self.topology, self.alphabet)
+                    if mode != "silent": print (self.dim, self.nodes, self.topology, self.alphabet)
                 else:
-                    print (self.SFTs[name].dim, self.SFTs[name].nodes, self.SFTs[name].topology, self.SFTs[name].alph)
+                    if mode != "silent": print (self.SFTs[name].dim, self.SFTs[name].nodes, self.SFTs[name].topology, self.SFTs[name].alph)
                     
             elif cmd == "info":
                 names = args[0]
                 verbose = "verbose" in flags
                 if names:
                     for name in names:
-                        print()
+                        if mode != "silent": print()
                         found = False
                         if name in self.confs:
-                            print(self.confs[name].info_string(name, verbose=verbose))
+                            if mode != "silent": print(self.confs[name].info_string(name, verbose=verbose))
                             found = True
                         if name in self.SFTs:
-                            print(self.SFTs[name].info_string(name, verbose=verbose))
+                            if mode != "silent": print(self.SFTs[name].info_string(name, verbose=verbose))
                             found = True
                         if name in self.blockmaps:
-                            print(self.blockmaps[name].info_string(name, verbose=verbose))
+                            if mode != "silent": print(self.blockmaps[name].info_string(name, verbose=verbose))
                             found = True
                         if name in self.automata:
-                            print(self.automata[name].info_string(name, verbose=verbose))
+                            if mode != "silent": print(self.automata[name].info_string(name, verbose=verbose))
                             found = True
                         if not found:
                             raise Exception("Unknown object: {}".format(name))
                 else:
-                    print("Current environment")
-                    print("Dimension: {}".format(self.dim))
-                    print("Nodes: {}".format("[" + ", ".join(self.nodes.str_nodes()) + "]"))
-                    print("Topology: {}".format(self.topology))
-                    print("Alphabet: {}".format(self.alphabet))
-                    print("Symbol weights: {}".format(self.weights))
+                    if mode != "silent": print("Current environment")
+                    if mode != "silent": print("Dimension: {}".format(self.dim))
+                    if mode != "silent": print("Nodes: {}".format("[" + ", ".join(self.nodes.str_nodes()) + "]"))
+                    if mode != "silent": print("Topology: {}".format(self.topology))
+                    if mode != "silent": print("Alphabet: {}".format(self.alphabet))
+                    if mode != "silent": print("Symbol weights: {}".format(self.weights))
                     if verbose:
-                        print("Named subshifts: {}".format(list(self.SFTs)))
-                        print("Named block maps: {}".format(list(self.blockmaps)))
-                        print("Named configurations: {}".format(list(self.confs)))
-                        print("Named environments: {}".format(list(self.environments)))
-                        print("Tiler vectors: {}".format(self.tiler_gridmoves))
-                        print("Tiler offsets: {}".format(self.tiler_nodeoffsets))
+                        if mode != "silent": print("Named subshifts: {}".format(list(self.SFTs)))
+                        if mode != "silent": print("Named block maps: {}".format(list(self.blockmaps)))
+                        if mode != "silent": print("Named configurations: {}".format(list(self.confs)))
+                        if mode != "silent": print("Named environments: {}".format(list(self.environments)))
+                        if mode != "silent": print("Tiler vectors: {}".format(self.tiler_gridmoves))
+                        if mode != "silent": print("Tiler offsets: {}".format(self.tiler_nodeoffsets))
 
             elif cmd == "run":
                 filename = args[0]
@@ -816,8 +815,8 @@ class Griddy:
                     conf = self.confs[name]
                 else:
                     raise Exception("No configuration named %s" % name)
-                print(conf.display_str(hide_contents=hide_contents))
-                print()
+                if mode != "silent": print(conf.display_str(hide_contents=hide_contents))
+                if mode != "silent": print()
                 
             elif cmd == "empty":
                 name = args[0]
@@ -911,12 +910,12 @@ class Griddy:
             elif cmd == "show_forbidden_patterns":
                 name = args[0]
                 the_sft = self.SFTs[name]
-                print("Showing forbidden patterns for %s." % name)
+                if mode != "silent": print("Showing forbidden patterns for %s." % name)
                 if the_sft.forbs is None:
-                    print("Forbidden patterns not yet computed.")
+                    if mode != "silent": print("Forbidden patterns not yet computed.")
                 else:
                     for forb in the_sft.forbs:
-                        print(forb)
+                        if mode != "silent": print(forb)
                 print()
 
             elif cmd == "compute_forbidden_patterns":
@@ -927,16 +926,16 @@ class Griddy:
                 save_msg = " into {}.output".format(filename) if filename is not None else ""
                 if mode == "report":
                     if rad is None:
-                        print("Computing forbidden patterns for {}{}.".format(name, save_msg))
+                        if mode != "silent": print("Computing forbidden patterns for {}{}.".format(name, save_msg))
                     else:
-                        print("Computing forbidden patterns for {}{} using radius {}.".format(name, save_msg, rad))
+                        if mode != "silent": print("Computing forbidden patterns for {}{} using radius {}.".format(name, save_msg, rad))
                     if the_sft.forbs is not None:
-                        print("It already had forbidden patterns; overwriting them.")
+                        if mode != "silent": print("It already had forbidden patterns; overwriting them.")
                 the_sft.deduce_forbs(rad)
-                print("Found {} patterns.".format(len(the_sft.forbs)))
+                if mode != "silent": print("Found {} patterns.".format(len(the_sft.forbs)))
                 if "verbose" in flags:
                     for f in the_sft.forbs:
-                        print(f)
+                        if mode != "silent": print(f)
                 
                 if filename is not None:
                     with open(filename+".output", 'w') as f:
@@ -947,7 +946,7 @@ class Griddy:
                 the_sft = self.SFTs[sft_name]
                 filename = args[1]
                 if mode == "report":
-                    print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
+                    if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
                 with open(filename+".output", 'r') as f:
                     contents = f.read()
                 forbs = eval(contents)
@@ -955,7 +954,7 @@ class Griddy:
 
             elif cmd == "set_weights":
                 self.weights = {arg[0] : w for (arg, w) in args[0].items()}
-                print("Weights set to", self.weights)
+                if mode != "silent": print("Weights set to", self.weights)
 
             elif cmd == "wang":
                 name = args[0]
@@ -996,7 +995,7 @@ class Griddy:
                 if check:
                     overlaps = "check"
                 elif ignore:
-                    print("Warning: if a block map definition has overlapping rules, ignoring them can lead to undefined behavior")
+                    if mode != "silent": print("Warning: if a block map definition has overlapping rules, ignoring them can lead to undefined behavior")
                     overlaps = "ignore"
                 else:
                     overlaps = "remove"
@@ -1055,9 +1054,9 @@ class Griddy:
                 for r in rules:
                     if rule:
                         if len(rule) != 4:
-                            print("Bad TGF rule, ignoring: {}".format(rule))
+                            if mode != "silent": print("Bad TGF rule, ignoring: {}".format(rule))
                             if len(rule) > 4:
-                                print("Maybe you forgot a semicolon?")
+                                if mode != "silent": print("Maybe you forgot a semicolon?")
                             continue
                         circ = compiler.formula_to_circuit(self.nodes, self.dim, self.topology, self.alphabet, r[3], self.externals)
                         circuits[(r[0], r[1], r[2])] = circ # node node offset circuit
@@ -1073,7 +1072,7 @@ class Griddy:
             elif cmd == "compose":
                 name = args[0]
                 composands = args[1]
-                print("Composing block maps %s." % composands)#, self.CAs)
+                if mode != "silent": print("Composing block maps %s." % composands)#, self.CAs)
                 """
                 result_CA = self.CAs[composands[1]]
                 for name in composands[2:]:
@@ -1093,7 +1092,7 @@ class Griddy:
                     filename = kwds["filename"] + ".output"
                 else:
                     filename = None
-                print("Computing length-{} relations for CA {}{}.".format(radius, str(gen_names), "" if filename is None else " into file "+filename))
+                if mode != "silent": print("Computing length-{} relations for CA {}{}.".format(radius, str(gen_names), "" if filename is None else " into file "+filename))
                 generators = [self.blockmaps[j] for j in gen_names]
                 assert all(gen.is_CA() for gen in generators)
                 if filename is not None:
@@ -1109,29 +1108,46 @@ class Griddy:
                 else:
                     for _ in blockmap.find_relations(generators, radius):
                         pass
-                print("Time to calculate ball: %s seconds." % (time.time() - t))
+                if mode != "silent": print("Time to calculate ball: %s seconds." % (time.time() - t))
 
             elif cmd == "has_post_inverse":
                 name = args[0]
                 the_bm = self.blockmaps[name]
+                verbose = "verbose" in flags
                 # by default, we try to find inverse of radius 1 -- could be radius of given tho
                 rad = kwds.get("radius", 1) 
                 #if mode == "report":
-                print("Checking existence of post inverse (retraction) with radius %s." % rad)
-                result = the_bm.injective_to_graph_ball(int(rad))
+                if mode != "silent": print("Checking existence of post inverse (retraction) with radius %s." % rad)
+                result = the_bm.injective_to_graph_ball(int(rad), verbose)
                 if result:
                     if the_bm.partial:
-                        print("A post inverse might exist (the blockmap is partial!)")
+                        if mode != "silent": print("A post inverse might exist (the blockmap is partial!)")
                     else:
-                        print("A post inverse exists.")
+                        if mode != "silent": print("A post inverse exists.")
                 else:
-                    print("A post inverse of that radius does not exist.")
+                    if mode != "silent": print("A post inverse of that radius does not exist.")
 
                 expect = kwds.get("expect", None)
                 #print(expect)
                 if expect is not None and mode == "assert":
-                    print(result, "=", expect)
+                    if mode != "silent": print(result, "=", expect)
                     assert result == (expect == "T")
+                results.append(result)
+
+            elif cmd == "image_intersects":
+                name = args[0]
+                the_bm = self.blockmaps[name]
+                clopen = self.SFTs[args[1]]
+                verbose = "verbose" in flags
+                if not isinstance(clopen, sft.Clopen):
+                    raise Exception("{} is not a clopen set.".format(clopen))
+                if mode != "silent": print("Checking whether image of block map %s intersects clopen set %s." % (args[0], args[1]))
+                result = the_bm.image_intersects(clopen, verbose)
+                if result:
+                    if mode != "silent": print("Does intersect.")
+                else:
+                    if mode != "silent": print("Does not intersect.")
+                results.append(result)
 
             # restrict alphabets of codomain
             elif cmd == "restrict_codomain":
@@ -1151,7 +1167,7 @@ class Griddy:
             elif cmd == "tiler":
                 import tiler
                 name = args[0]
-                print(kwds)
+                if mode != "silent": print(kwds)
                 x_size = kwds.get("x_size", 10)
                 y_size = kwds.get("y_size", 10)
                 x_periodic = "x_periodic" in flags
@@ -1169,9 +1185,9 @@ class Griddy:
                 else:
                     conf = None
                 hidden_nodes = kwds.get("hidden", [])
-                print(hidden_nodes)
-                print(gridmoves)
-                print(self.tiler_gridmoves)
+                if mode != "silent": print(hidden_nodes)
+                if mode != "silent": print(gridmoves)
+                if mode != "silent": print(self.tiler_gridmoves)
                 SFT = self.SFTs[name]
                 topo_name = kwds.get("topology", None)
                 if topo_name is None:
@@ -1196,7 +1212,7 @@ class Griddy:
                     size *= h
                 rect = set(vec+(n,) for vec in rect for n in the_sft.nodes)
                 size *= len(the_sft.nodes)
-                print("Computing upper bound for topological entropy of {} using dimensions {}".format(name, dimensions))
+                if mode != "silent": print("Computing upper bound for topological entropy of {} using dimensions {}".format(name, dimensions))
                 tim = time.time()
                 if method == "deduce":
                     num_pats = sum(1 for _ in the_sft.all_patterns(rect, extra_rad=rad))
@@ -1204,9 +1220,9 @@ class Griddy:
                     num_pats = the_sft.count_patterns_splitting(rect, extra_rad=rad)
                 else:
                     raise Exception("Unknown method: {}".format(method))
-                print("Entropy is at most log2({})/{} ~ {}".format(num_pats, size, math.log(num_pats, 2)/size))
-                print("Eta is at most {}^(1/{}) ~ {}".format(num_pats, size, num_pats**(1/size)))
-                print("Computation took {} seconds".format(time.time() - tim))
+                if mode != "silent": print("Entropy is at most log2({})/{} ~ {}".format(num_pats, size, math.log(num_pats, 2)/size))
+                if mode != "silent": print("Eta is at most {}^(1/{}) ~ {}".format(num_pats, size, num_pats**(1/size)))
+                if mode != "silent": print("Computation took {} seconds".format(time.time() - tim))
                 
             elif cmd == "entropy_lower_bound":
                 # TODO: split the periodic points as in upper bound
@@ -1227,21 +1243,21 @@ class Griddy:
                     size *= p
                 big_domain = set(vec + (n,) for vec in big_domain for n in the_sft.nodes)
                 size *= len(the_sft.nodes)
-                print("Computing lower bound for topological entropy of {} using {}-periodic points and {}-size blocks".format(name, periods, big_periods))
+                if mode != "silent": print("Computing lower bound for topological entropy of {} using {}-periodic points and {}-size blocks".format(name, periods, big_periods))
                 num_pats = 0
                 tim = time.time()
                 for pat in the_sft.all_periodics(periods):
                     border = {nvec : pat[nvmods(periods, nvec)] for nvec in big_domain if any(a <= b for (a,b) in zip(nvec, var_dims))}
                     num_pats = max(num_pats, sum(1 for _ in the_sft.all_periodics(big_periods, existing=border)))
-                print("Entropy is at least log2({})/{} ~ {}".format(num_pats, size, math.log(num_pats, 2)/size))
-                print("Eta is at least {}^(1/{}) ~ {}".format(num_pats, size, num_pats**(1/size)))
-                print("Computation took {} seconds".format(time.time() - tim))
+                if mode != "silent": print("Entropy is at least log2({})/{} ~ {}".format(num_pats, size, math.log(num_pats, 2)/size))
+                if mode != "silent": print("Eta is at least {}^(1/{}) ~ {}".format(num_pats, size, num_pats**(1/size)))
+                if mode != "silent": print("Computation took {} seconds".format(time.time() - tim))
             
 
             elif cmd == "tile_box":
                 name = args[0]
                 rad = args[1]
-                print("Tiling %s-hypercube with SFT %s." % (rad, name))
+                if mode != "silent": print("Tiling %s-hypercube with SFT %s." % (rad, name))
                 succ = self.SFTs[name].tile_box(rad)
                 assert succ
 
@@ -1251,12 +1267,14 @@ class Griddy:
                 max_rad = kwds.get("max", None)
                 verbose = "verbose" in flags
                 while max_rad is None or rad > max_rad:
-                    print("Tiling %s-hypercube of SFT %s." % (rad, name))
+                    if mode != "silent": print("Tiling %s-hypercube of SFT %s." % (rad, name))
                     self.SFTs[name].tile_box(rad, verbose=verbose)
                     rad += 1
                                         
             elif mode == "report":
                 raise Exception("Unknown command %s." % cmd)
+
+        return results
 
     def add_external(self, name, obj):
         self.externals[name] = obj

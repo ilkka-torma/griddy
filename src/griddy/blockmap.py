@@ -29,7 +29,7 @@ class BlockMap:
         self.to_topology = to_topology
         self.graph = graph
 
-        self.partial = True
+        self.partial = False
 
         #assert type(circuits) == dict
         if verbose:
@@ -101,16 +101,21 @@ class BlockMap:
             
                         
     def info_string(self, name, verbose=False):
-        s = ["{}-dimensional block map {}".format(self.dimension, name)]
+        partial = ""
+        if self.partial: partial = "partial "
+        s = ["{}-dimensional {}block map {}".format(self.dimension, partial, name)]
         s.append("Domain nodes: {}".format(list(self.from_nodes)))
         s.append("Domain alphabet: {}".format(self.from_alphabet))
         if verbose:
             s.append("Domain topology: {}".format(self.from_topology))
         s.append("Range nodes: {}".format(list(self.to_nodes)))
         s.append("Range alphabet: {}".format(self.to_alphabet))
+        
         if verbose:
             s.append("Range topology: {}".format(self.to_topology))
-            s.append("Circuits (of sizes {}): {}".format([circ.complexity for circ in self.circuits.values()], self.circuits))
+            #s.append("Circuits (of sizes {}): {}".format([circ.complexity for circ in self.circuits.values()], self.circuits))
+            for (n, a) in self.circuits:
+                s.append("Circuit for node %s letter %s: %s" % (n, a, self.circuits[n, a]))
         return "\n".join(s)
 
     # we get a list of (node, sym, formula)
@@ -277,7 +282,7 @@ class BlockMap:
         return ret
     """
 
-    def injective_to_graph_ball(self, r):
+    def injective_to_graph_ball(self, r, verbose):
         # two circuits per position per letter
         # force images same
         # force preimage different at origin
@@ -288,7 +293,10 @@ class BlockMap:
         eq_circuits = []
         # we allow a partial CA, but injectivity only checked if we actually specify _some_ image everywhere
         some_image = []
-        for p in self.graph.ball(r):
+        if verbose: t = time.time()
+        bb = self.graph.ball(r)
+        if verbose: print("Ball is of size", len(bb))
+        for p in bb:
             for n in self.to_nodes:
                 some_letter = []
                 for a in self.to_alphabet[n]:
@@ -319,8 +327,65 @@ class BlockMap:
                 differents.append(XOR(V((origin, n, "A", a)), V((origin, n, "B", a))))
         # all images must be the same, and some central node has diff preimage, and all images have to be specified
         def lda(a): return self.from_alphabet[a[1]]
+        if verbose:print("Circuit constructed in time {}".format(time.time() - t))
         ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda))
+        if verbose:print("Solved in time {}".format(time.time() - t))
         return ret
+
+    # construct a circuit that states preimage and image, and that image is in clopen
+    def image_intersects(self, clopen, verbose):
+        positions = set([v[0] for v in clopen.circuit.get_variables()])
+        pre_cells = set()
+        image_correct = []
+        for p in positions:
+            for n in self.to_nodes:
+                # at each node, check that image has correct symbol.
+                for a in self.to_alphabet[n]:
+                    """
+                    Check that image has letter, i.e. (p,n,img,a) is true,
+                    iff circA moved to (p,n,pre,a) evaluates to true.
+                    """
+                    circ = self.circuits[(n, a)].copy()
+                    def shift(x, label):
+                        m = self.graph.move_rel(p, x[0])
+                        pre_cells.add(m)
+                        return m, x[1], label, x[2] #return vadd(v[:-2], p) + v[-2:] + (x,)
+                    transform(circ, lambda y:shift(y, "pre"))
+                    image = V((p, n, "img", a))
+                    image_correct.append(IFF(circ, image))
+                    #print("image circ", IFF(circ, image))
+        image_circuit = AND(*image_correct)
+        circuits = [image_circuit]
+        #print("image circ", image_circuit)
+
+        # on preimage side, we should do the annoying coding, check that at most one is true
+        for p in pre_cells:
+            for n in self.from_nodes:
+                circuits.append(ATMOSTONE(*(V((p, n, "pre", sym)) for sym in self.from_alphabet[n][1:])))
+                #print("ATMO", circuits[-1])
+                
+        # We check that on image side, we actually have an image everywhere. This is because block map could be partial,
+        # so we should not just assume to_alphabet[0] circuit gives True when others give False. This is also why
+        # above we have the circuit check also for a = to_alphabet[0].
+        for p in positions:
+            for n in self.to_nodes:
+                circuits.append(ATMOSTONE(*(V((p, n, "img", sym)) for sym in self.to_alphabet[n])))
+                circuits.append(OR(*(V((p, n, "img", sym)) for sym in self.to_alphabet[n])))
+                #print("ATMOi", circuits[-2])
+                #print("yesi", circuits[-1])
+
+        # on the image side, we finally have to check that we are in clopen
+        ccirc = clopen.circuit.copy()
+        transform(ccirc, lambda x:(x[0],x[1],"img",x[2]))
+        circuits.append(ccirc)
+        #print("imgcor ", circuits[-1])
+
+        test = AND(*circuits)
+
+        return SAT(test)
+                
+        
+        
         
     def __repr__(self):
         return repr(self.circuits)

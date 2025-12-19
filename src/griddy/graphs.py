@@ -80,7 +80,9 @@ class AbelianGroup(Graph):
             for j in range(abs(i)):
                 ret.append((generators[d], sign(i)))
         return ret
-
+    # note that generators can also return True here, currently very fragile
+    def is_cell(self, cell):
+        return isinstance(cell, tuple) and len(cell) == self.dim
     def __repr__(self):
         return "Abelian group with generators {}".format(self.generators)
     def __eq__(self, other):
@@ -175,6 +177,8 @@ class SquareComplex(Graph):
     def has_cell(self, cell):
         return type(cell) == tuple and len(cell) == 2 and \
                all(a in self.V_colors for a in cell[0]) and all(a in self.H_colors for a in cell[1])
+    def is_cell(self, cell):
+        return isinstance(cell, tuple) and len(cell) == 2 and isinstance(cell[0], str) and isinstance(cell[1], str)
     def moves(self):
         return set(self.V_colors) | set(self.H_colors)
     def move(self, cell, generator):
@@ -214,11 +218,14 @@ class SquareComplex(Graph):
         
 
 Aleshin = SquareComplex(["byay", "axby", "cxcy", "bxax", "cybx", "aycx"])    
-#o = Aleshin.origin()
-#print(o)
-#for q in "abaxXybaBx":
-#    o = Aleshin.move(o, q)
-#    print("move", q, "now", o)
+
+"""
+o = Aleshin.origin()
+print(o)
+for q in "abaxXybaBx":
+    o = Aleshin.move(o, (q, 1))
+    print("move", q, "now", o)
+"""
 
 """
 # this tests correct count in Aleshin

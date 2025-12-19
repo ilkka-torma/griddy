@@ -142,3 +142,5 @@ def words(n, alph):
                 yield word + (sym,)
     else:
         yield tuple()
+
+

@@ -1086,12 +1086,17 @@ def get_ball(graph, topology, nodes, pos, radius):
 # return NODES in immediate neighborhood w.r.t. topology
 def get_open_nbhd(graph, topology, nodes, pos):
     ret = set()
+    #print(topology)
+    #print(pos)
     for t in topology:
         name, offset, a, b = t
         # if pos is a, then we add b
-        if pos[1] == () or a == pos[1]: 
-             v = graph.move_rel(pos[0], offset) #vadd(vsub(pos[0], a[0]), b[0])
-             ret.add((v, b))
+        if pos[1] == () or a == pos[1]:
+            if graph.is_cell(offset):
+                v = graph.move_rel(pos[0], offset)
+            else:
+                v = graph.move(pos[0], offset) #vadd(vsub(pos[0], a[0]), b[0])
+            ret.add((v, b))
     return ret
 
 def get_closed_nbhd(dim, topology, nodes, pos):
