@@ -332,6 +332,71 @@ class BlockMap:
         if verbose:print("Solved in time {}".format(time.time() - t))
         return ret
 
+    # count "obstructions to injectivity":
+    # enumerate triples (A,B) st. A < B differ at origin, can be extended to radius r+r0, and map to equal radius-r balls
+    # only allow total CA for now
+    def obstructions_to_graph_ball_injectivity(self, rad, preim_set, verbose=False):
+        #print("OTGBI", preim_set)
+        eq_circuits = []
+        if verbose:
+            print("Enumerating obstructions to injectivity")
+            t = time.time()
+        r_ball = self.graph.ball(rad)
+
+        im_circs = dict()
+        
+        for cell in r_ball:
+            def shift(x, label):
+                return self.graph.move_rel(cell, x[0]), x[1], label, x[2]
+                    
+            for node in self.to_nodes:
+                for sym in self.to_alphabet[node]:
+                    circA = self.circuits[node, sym].copy()
+                    circB = self.circuits[node, sym].copy()
+                    transform(circA, lambda y: shift(y, "A"))
+                    transform(circB, lambda y: shift(y, "B"))
+                    im_circs[cell, node, sym] = (circA, circB)
+                    eq_circuits.append(IFF(circA, circB))
+
+        origin = self.graph.origin()
+        differents = []
+        circ_A = T
+        for node in self.to_nodes:
+            for sym in self.from_alphabet[node][1:]:
+                circ_A = AND(circ_A, NOT(V((origin, node, "A", sym))))
+                differents.append(AND(circ_A, V((origin, node, "B", sym))))
+
+        lda =  LDAC2(lambda a: self.from_alphabet[a[1]])
+        circ = AND(OR(*differents), *eq_circuits)
+        circ = AND(circ, lda([circ]))
+        if verbose: print("Circuit constructed in time {}".format(time.time() - t))
+
+        proj_vars = []
+        for (moves, node) in preim_set:
+            cell = origin
+            for move in moves:
+                cell = self.graph.move(cell, (move,1))
+            for sym in self.from_alphabet[node][1:]:
+                for label in ["A","B"]:
+                    proj_vars.append((cell, node, label, sym))
+
+        #print(circ)
+        #print(proj_vars)
+        circ_vars = list(circ.get_variables())
+        for var in proj_vars:
+            if var not in circ_vars:
+                print(var)
+                1/0
+
+        first = True
+        for vals in projections(circ, proj_vars):
+            if verbose and first:
+                print("First one found in time {}".format(time.time() - t))
+                first = False
+            yield vals
+            
+        if verbose: print("Enumerated in time {}".format(time.time() - t))
+
     # construct a circuit that states preimage and image, and that image is in clopen
     def image_intersects(self, clopen, verbose):
         positions = set([v[0] for v in clopen.circuit.get_variables()])
