@@ -521,7 +521,7 @@ commands = [
               ["MANY", ["LIST", const_label, quantified]],
               ["MANY", ["LIST", node_name, const_label, quantified]]]],
             opts = ["domain", "codomain"],
-            flags = ["simplify", "verbose"],
+            flags = ["simplify", "verbose", "ignore_overlaps", "check_overlaps"],
             aliases = ["blockmap", "CA"]),
     Command("compose",
             [var_label,
