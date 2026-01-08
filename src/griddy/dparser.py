@@ -120,7 +120,7 @@ const_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'\w+')).desc("no
 var_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'[a-zA-Z]\w*')).desc("variable name")
 
 topology_keyword = lexeme(p.regex(r'line|grid|square|squaregrid|king[0-9]*|kinggrid|triangle|trianglegrid|hex|hexgrid|CR')).desc("topology name")
-graph_keyword = lexeme(p.regex(r'Aleshin|none')).desc("graph name")
+graph_keyword = lexeme(p.regex(r'Aleshin|SC_F661|none')).desc("graph name")
 
 # Optional argument / setter; value is a signed number or label
 # Type checking is not done at parse time

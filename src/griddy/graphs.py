@@ -158,10 +158,10 @@ class SquareComplex(Graph):
     # tiles are ENWS-quadruples, which should be
     # 4-way deterministic complete Wang tile set
     def __init__(self, tiles):
-        E_colors = set([t[0] for t in tiles])
-        N_colors = set([t[1] for t in tiles])
-        W_colors = set([t[2] for t in tiles])
-        S_colors = set([t[3] for t in tiles])
+        E_colors = set([t[0].lower() for t in tiles])
+        N_colors = set([t[1].lower() for t in tiles])
+        W_colors = set([t[2].lower() for t in tiles])
+        S_colors = set([t[3].lower() for t in tiles])
         assert E_colors == W_colors
         assert N_colors == S_colors
         assert E_colors.intersection(N_colors) == set()
@@ -215,9 +215,21 @@ class SquareComplex(Graph):
         for s in offset[0] + offset[1]:
             cell = self.move(cell, (s, 1))
         return cell
-        
 
-Aleshin = SquareComplex(["byay", "axby", "cxcy", "bxax", "cybx", "aycx"])    
+# taken from Laurent's paper;
+# byay are the list in ENWS order of the colors, oriented northeast!
+# so actually the horizontals (every second) are inverted...
+# I think it's the same as saying by = ya though by flipping y and Y
+# so it's really that byAY relation translated to byay... we should just
+# list relations of course, but for now it is what it is...
+Aleshin = SquareComplex(["byay", "axby", "cxcy", "bxax", "cybx", "aycx"])
+
+# from paper of Radu, a_1a_2a_3 = abc, b_1b_2b_3 = xyz
+SC_F661 = SquareComplex([# the ones same for all
+                         "axbX", "ayBy", "aYbx", "aXbY",
+                         # specific to 661
+                         "azAZ", "aZAz", "bzBZ", "bZCz", 
+                         "cxcx", "cyCZ", "cYCy"])  
 
 """
 o = Aleshin.origin()
