@@ -16,6 +16,7 @@ import sys
 from general import *
 
 import compiler2 as compiler
+from alphabet import Alphabet
 import regexp_compiler
 import sft
 import sofic1d
@@ -54,7 +55,8 @@ class Griddy:
         self.automata = {}
         self.environments = {}
         self.nodes = sft.Nodes()
-        self.alphabet = {() : ['0', '1'] for node in self.nodes}
+        self.alphabet = {node : Alphabet.unary_minus_one(['0', '1'])
+                         for node in self.nodes}
         self.dim = 2
         self.topology = grid
         self.graph = graphs.AbelianGroup([0,1]) #None
@@ -149,7 +151,7 @@ class Griddy:
                 alph = args[0]
                 default = kwds.get("default", None)
                 if type(alph) == list and default is None:
-                    default = alph
+                    default = Alphabet.unary_minus_one(alph)
                 self.alphabet = {node:default for node in self.nodes}
                 if type(alph) == dict:
                     for (labels, local_alph) in alph.items():
@@ -158,7 +160,7 @@ class Griddy:
                             raise Exception("Invalid subtrack for {}: {}".format(self.nodes, labels))
                         for subnode in subtr:
                             node = labels + subnode
-                            self.alphabet[node] = local_alph
+                            self.alphabet[node] = Alphabet.unary_minus_one(local_alph)
                 if None in self.alphabet.values():
                     raise Exception("Incomplete alphabet definition")
 
