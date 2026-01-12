@@ -35,6 +35,12 @@ class Alphabet:
     def __len__(self):
         return len(self.symbols)
 
+    def __eq__(self, other):
+        # TODO: figure out if encoding matters here
+        if not isinstance(other, Alphabet):
+            return False
+        return self.symbols == other.symbols
+
     @classmethod
     def unary(self, syms):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true."
