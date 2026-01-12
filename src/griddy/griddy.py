@@ -170,6 +170,8 @@ class Griddy:
                     self.topology = []
                     if grph == "Aleshin":
                         self.graph = graphs.Aleshin
+                    if grph == "SC_F661":
+                        self.graph = graphs.SC_F661
                     
             elif cmd == "topology":
                 top = args[0]
