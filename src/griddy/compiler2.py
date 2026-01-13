@@ -508,6 +508,12 @@ def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, si
     global_restr = []
     subst = {}
     form = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
+    # add all node restrictions to global restrictions
+    seen_nodes = set(var[:-1] for var in form.get_variables())
+    for node in seen_nodes:
+        node_alph = alphabet[node[1]]
+        nvars = [V(node+(l,)) for l in node_alph.node_vars]
+        global_restr.append(node_alph.node_constraint(nvars))
     #return tech_simp(form)
     form = tech_simp(AND(*([form]+global_restr)))
     if simplify:
