@@ -150,6 +150,8 @@ class Griddy:
             elif cmd == "alphabet":
                 alph = args[0]
                 default = kwds.get("default", None)
+                if default is not None:
+                    default = Alphabet.unary_minus_one(default)
                 if type(alph) == list and default is None:
                     default = Alphabet.unary_minus_one(alph)
                 self.alphabet = {node:default for node in self.nodes}

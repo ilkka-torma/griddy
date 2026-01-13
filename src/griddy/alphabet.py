@@ -1,30 +1,46 @@
 
-from circuit import AND, OR
+from circuit import AND, OR, NOT, T, F, IFF
+
+# Does this string represent a number?
+def is_nat(string):
+    if not string:
+        return False
+    if string == '0':
+        return True
+    if string[0] != '0' and all(c in "0123456789" for c in string):
+        return True
+    return False
 
 class Alphabet:
     "A finite alphabet plus a method of encoding it into circuits."
 
-    def __init__(self, symbols, node_vars, node_constraint, node_eq_sym, node_eq_node):
+    def __init__(self, symbols, node_vars, model_to_sym, node_constraint, node_eq_sym, node_eq_node, sym_to_num, encoding = None):
         """
         A finite alphabet.
-        symbols is a list of its elements (they have a default order).
-        node_vars is a list of labels that together encode the symbol at a given node:
-        (cell, node) is encoded by (cell, node, label) for label in node_vars.
-        node_constraint is a function that takes a list of circuits representing node variables and
-        returns a circuit, a constraint that must hold for the encoding to be valid.
-        node_eq_sym is a function that takes a list of circuits representing node variables
-        and a symbol of the alphabet, and returns a circuit constraining them to represent the symbol.
-        node_eq_node is a function that takes two lists of circuits and returns a circuit
-        constraining them to represent the same variable.
+        * symbols is a list of its elements (they have a default order).
+        * node_vars is a list of labels that together encode the symbol at a given node:
+          (cell, node) is encoded by V((cell, node, label)) for label in node_vars.
+        * node_constraint is a function that takes a list of circuits representing node variables and
+          returns a circuit, a constraint that must hold for the encoding to be valid.
+        * model_to_sym takes a truth assignment of the variables (list of booleans) and returns
+          the corresponding symbol.
+        * node_eq_sym is a function that takes a list of circuits representing node variables and
+          a symbol of the alphabet, and returns a circuit constraining them to represent the symbol.
+        * node_eq_node is a function that takes two lists of circuits and returns a circuit
+          constraining them to represent the same variable.
+        * sym_to_num takes a symbol and returns a number or None
         """
         self.symbols = symbols
         self.node_vars = node_vars
+        self.model_to_sym = model_to_sym
         self.node_constraint = node_constraint
         self.node_eq_sym = node_eq_sym
         self.node_eq_node = node_eq_node
+        self.sym_to_num = sym_to_num
+        self.encoding = encoding
 
     def __repr__(self):
-        return "Alphabet({})".format(self.symbols)
+        return "Alphabet({}, encoding={})".format(self.symbols, self.encoding)
 
     def __iter__(self):
         return iter(self.symbols)
@@ -35,15 +51,20 @@ class Alphabet:
     def __len__(self):
         return len(self.symbols)
 
+    def __contains__(self, val):
+        return val in self.symbols
+
     def __eq__(self, other):
-        # TODO: figure out if encoding matters here
         if not isinstance(other, Alphabet):
             return False
-        return self.symbols == other.symbols
+        return self.encoding == other.encoding and self.symbols == other.symbols
 
     @classmethod
     def unary(self, syms):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true."
+
+        def m_to_s(bools):
+            return syms[bools.index(True)]
         
         def exactly_one(circs):
             seen = circs[0]
@@ -57,13 +78,26 @@ class Alphabet:
             return circs[syms.index(sym)]
 
         def n_eq_n(circs1, circs2):
-            return AND(*(EQ(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+            return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
+        def s_to_num(sym):
+            if is_nat(sym):
+                return int(sym)
+            else:
+                return None
                           
-        return self(syms, syms, exactly_one, n_eq_s, n_eq_n)
+        return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="unary")
 
     @classmethod
     def unary_minus_one(self, syms):
         "An alphabet encoded in unary minus one: one variable per symbol except the first one, at most one is true."
+
+        def m_to_s(bools):
+            try:
+                ix = bools.index(True)-1
+            except ValueError:
+                ix = 0
+            return syms[ix]
         
         def at_most_one(circs):
             seen = circs[0]
@@ -81,6 +115,12 @@ class Alphabet:
                 return NOT(OR(*circs))
 
         def n_eq_n(circs1, circs2):
-            return AND(*(EQ(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+            return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
+        def s_to_num(sym):
+            if is_nat(sym):
+                return int(sym)
+            else:
+                return None
                           
-        return self(syms, syms[1:], at_most_one, n_eq_s, n_eq_n)
+        return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one")

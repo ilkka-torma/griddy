@@ -3,6 +3,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "src", "griddy")))
 import griddy
 import time
+import circuit
 
 print(griddy)
 
@@ -932,6 +933,13 @@ code = """
 """
 unit_tests.append(("Intersecting SFTs and clopen sets", code))
 
+code = """
+%sft a Ao is_zero o
+%sft b Ao o=0
+%equal expect=T a b
+"""
+unit_tests.append(("External functions", code))
+
 if __name__ == "__main__":
 
     t = time.time()
@@ -943,6 +951,14 @@ if __name__ == "__main__":
 
     for (name, code) in unit_tests:
         griddy_inst = griddy.Griddy()
+        if name == "External functions":
+            def is_zero(cxt, a):
+                graph, topology, nodes, alphabet, formula, variables = cxt
+                apos = variables[a]
+                zero, _ = alph = alphabet[()]
+                avars = [circuit.V(apos + (label,)) for label in alph.node_vars]
+                return alph.node_eq_sym(avars, zero)
+            griddy_inst.add_external("is_zero", is_zero)
         print("Running test", name)
         griddy_inst.run(code, "assert")
 #print("total time", time.time()-t)
