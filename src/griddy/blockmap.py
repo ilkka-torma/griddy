@@ -414,10 +414,10 @@ class BlockMap:
         #print(circ)
         #print(proj_vars)
         circ_vars = list(circ.get_variables())
-        for var in proj_vars:
-            if var not in circ_vars:
-                print(var)
-                1/0
+        #for var in proj_vars:
+        #    if var not in circ_vars:
+        #        print(var)
+        #        1/0
 
         first = True
         for vals in projections(circ, proj_vars):
