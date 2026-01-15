@@ -89,8 +89,11 @@ class Griddy:
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
+            if print_parsed:
+                print("parsing...")
             parsed = dparser.parse_griddy(code)
             if print_parsed:
+                print("parsed!")
                 print(parsed)
         except parsy.ParseError as e:
             if mode != "silent": print("Parse error: {}".format(e))
@@ -168,10 +171,15 @@ class Griddy:
                     self.graph = None # this is outdated, now we should always have a graph!
                 else:
                     self.topology = []
+                    if grph == "trivial":
+                        # trivial group with any generators
+                        self.graph = graphs.TrivialGroup(args[1])
                     if grph == "Aleshin":
                         self.graph = graphs.Aleshin
                     if grph == "SC_F661":
                         self.graph = graphs.SC_F661
+                    if grph == "SC_G451_smp":
+                        self.graph = graphs.SC_G451_smp
                     
             elif cmd == "topology":
                 top = args[0]

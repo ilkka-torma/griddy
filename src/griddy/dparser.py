@@ -12,6 +12,9 @@ from general import *
 from enum import Enum, Flag, auto
 from functools import reduce, wraps
 
+import sys
+sys.setrecursionlimit(100000)
+
 ### Top-level parsing functions
 
 def parse_griddy(code):
@@ -120,7 +123,7 @@ const_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'\w+')).desc("no
 var_label = lexeme(keyword.should_fail("keyword") >> p.regex(r'[a-zA-Z]\w*')).desc("variable name")
 
 topology_keyword = lexeme(p.regex(r'line|grid|square|squaregrid|king[0-9]*|kinggrid|triangle|trianglegrid|hex|hexgrid|CR')).desc("topology name")
-graph_keyword = lexeme(p.regex(r'Aleshin|SC_F661|none')).desc("graph name")
+graph_keyword = lexeme(p.regex(r'trivial|Aleshin|SC_F661|SC_G451_smp|none')).desc("graph name")
 
 # Optional argument / setter; value is a signed number or label
 # Type checking is not done at parse time
@@ -429,7 +432,7 @@ commands = [
             opts = ["onesided"],
             aliases = ["dimension"]),
     Command("graph",
-            [graph_keyword]),
+            [graph_keyword, ["MANY", const_label]]),
     
     Command("nodes",
             [["OR",
@@ -521,7 +524,7 @@ commands = [
               ["MANY", ["LIST", const_label, quantified]],
               ["MANY", ["LIST", node_name, const_label, quantified]]]],
             opts = ["domain", "codomain"],
-            flags = ["simplify", "verbose", "ignore_overlaps", "check_overlaps"],
+            flags = ["simplify", "verbose"],
             aliases = ["blockmap", "CA"]),
     Command("compose",
             [var_label,
