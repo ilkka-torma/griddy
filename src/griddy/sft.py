@@ -581,17 +581,21 @@ class SFT:
             #print(var_vecs, all_vecs)
             circ_nvecs = set(var[:-1] for var in self.circuit.get_variables())
             for vec in hyperrect(tr_bounds):
+                #print("vec", vec)
                 sym_circs = []
                 for nvec in circ_nvecs:
                     node_alph = self.alph[nvec[1]]
+                    conf_nvec = nvadd(nvec, vec)
                     nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
-                    sym_circs.append(node_alph.node_eq_sym(nvars, conf[nvadd(nvec, vec)]))
-                if not SAT(AND(self.circuit, *sym_circs)):
+                    sym_circs.append(node_alph.node_eq_sym(nvars, conf[conf_nvec]))
+                #print("circuit", self.circuit, "sym_circs", sym_circs)
+                if not SAT(AND(self.circuit, node_constraints(self.alph, self.circuit), *sym_circs)):
                     return False
             return True
         elif isinstance(conf, automatic_conf.AutomaticConf):
             #print("forbs", self.forbs)
-            domain = list(set(var[:-1] for var in self.circuit.get_variables()))
+            circ_vars = set(self.circuit.get_variables())
+            domain = list(set(var[:-1] for var in circ_vars))
             patch_solver = solver_process(self.circuit)
             _ = next(patch_solver)
             
@@ -604,7 +608,9 @@ class SFT:
                     model = SAT(AND(node_alph.node_eq_sym(nvars, patch_sym),
                                     node_alph.node_constraint(nvars)),
                                 return_model=True)
-                    solver_values.update(model)
+                    #print("model", model, "circuit", self.circuit)
+                    solver_values.update({var : val for (var, val) in model.items()
+                                          if var in circ_vars})
                     #for sym in self.alph[nvec[1]][1:]:
                     #    solver_values[nvec + (sym,)] = patch_sym == sym
                 if not patch_solver.send(solver_values):
@@ -704,7 +710,7 @@ class SFT:
                 return False, None
             else:
                 return False
-        #print("model", m)
+        #print("model", m, "circ1", self.circuit, "circ2", other.circuit)
         if return_conf:
             pat = dict()
             for vec in hyperrect(conf_bounds):
@@ -1035,11 +1041,10 @@ class SFT:
             anded = []
             for forb in self.forbs:
                 ored = []
-                for (nvec, c) in forb.items():
-                    if c == self.alph[nvec[-1]][0]:
-                        ored.extend(V(nvec+(d,)) for d in self.alph[nvec[-1]][1:])
-                    else:
-                        ored.append(NOT(V(nvec+(c,))))
+                for (nvec, sym) in forb.items():
+                    local_alph = self.alph[nvec[1]]
+                    nvars = [V(nvec+(l,)) for l in local_alph.node_vars]
+                    ored.append(NOT(local_alph.node_eq_sym(nvars, sym)))
                 anded.append(OR(*ored))
             self.circuit = AND(*anded)
 

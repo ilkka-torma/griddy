@@ -1,14 +1,18 @@
 from circuit import *
+from mocircuit import *
 from general import *
 from sft import *
+from alphabet import node_constraints
 import mocircuits
 import time
 
 
 """
-circuits is a dict of circuits : (node, symbol) -> circuit
-for each node exactly one should say yes or this is nondeterministic
-variables in circuits are (vector, node, symbol) encodeed
+circuits is a dict of dicts of MOCircuits : node -> MOCircuit[label]
+the labels come from to_alphabet[node].node_vars
+together the circuits associated to a single node form the circuit for the output symbol
+for each node exactly one output symbol should be produced or this is nondeterministic
+variables in circuits are (vector, node, label) encoded
 overlaps should be "ignore", "check" or "remove"
 """
 class BlockMap:
@@ -132,23 +136,27 @@ class BlockMap:
             for (node, sym, formula) in circuits:
                 form = formula
                 # go over all previous
-                for (node_, sym_, formula_) in disjoints:
+                for (node_, l, formula_) in disjoints:
                     if node_ != node:
                         continue
+                    local_to_alph = self.to_alphabet[node]
+                    # check whether 
+                    for sym_ in local_alph:
+                        
                     if sym_ != sym:
                         #print("from_alphabet", self.from_alphabet)
-                        ldac = LDAC2(lambda nvec: self.from_alphabet[nvec[-1]])
-                        if SAT_under(AND(form, formula_), ldac):
+                        constr = node_constraints(self.from_alphabet[nvec[-1]], [form, formula_])
+                        if SAT_under(AND(form, formula_), constr):
                             if overlaps == "check":
                                 raise Exception("Overlapping rules for node {}, symbols {} and {}".format(node_, sym_, sym))
                             form = AND(form, NOT(formula_))
                 disjoints.append((node, sym, form))
         ret_circuits = {}
-        for (node, sym, formula) in disjoints:
-            if (node, sym) not in ret_circuits:
-                ret_circuits[(node, sym)] = formula
+        for (node, l, formula) in disjoints:
+            if (node, l) not in ret_circuits:
+                ret_circuits[node, l] = formula
             else:
-                ret_circuits[(node, sym)] = OR(ret_circuits[(node, sym)], formula)
+                ret_circuits[node, l] = OR(ret_circuits[node, l], formula)
         return ret_circuits
 
     def tomocircuit(self):
@@ -168,37 +176,37 @@ class BlockMap:
 
         # calculate all cells that will be used
         other_cells = set()
-        for c in other.circuits:
-            for s in other.circuits[c].get_variables():
+        for circ in other.circuits.values():
+            for var in circ.get_variables():
                 #print(s)
-                other_cells.add(s[0]) # just need to know the cells
+                other_cells.add(var[0]) # just need to know the cells
                 
         # Make shifted copies of our circuits, one for each cell used by other.
         # Note that the circuits that do not get used are actually killed by
         # Python's GC, because they are literally not going to be involved in
         # the final circuit.
         circuits = {}
-        for s in other_cells: 
-            for ns in self.circuits:
-                circuit_copy = self.circuits[ns].copy()
+        for cell in other_cells:
+            for ((node, sym), circ) in self.circuits.items():
+                circuit_copy = circ.copy()
                 def shift(v):
                     #print("shifting", v, "by", s)
-                    return (vadd(v[0], s),) + v[1:] # TODO replace with graph.move_rel
+                    return (vadd(v[0], cell),) + v[1:] # TODO replace with graph.move_rel
                 #print("transforming")
                 #print(circuit_copy, s)
                 transform(circuit_copy, shift)
                 #print(circuit_copy)
                 #print((s,) + ns, " is where")
-                circuits[(s,) + ns] = circuit_copy
+                circuits[cell, node, sym] = circuit_copy # TODO: use alphabet's labels instead of sym here or in the next block 
 
         # now the circuits dict has for each relevant position-symbol combo a circuit
         # we just combine them with the other circuit by literally replacing
 
         ret_circuits = {}
-        for ns in other.circuits: # ns = node, symbol
+        for (ns, circ) in other.circuits.items(): # ns = node, symbol
             # we should construct the circuit for a particular node and symbol
             # make a copy of the relevant circuit
-            ret_circuit = other.circuits[ns].copy()
+            ret_circuit = circ.copy()
             # ns = node, symbol
             transform(ret_circuit, lambda a:circuits[a])
             ret_circuits[ns] = ret_circuit

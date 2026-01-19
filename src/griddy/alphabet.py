@@ -72,6 +72,37 @@ class Alphabet:
         return self.encoding == other.encoding and self.symbols == other.symbols
 
     @classmethod
+    def test_alph(self, syms):
+        "An alphabet encoded in unary: one variable per symbol, exactly one is true. Used for testing."
+
+        labels = [(sym, None) for sym in syms]
+
+        def m_to_s(bools):
+            return syms[bools.index(True)]
+        
+        def exactly_one(circs):
+            seen = circs[0]
+            two = F
+            for circ in circs[1:]:
+                two = OR(two, AND(seen, circ))
+                seen = OR(seen, circ)
+            return AND(seen, NOT(two))
+
+        def n_eq_s(circs, sym):
+            return circs[syms.index(sym)]
+
+        def n_eq_n(circs1, circs2):
+            return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
+        def s_to_num(sym):
+            if is_nat(sym):
+                return int(sym)
+            else:
+                return None
+                          
+        return self(syms, labels, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="test")
+
+    @classmethod
     def unary(self, syms):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true."
 

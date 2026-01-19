@@ -45,6 +45,8 @@ import graphs
 
 from basic_things import *
 
+default_alph = Alphabet.test_alph
+
 class Griddy:
     def __init__(self):
         self.SFTs = {}
@@ -55,7 +57,7 @@ class Griddy:
         self.automata = {}
         self.environments = {}
         self.nodes = sft.Nodes()
-        self.alphabet = {node : Alphabet.unary_minus_one(['0', '1'])
+        self.alphabet = {node : default_alph(['0', '1'])
                          for node in self.nodes}
         self.dim = 2
         self.topology = grid
@@ -151,9 +153,9 @@ class Griddy:
                 alph = args[0]
                 default = kwds.get("default", None)
                 if default is not None:
-                    default = Alphabet.unary_minus_one(default)
+                    default = default_alph(default)
                 if type(alph) == list and default is None:
-                    default = Alphabet.unary_minus_one(alph)
+                    default = default_alph(alph)
                 self.alphabet = {node:default for node in self.nodes}
                 if type(alph) == dict:
                     for (labels, local_alph) in alph.items():
@@ -162,7 +164,7 @@ class Griddy:
                             raise Exception("Invalid subtrack for {}: {}".format(self.nodes, labels))
                         for subnode in subtr:
                             node = labels + subnode
-                            self.alphabet[node] = Alphabet.unary_minus_one(local_alph)
+                            self.alphabet[node] = default_alph(local_alph)
                 if None in self.alphabet.values():
                     raise Exception("Incomplete alphabet definition")
 
