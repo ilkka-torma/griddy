@@ -1,0 +1,530 @@
+
+from lark import Lark, Transformer_NonRecursive, Tree
+from fractions import Fraction
+
+class Opts:
+    def __init__(self, items):
+        self.items = items
+
+class Just:
+    def __init__(self, item):
+        print("making Just", item)
+        self.item = item
+    def __repr__(self):
+        return "Just({})".format(self.item)
+
+griddy_grammar = """
+
+start: ("%" command)+
+
+### COMMAND GRAMMAR
+
+command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{dict_of{vector, LABEL}}) cmd_opts -> cmd_sft_default
+       | ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (dict_of{vector, LABEL} cmd_opts)* -> cmd_sft_open_forbs
+       | ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts ((dict_pair_of{vector, LABEL} cmd_opts)* /;/ cmd_opts)* (dict_pair_of{vector, LABEL} cmd_opts)+ -> cmd_sft_open_open_forbs
+       | "info" cmd_opts (STRICT_LABEL cmd_opts)* -> cmd_info
+       | ("contain" | "contains") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_contains
+       | ("equal" | "equals") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_equals
+       | ("show_formula" | "print_formula") STRICT_LABEL -> cmd_show_formula
+       | "topology" (STRICT_LABEL | list_of{top_edge}) -> cmd_topology_default
+       | "topology" (top_edge (";"? top_edge)* ";"?)? -> cmd_topology_open_edges
+       | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL}) cmd_opts -> cmd_nodes_default
+       | ("nodes" | "vertices") node_name+ -> cmd_nodes_open
+       | ("alphabet" | "alph") cmd_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_opts -> cmd_alph_default
+       | ("alphabet" | "alph") LABEL+ -> cmd_alph_open
+       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
+       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_node_sym
+       | "compose" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_compose_default
+       | "compose" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_compose_open
+       | ("dim" | "dimension") cmd_opts NAT cmd_opts -> cmd_dimension
+       | ("spacetime_diagram" | "spacetime") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_spacetime
+       | ("has_post_inverse" | "has_retraction") cmd_opts STRICT_LABEL cmd_opts -> cmd_has_retraction
+       | ("compute_forbidden_patterns" | "calculate_forbidden_patterns") cmd_opts STRICT_LABEL cmd_opts -> cmd_compute_forbs
+       | "set_weights" cmd_opts dict_of{node_name, fraction} cmd_opts -> cmd_set_weights_default
+       | "set_weights" cmd_opts dict_pair_of{node_name, fraction} (cmd_opts dict_pair_of{node_name, fraction})* cmd_opts -> cmd_set_weights_open
+       | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
+       | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts -> cmd_density_bound_single_default
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{list_of{vector}} cmd_opts -> cmd_density_bound_multi_default
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* /;/ cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_density_bound_single_open
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open
+
+top_edge: LABEL vector~1..3
+
+cmd_opts: cmd_opt*
+cmd_opt: | STRICT_LABEL "=" value -> option
+         | "@" STRICT_LABEL       -> flag
+
+### FORMULA GRAMMAR
+
+# We want quantifiers, let expressions etc to extend as far to the right as possible:
+# let b:=a in a=1 & b=1 should not be parsed as (let b:=a in a=1) & b=1.
+# This means that an and_formula (or any other binary operator) cannot contain a let_formula
+# except on the very right.
+
+quantified: QUANTIFIER STRICT_LABEL imp_formula
+
+QUANTIFIER: "A" | "AC" | "E" | "EC"
+
+?formula: imp_formula
+?imp_formula: iff_formula
+            | left_iff_formula "->" imp_formula
+?iff_formula: (left_or_formula "<->")* or_formula
+?left_iff_formula: (left_or_formula "<->")* left_or_formula
+?or_formula: (left_and_formula "|")* and_formula
+?left_or_formula: (left_and_formula "|")* left_and_formula
+?and_formula: (left_neg_formula "&")* neg_formula
+?left_and_formula: (left_neg_formula "&")* left_neg_formula
+?neg_formula: NEG* (rightmost_formula | atomic_formula)
+?left_neg_formula: NEG* atomic_formula
+
+?atomic_formula: "(" formula ")"
+               | STRICT_LABEL (pos_expr | "(" formula ")")*            -> bool_or_call
+               | (LABEL | pos_expr) (NEG? comp_op (LABEL | pos_expr))+ -> node_comp
+
+rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula -> restr_quantified
+                 | "subst" (pos_expr ":=" LABEL)+ "in" formula        -> subst_formula
+                 | "let" STRICT_LABEL+ ":=" formula "in" formula      -> let_formula
+
+!comp_op: "=" | "@" | "~" | "~~" | "~^" nat_set
+
+nat_set: nat_range ("," nat_range)*
+!nat_range: NAT ("-" NAT?)?
+
+?pos_expr: STRICT_LABEL ("." (LABEL | vector))*
+
+?finite_set: set_diff
+?set_diff: (set_diff "-")? set_symdiff
+?set_symdiff: set_union ("<>" set_symdiff)?
+?set_union: set_int ("+" set_union)?
+?set_int: atomic_set ("*" set_int)?
+
+atomic_set: pos_expr ":" NAT                  -> set_short_ball
+          | "{" pos_expr (","? pos_expr)* "}" -> set_literal
+          | "N" SET_MODS pos_expr             -> set_node_nhood
+          | "N" SET_MODS atomic_set           -> set_set_nhood
+          | (/B|S/) SET_MODS NAT pos_expr     -> set_node_ball
+          | (/B|S/) SET_MODS NAT atomic_set   -> set_set_ball
+          | "(" finite_set ")"
+
+SET_MODS: /[opn]+/
+
+### COMMON DEFINITIONS
+
+node_name: LABEL ("." LABEL)*
+
+vector: "(" INT ("," INT)* ")"               -> plain_vector
+      | "(" INT ("," INT)* ";" node_name ")" -> node_vector
+
+NEG: "!"
+
+?value: quantified
+      | STRICT_LABEL
+      | INT
+      | vector
+      | list
+      | dict
+
+list: "[" (value (","? value)*)? "]"
+list_of{val}: "[" (val (","? val)*)? "]"
+open_list_of{val}: val (","? val)*
+
+nested_default_dict_of{key}: "{" (just{key} | dict_pair_of{key, nested_default_dict_of{key}}) (","? (just{key} | dict_pair_of{key, nested_default_dict_of{key}}))* "}"
+dict_of{key, val}: "{" (dict_pair_of{key, val} (","? dict_pair_of{key, val})*)? "}"
+open_dict_of{key, val}: (dict_pair_of{key, val} (";"? dict_pair_of{key, val})*)?
+dict_pair_of{key, val}: key ":" val
+just{val}: val
+
+dict: "{" (dict_pair (","? dict_pair))? "}"
+dict_pair: value ":" value
+
+LABEL: /[a-zA-Z0-9_]+/
+STRICT_LABEL: /[a-zA-Z_][a-zA-Z0-9_]*/
+NAT: /0|[1-9][0-9]*/
+INT: /0|-?[1-9][0-9]*/
+?fraction: INT ("/" NAT)?
+
+COMMENT: /--[^\n]*/x
+%ignore COMMENT
+
+%import common.WS
+%ignore WS
+"""
+
+class GriddyTransformer(Transformer_NonRecursive):
+
+    NAT = int
+    INT = int
+    LABEL = str
+    STRICT_LABEL = str
+
+    fraction = Fraction
+
+    list = list
+    list_of = list
+    open_list_of = list
+    
+    dict_pair = tuple
+    dict_pair_of = tuple
+
+    dict = dict
+    dict_of = dict
+    open_dict_of = dict
+
+    def nested_default_dict_of(self, items):
+        print("nddo", items)
+        the_dict = dict()
+        for item in items:
+            if isinstance(item, Just):
+                # single key -> pair with None
+                the_dict[item.item] = None
+            else:
+                the_dict[item[0]] = item[1]
+        return the_dict
+
+    def just(self, items):
+        return Just(items[0])
+
+    plain_vector = tuple
+
+    def node_vector(self, items):
+        return (tuple(items[:-1]), items[-1])
+
+    node_name = tuple
+
+    def dict_of(self, pairs):
+        return dict(pairs)
+
+    
+
+    def quantified(self, item):
+        quant, var, formula = item
+        if quant == "A":
+            qtype = "NODEFORALL"
+        elif quant == "E":
+            qtype = "NODEEXISTS"
+        elif quant == "AC":
+            qtype = "CELLFORALL"
+        elif quant == "EC":
+            qtype = "CELLEXISTS"
+        return (qtype, var, None, formula)
+
+    def restr_quantified(self, item):
+        quant, var, finset, formula = item
+        if quant == "A":
+            qtype = "NODEFORALL"
+        elif quant == "E":
+            qtype = "NODEEXISTS"
+        elif quant == "AC":
+            qtype = "CELLFORALL"
+        elif quant == "EC":
+            qtype = "CELLEXISTS"
+        return (qtype, var, finset, formula)
+
+    def set_short_ball(self, finset):
+        return ("SET_BALL", [], finset[1], ("SET_LITERAL", [finset[0]]))
+
+    def set_literal(self, nodes):
+        return ("SET_LITERAL", nodes)
+
+    def set_node_nhood(self, args):
+        return ("SET_NHOOD", args[0], ("SET_LITERAL", [args[1]]))
+
+    def set_set_nhood(self, args):
+        return ("SET_NHOOD", args[0], args[1])
+
+    def set_node_ball(self, args):
+        if args[0] == "B":
+            ball = "SET_BALL"
+        elif args[0] == "S":
+            ball = "SET_SPHERE"
+        return (ball, list(args[1]), args[2], ("SET_LITERAL", [args[3]]))
+
+    def set_set_ball(self, args):
+        if args[0] == "B":
+            ball = "SET_BALL"
+        elif args[0] == "S":
+            ball = "SET_SPHERE"
+        return (ball, list(args[1]), args[2], args[3])
+
+    def set_diff(self, args):
+        return ("SETMINUS", *args)
+
+    def set_symdiff(self, args):
+        return ("SETSYMDIF", *args)
+
+    def set_union(self, args):
+        return ("SETUNION", *args)
+
+    def set_int(self, args):
+        return ("SETINTER", *args)
+
+    def pos_expr(self, address):
+        return ("ADDR", *address)
+
+    def nat_range(self, items):
+        if len(items) == 1:
+            return (items[0], items[0])
+        elif len(items) == 2:
+            return (items[0], "inf")
+        else:
+            return (items[0], items[2])
+
+    nat_set = list
+
+    def comp_op(self, items):
+        if len(items) == 1:
+            op = items[0]
+            if op == "=":
+                the_op = "VALEQ"
+            elif op == "@":
+                the_op = "POSEQ"
+            if op == "~":
+                the_op = "ISNEIGHBOR"
+            elif op == "~~":
+                the_op = "ISPROPERNEIGHBOR"
+            return lambda x,y: (the_op, x, y)
+        else:
+            return lambda x,y: ("HASDIST", items[1], x, y)
+
+    def node_comp(self, comps):
+        first, *rest = comps
+        anded = []
+        while rest:
+            if rest[0] == "!":
+                negate = True
+                rest = rest[1:]
+            else:
+                negate = False
+            op_func, second, *rest = rest
+            term = op_func(first, second)
+            if negate:
+                term = ("NOT", term)
+            anded.append(term)
+            first = second
+        if len(anded) == 1:
+            return anded[0]
+        return ("AND", *anded)
+
+    def iff_formula(self, formulas):
+        if len(formulas) == 2:
+            return ("IFF", *formulas)
+        return ("AND", *(("IFF", formulas[i], formulas[i+1]) for i in range(len(formulas)-1)))
+
+    def left_iff_formula(self, formulas):
+        return self.iff_formula(formulas)
+
+    def imp_formula(self, formulas):
+        return ("IMP", formulas[0], formulas[1])
+
+    def left_imp_formula(self, formulas):
+        return self.imp_formula(formulas)
+
+    def or_formula(self, formulas):
+        return ("OR", *formulas)
+
+    def left_or_formula(self, formulas):
+        return self.or_formula(formulas)
+
+    def and_formula(self, formulas):
+        return ("AND", *formulas)
+
+    def left_and_formula(self, formulas):
+        return self.and_formula(formulas)
+
+    def neg_formula(self, negs_and_formula):
+        formula = negs_and_formula[-1]
+        if not len(negs_and_formula) % 2:
+            formula = ("NOT", formula)
+        return formula
+
+    def left_neg_formula(self, formulas):
+        return self.neg_formula(formulas)
+
+    def let_formula(self, letexpr):
+        call = letexpr[:-2]
+        result = letexpr[-2]
+        rest = letexpr[-1]
+        return ("LET", tuple(call), result, rest)
+
+    def subst_formula(self, substexpr):
+        subst = {substexpr[2*i] : substexpr[2*i+1]
+                 for i in range(len(substexpr)//2)}
+        rest = substexpr[-1]
+        return ("SUBST", subst, rest)
+
+    def bool_or_call(self, call):
+        if len(call) == 1:
+            return ("BOOL", call[0])
+        else:
+            return ("CALL", *call)
+
+    def option(self, items):
+        return tuple(items)
+
+    def flag(self, items):
+        return items[0]
+    
+    def cmd_opts(self, items):
+        if isinstance(items[0], Tree):
+            return Opts([])
+        return Opts(items)
+
+    def cmd_default(self, name, arguments):
+        opts = dict()
+        flags = set()
+        args = []
+        for arg in arguments:
+            if isinstance(arg, Opts):
+                for opt_arg in arg.items:
+                    if type(opt_arg) == tuple:
+                        opts[opt_arg[0]] = opt_arg[1]
+                    else:
+                        flags.add(opt_arg)
+            else:
+                args.append(arg)
+        return (name, args, opts, flags)
+
+    def cmd_sft_default(self, args):
+        return self.cmd_default("sft", args)
+
+    def cmd_sft_open_forbs(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("sft", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_sft_open_open_forbs(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("sft", args)
+        forbs = []
+        forb = dict()
+        for item in pos_args[1:]:
+            if type(item) == tuple:
+                forb[item[0]] = item[1]
+            else:
+                #semicolon -> new forb
+                forbs.append(forb)
+                forb = dict()
+        if forb:
+            forbs.append(forb)
+        return (name, [pos_args[0], forbs], opts, flags)
+
+    def cmd_info(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("info", args)
+        return (name, [pos_args], opts, flags)
+
+    def cmd_contains(self, args):
+        return self.cmd_default("contains", args)
+
+    def cmd_equals(self, args):
+        return self.cmd_default("equal", args)
+
+    def cmd_show_formula(self, args):
+        return self.cmd_default("show_formula", args)
+
+    def cmd_topology_default(self, args):
+        return self.cmd_default("topology", args)
+
+    def cmd_topology_open_edges(self, args):
+        return self.cmd_default("topology", [args])
+
+    def top_edge(self, args):
+        return tuple(args)
+
+    def cmd_nodes_default(self, args):
+        return self.cmd_default("nodes", args)
+
+    def cmd_nodes_open(self, args):
+        print("nodes open", args)
+        return self.cmd_default("nodes", [args])
+
+    def cmd_alph_default(self, args):
+        return self.cmd_default("alphabet", args)
+
+    def cmd_alph_open(self, args):
+        return self.cmd_default("alphabet", [args])
+
+    def cmd_blockmap_sym(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
+        label, *rules = pos_args 
+        return (name, [label, [rules[2*i:2*i+2] for i in range(len(rules)//2)]], opts, flags)
+
+    def cmd_blockmap_node_sym(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
+        label, *rules = pos_args 
+        return (name, [label, [rules[3*i:3*i+3] for i in range(len(rules)//3)]], opts, flags)
+
+    def cmd_compose_default(self, args):
+        return self.cmd_default("compose", args)
+
+    def cmd_compose_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("compose", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_dimension(self, args):
+        return self.cmd_default("dim", args)
+
+    def cmd_spacetime(self, args):
+        return self.cmd_default("spacetime_diagram", args)
+
+    def cmd_has_retraction(self, args):
+        return self.cmd_default("has_post_inverse", args)
+
+    def cmd_compute_forbs(self, args):
+        return self.cmd_default("compute_forbidden_patterns", args)
+
+    def cmd_set_weights_default(self, args):
+        return self.cmd_default("set_weights", args)
+
+    def cmd_set_weights_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("set_weights", args)
+        return (name, [dict(pos_args)], opts, flags)
+
+    def cmd_min_density_default(self, args):
+        return self.cmd_default("minimum_density", args)
+
+    def cmd_min_density_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("minimum_density", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_density_bound_single_default(self, args):
+        return self.cmd_default("density_lower_bound", args)
+
+    def cmd_density_bound_multi_default(self, args):
+        return self.cmd_default("density_lower_bound", args)
+
+    def cmd_density_bound_single_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label = pos_args.pop(0)
+        trans_vecs = []
+        while pos_args:
+            arg = pos_args.pop(0)
+            if arg == ";":
+                break
+            else:
+                trans_vecs.append(arg)
+        nhood_nvecs = pos_args
+        return (name, [label, [trans_vecs, nhood_nvecs]], opts, flags)
+
+    def cmd_density_bound_multi_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label, *specs = pos_args
+        return (name, [label, [specs[2*i:2*i+2] for i in range(len(specs)//2)]], opts, flags)
+
+    def start(self, cmds):
+        return list(cmds)
+
+parser = Lark(griddy_grammar, parser="earley")
+
+def parse_griddy(program):
+    return GriddyTransformer().transform(parser.parse(program))
+
+def test():
+    prog = """
+    %sft test @verbose onesided=[0 1] {(0,0):1 (0,1):0}
+    %sft test2 (0,0):1; (0,1):0; @verbose (1,0):0
+    """
+    res = parse_griddy(prog)
+    for cmd in res:
+        print(cmd)
+
+if __name__ == "__main__":
+    test()

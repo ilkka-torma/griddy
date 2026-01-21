@@ -3,6 +3,7 @@
 try:
     import dparser
     import parsy
+    import lark_parser
 except ImportError as error:
     print("Perhaps you have not installed the prerequisite modules for Griddy.")
     print("The file pip_installs.bat contains a list of pip installs you should perform.")
@@ -74,10 +75,14 @@ class Griddy:
     """
     def process_nvec(self, nvec):
         #print(nvec)
-        if not self.has_nodes() and len(nvec) == self.dim:
-            return (nvec, ())
+        #if not self.has_nodes() and len(nvec) == self.dim:
+        #    return (nvec, ())
         #print((nvec[:self.dim], nvec[-1]))
-        return (nvec[:self.dim], nvec[-1])
+        #return (nvec[:self.dim], nvec[-1])
+        if type(nvec[-1]) == tuple:
+            return nvec
+        else:
+            return (nvec, ())
 
     def run_file(self, filename):
         with open(fix_filename(filename), 'r') as f:
@@ -89,7 +94,7 @@ class Griddy:
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
-            parsed = dparser.parse_griddy(code)
+            parsed = lark_parser.parse_griddy(code)
             if print_parsed:
                 print(parsed)
         except parsy.ParseError as e:
@@ -106,7 +111,7 @@ class Griddy:
         for parsed_line in parsed:
             cmd, args, kwds, flags = parsed_line
             #print("cmd", cmd, args, kwds, flags)
-            #print("parsed line", parsed_line)
+            print("parsed line", parsed_line)
             #if "ver_golden_mean_shift" in self.sfts:
                 #print(self.sfts["ver_golden_mean_shift"].circs)
             #print(self.topology)
@@ -1593,10 +1598,12 @@ def fix_filename(filename):
 
 # change the topology to modern (graph compatible) format where we just have "command", "movement in cells", "from_node", "to_node"
 def modernize_topology(topology, dim = None):
+    #print("modernizing")
     if dim == None: # being called from the explicit list
         dim = len(topology[0][1]) - 1
     newtopology = []
     for t in topology:
+        #print("got edge", t)
         if len(t) == 4: # seems to be a modern tuple
             newtopology.append(t)
         else:
@@ -1607,6 +1614,7 @@ def modernize_topology(topology, dim = None):
                 name, offset, fromnode, tonode = t[0], vsub(t[2][:-1], t[1][:-1]), t[1][dim], t[2][dim]
                 #newtopology.append((name, graph.moves_to(offset), fromnode, tonode))
             newtopology.append((name, offset, fromnode, tonode))
+        #print("produced edge", newtopology[-1])
     #print(newtopology)
     return newtopology
 
