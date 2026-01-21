@@ -13,6 +13,18 @@ class Just:
     def __repr__(self):
         return "Just({})".format(self.item)
 
+def cmd_opts_grammar(cmd):
+    "Generate Lark grammar for optional arguments and flags."
+    rules = []
+    if type(cmd.opts) == dict:
+        for (label, typ) in cmd.opts.items():
+            rules.append('option\{"{}", {}\}'.format(label, typ))
+    else:
+        rules.append('option\{"{}", value\}'.format(label))
+    for label in cmd.flags:
+        rules.append('flag\{"{}"\}'.format(label))
+    return "({})*".format("|".join(rules))
+
 griddy_grammar = """
 
 start: ("%" command)+
@@ -30,7 +42,7 @@ command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{di
        | "topology" (top_edge (";"? top_edge)* ";"?)? -> cmd_topology_open_edges
        | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL}) cmd_opts -> cmd_nodes_default
        | ("nodes" | "vertices") node_name+ -> cmd_nodes_open
-       | ("alphabet" | "alph") cmd_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_opts -> cmd_alph_default
+       | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
        | ("alphabet" | "alph") LABEL+ -> cmd_alph_open
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_node_sym
@@ -48,12 +60,28 @@ command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{di
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{list_of{vector}} cmd_opts -> cmd_density_bound_multi_default
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* /;/ cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_density_bound_single_open
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open
+       | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
+       | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
+       | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts (STRICT_LABEL cmd_opts)* -> cmd_ca_ball_open
+       | "save_environment" STRICT_LABEL -> cmd_save_env
+       | "load_environment" STRICT_LABEL -> cmd_load_env
+       | "preimage" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_preimage
+       | "fixed_points" STRICT_LABEL STRICT_LABEL -> cmd_fixed_points
+       | "intersection" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_intersection_default
+       | "intersection" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_intersection_open
+       | "product" cmd_product_opts STRICT_LABEL cmd_product_opts list_of{STRICT_LABEL} -> cmd_product_default
+       | "product" cmd_product_opts STRICT_LABEL cmd_product_opts (STRICT_LABEL cmd_product_opts)+ -> cmd_product_open
+       | "relation" cmd_relation_opts STRICT_LABEL cmd_relation_opts STRICT_LABEL cmd_relation_opts -> cmd_relation
 
 top_edge: LABEL vector~1..3
 
 cmd_opts: cmd_opt*
 cmd_opt: | STRICT_LABEL "=" value -> option
          | "@" STRICT_LABEL       -> flag
+
+cmd_alph_opts: ("default" "=" list_of{LABEL})?
+cmd_product_opts: (/tracks/ "=" list_of{LABEL} | /env/ "=" LABEL)*
+cmd_relation_opts: ("tracks" "=" list_of{LABEL})?
 
 ### FORMULA GRAMMAR
 
@@ -78,9 +106,11 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 ?neg_formula: NEG* (rightmost_formula | atomic_formula)
 ?left_neg_formula: NEG* atomic_formula
 
+?sym_or_node: LABEL | pos_expr
+
 ?atomic_formula: "(" formula ")"
                | STRICT_LABEL (pos_expr | "(" formula ")")*            -> bool_or_call
-               | (LABEL | pos_expr) (NEG? comp_op (LABEL | pos_expr))+ -> node_comp
+               | (sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
 
 rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula -> restr_quantified
                  | "subst" (pos_expr ":=" LABEL)+ "in" formula        -> subst_formula
@@ -297,7 +327,10 @@ class GriddyTransformer(Transformer_NonRecursive):
             else:
                 negate = False
             op_func, second, *rest = rest
-            term = op_func(first, second)
+            if type(first) == list:
+                term = ("AND", *(op_func(x,y) for (x,y) in zip(first, second)))
+            else:
+                term = op_func(first, second)
             if negate:
                 term = ("NOT", term)
             anded.append(term)
@@ -442,6 +475,13 @@ class GriddyTransformer(Transformer_NonRecursive):
     def cmd_alph_open(self, args):
         return self.cmd_default("alphabet", [args])
 
+    def cmd_alph_opts(self, items):
+        #print("cmd_alph_opts", items)
+        if items:
+            return Opts([("default", items[0])])
+        else:
+            return Opts([])
+
     def cmd_blockmap_sym(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
         label, *rules = pos_args 
@@ -508,6 +548,61 @@ class GriddyTransformer(Transformer_NonRecursive):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
         label, *specs = pos_args
         return (name, [label, [specs[2*i:2*i+2] for i in range(len(specs)//2)]], opts, flags)
+
+    def cmd_empty(self, args):
+        return self.cmd_default("empty", args)
+
+    def cmd_ca_ball_default(self, args):
+        return self.cmd_default("compute_CA_ball", args)
+
+    def cmd_ca_ball_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("compute_CA_ball", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_save_env(self, args):
+        return self.cmd_default("save_environment", args)
+
+    def cmd_load_env(self, args):
+        return self.cmd_default("load_environment", args)
+
+    def cmd_preimage(self, args):
+        return self.cmd_default("preimage", args)
+
+    def cmd_fixed_points(self, args):
+        return self.cmd_default("fixed_points", args)
+
+    def cmd_intersection_default(self, args):
+        return self.cmd_default("intersection", args)
+
+    def cmd_intersection_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("intersection", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_product_default(self, args):
+        return self.cmd_default("product", args)
+
+    def cmd_product_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("product", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_product_opts(self, items):
+        args = []
+        for i in range(len(items)//2):
+            label, val = items[i*2:i*2+2]
+            if label == "tracks":
+                args.append(("tracks", val))
+            if label == "env":
+                args.append(("env", val))
+        return Opts(args)
+
+    def cmd_relation(self, args):
+        return self.cmd_default("relation", args)
+
+    def cmd_relation_opts(self, items):
+        if items:
+            return Opts([("tracks", items[0])])
+        else:
+            return Opts([])
 
     def start(self, cmds):
         return list(cmds)

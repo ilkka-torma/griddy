@@ -3,7 +3,7 @@
 try:
     import dparser
     import parsy
-    import lark_parser
+    import gparser
 except ImportError as error:
     print("Perhaps you have not installed the prerequisite modules for Griddy.")
     print("The file pip_installs.bat contains a list of pip installs you should perform.")
@@ -94,7 +94,7 @@ class Griddy:
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
-            parsed = lark_parser.parse_griddy(code)
+            parsed = gparser.parse_griddy(code)
             if print_parsed:
                 print(parsed)
         except parsy.ParseError as e:
