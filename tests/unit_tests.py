@@ -783,12 +783,13 @@ code = """
 1 Ao o!=o.rt
 %sofic_image img xor inc_s
 %language aut2 img
-%regexp aut3 (1|())(0|01)*
+%regexp aut3 (1|())(0|0 1)*
 %regexp aut4 0*(1|())0*
 %equal expect=T aut aut3
 %equal expect=T aut2 aut4
 %contains expect=T aut aut2
 %contains expect=F aut2 aut
+%equal expect=F aut2 aut3
 """
 unit_tests.append(("sofic image and regex", code))
 

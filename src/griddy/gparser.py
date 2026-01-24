@@ -31,9 +31,9 @@ start: ("%" command)+
 
 ### COMMAND GRAMMAR
 
-command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{dict_of{vector, LABEL}}) cmd_opts -> cmd_sft_default
-       | ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (dict_of{vector, LABEL} cmd_opts)* -> cmd_sft_open_forbs
-       | ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts ((dict_pair_of{vector, LABEL} cmd_opts)* /;/ cmd_opts)* (dict_pair_of{vector, LABEL} cmd_opts)+ -> cmd_sft_open_open_forbs
+command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{dict_of{vector, LABEL}}) cmd_opts -> cmd_sft_default
+       | (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (dict_of{vector, LABEL} cmd_opts)* -> cmd_sft_open_forbs
+       | (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts ((dict_pair_of{vector, LABEL} cmd_opts)* /;/ cmd_opts)* (dict_pair_of{vector, LABEL} cmd_opts)+ -> cmd_sft_open_open_forbs
        | "info" cmd_opts (STRICT_LABEL cmd_opts)* -> cmd_info
        | ("contain" | "contains") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_contains
        | ("equal" | "equals") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_equals
@@ -45,7 +45,7 @@ command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{di
        | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
        | ("alphabet" | "alph") LABEL+ -> cmd_alph_open
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
-       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_node_sym
+       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* ";"? -> cmd_blockmap_node_sym
        | "compose" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_compose_default
        | "compose" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_compose_open
        | ("dim" | "dimension") cmd_opts NAT cmd_opts -> cmd_dimension
@@ -59,7 +59,8 @@ command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{di
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts -> cmd_density_bound_single_default
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{list_of{vector}} cmd_opts -> cmd_density_bound_multi_default
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* /;/ cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_density_bound_single_open
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts (list_of{list_of{vector}} cmd_opts)+ -> cmd_density_bound_multi_open
+       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open_open
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts (STRICT_LABEL cmd_opts)* -> cmd_ca_ball_open
@@ -67,11 +68,22 @@ command: ("sft" | "SFT") cmd_opts STRICT_LABEL cmd_opts (quantified | list_of{di
        | "load_environment" STRICT_LABEL -> cmd_load_env
        | "preimage" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_preimage
        | "fixed_points" STRICT_LABEL STRICT_LABEL -> cmd_fixed_points
-       | "intersection" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_intersection_default
+       | "intersection" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_intersection_default
        | "intersection" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_intersection_open
        | "product" cmd_product_opts STRICT_LABEL cmd_product_opts list_of{STRICT_LABEL} -> cmd_product_default
        | "product" cmd_product_opts STRICT_LABEL cmd_product_opts (STRICT_LABEL cmd_product_opts)+ -> cmd_product_open
        | "relation" cmd_relation_opts STRICT_LABEL cmd_relation_opts STRICT_LABEL cmd_relation_opts -> cmd_relation
+       | ("sofic1D" | "sofic1d") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_sofic
+       | "minimize" STRICT_LABEL-> cmd_minimize
+       | "trace" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts list_of{NAT} cmd_opts list cmd_opts -> cmd_trace
+       | "union" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_union_default
+       | "union" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_union_open
+       | "language" STRICT_LABEL STRICT_LABEL -> cmd_language
+       | "determinize" STRICT_LABEL-> cmd_determinize
+       | "sofic_image" STRICT_LABEL STRICT_LABEL STRICT_LABEL-> cmd_sofic_image
+       | "regexp" cmd_opts STRICT_LABEL cmd_opts regexp cmd_opts-> cmd_regexp
+       | "find_automatic_conf" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts-> cmd_find_automatic
+       | "restrict_codomain" STRICT_LABEL STRICT_LABEL -> cmd_restrict_codomain
 
 top_edge: LABEL vector~1..3
 
@@ -109,7 +121,7 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 ?sym_or_node: LABEL | pos_expr
 
 ?atomic_formula: "(" formula ")"
-               | STRICT_LABEL (pos_expr | "(" formula ")")*            -> bool_or_call
+               | STRICT_LABEL (LABEL | pos_expr | "(" formula ")")*            -> bool_or_call
                | (sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
                | num_formula (num_comp_op num_formula)+ -> num_comp
 
@@ -140,21 +152,37 @@ nat_set: nat_range ("," nat_range)*
 
 ?pos_expr: STRICT_LABEL ("." (LABEL | vector))*
 
+### FINITE SETS GRAMMAR
+
 ?finite_set: set_diff
 ?set_diff: (set_diff "-")? set_symdiff
 ?set_symdiff: set_union ("<>" set_symdiff)?
 ?set_union: set_int ("+" set_union)?
 ?set_int: atomic_set ("*" set_int)?
 
-atomic_set: pos_expr ":" NAT                  -> set_short_ball
-          | "{" pos_expr (","? pos_expr)* "}" -> set_literal
-          | "N" SET_MODS pos_expr             -> set_node_nhood
-          | "N" SET_MODS atomic_set           -> set_set_nhood
-          | (/B|S/) SET_MODS NAT pos_expr     -> set_node_ball
-          | (/B|S/) SET_MODS NAT atomic_set   -> set_set_ball
-          | "(" finite_set ")"
+?atomic_set: pos_expr ":" NAT                   -> set_short_ball
+           | "{" pos_expr (","? pos_expr)* "}"  -> set_literal
+           | "N" set_mods pos_expr             -> set_node_nhood
+           | "N" set_mods atomic_set           -> set_set_nhood
+           | (/B|S/) set_mods NAT pos_expr     -> set_node_ball
+           | (/B|S/) set_mods NAT atomic_set   -> set_set_ball
+           | "(" finite_set ")"
 
-SET_MODS: /[opn]+/
+set_mods: (/o/ | /p/ | /n/)*
+
+### REGULAR EXPRESSION GRAMMAR
+
+?regexp: regexp_union
+?regexp_union: regexp_intersection ("|" regexp_union)?
+?regexp_intersection: regexp_prefix ("&" regexp_intersection)?
+?regexp_prefix: (/!/ | /~/)* regexp_concat
+?regexp_concat: regexp_suffix regexp_concat?
+?regexp_suffix: atomic_regexp (/\*/ | /\+/ | /\?/)*
+
+?atomic_regexp: "(" regexp ")"
+              | "(" ")"        -> regexp_empty_word
+              | LABEL          -> regexp_symbol
+              | list_of{LABEL} -> regexp_symbol_list
 
 ### COMMON DEFINITIONS
 
@@ -285,14 +313,25 @@ class GriddyTransformer(Transformer_NonRecursive):
             ball = "SET_BALL"
         elif args[0] == "S":
             ball = "SET_SPHERE"
-        return (ball, list(args[1]), args[2], ("SET_LITERAL", [args[3]]))
+        return (ball, args[1], args[2], ("SET_LITERAL", [args[3]]))
 
     def set_set_ball(self, args):
         if args[0] == "B":
             ball = "SET_BALL"
         elif args[0] == "S":
             ball = "SET_SPHERE"
-        return (ball, list(args[1]), args[2], args[3])
+        return (ball, args[1], args[2], args[3])
+
+    def set_mods(self, items):
+        ret = []
+        for item in items:
+            if item == "o":
+                ret.append("OPEN")
+            if item == "p":
+                ret.append("POSITIVE")
+            if item == "n":
+                ret.append("NEGATIVE")
+        return ret
 
     def set_diff(self, args):
         return ("SETMINUS", *args)
@@ -405,7 +444,7 @@ class GriddyTransformer(Transformer_NonRecursive):
         subst = {substexpr[2*i] : substexpr[2*i+1]
                  for i in range(len(substexpr)//2)}
         rest = substexpr[-1]
-        return ("SUBST", subst, rest)
+        return ("SUBSTITUTE", subst, rest)
 
     def bool_or_call(self, call):
         if len(call) == 1:
@@ -468,6 +507,44 @@ class GriddyTransformer(Transformer_NonRecursive):
     def num_node(self, items):
         return ("SYM_TO_NUM", items[0])
 
+    def regexp_empty_word(self, items):
+        return "EMPTYWORD"
+
+    def regexp_symbol(self, items):
+        return ("SYMBOL", items[0])
+
+    def regexp_symbol_list(self, items):
+        return ("SYMBOLS", items[0])
+
+    def regexp_union(self, items):
+        return ("UNION", *items)
+
+    def regexp_intersection(self, items):
+        return ("ISECT", *items)
+
+    def regexp_prefix(self, items):
+        ret = items[-1]
+        for prefix in reversed(items[:-1]):
+            if prefix == "!":
+                ret = ("NOT", ret)
+            elif prefix == "~":
+                ret = ("CONTAINS", ret)
+        return ret
+
+    def regexp_concat(self, items):
+        return ("CONCAT", *items)
+
+    def regexp_suffix(self, items):
+        ret = items[0]
+        for suffix in items[1:]:
+            if suffix == "*":
+                ret = ("STAR", ret)
+            elif suffix == "+":
+                ret = ("PLUS", ret)
+            elif suffix == "?":
+                ret = ("UNION", "EMPTYWORD", ret)
+        return ret
+
     def option(self, items):
         return tuple(items)
 
@@ -495,17 +572,29 @@ class GriddyTransformer(Transformer_NonRecursive):
         return (name, args, opts, flags)
 
     def cmd_sft_default(self, args):
-        return self.cmd_default("sft", args)
+        if args[0] == "clopen":
+            name = "clopen"
+        else:
+            name = "sft"
+        return self.cmd_default(name, args[1:])
 
     def cmd_sft_open_forbs(self, args):
-        (name, pos_args, opts, flags) = self.cmd_default("sft", args)
-        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+        if args[0] == "clopen":
+            name = "clopen"
+        else:
+            name = "sft"
+        (name, pos_args, opts, flags) = self.cmd_default(name, args)
+        return (name, [pos_args[1], pos_args[2:]], opts, flags)
 
     def cmd_sft_open_open_forbs(self, args):
-        (name, pos_args, opts, flags) = self.cmd_default("sft", args)
+        if args[0] == "clopen":
+            name = "clopen"
+        else:
+            name = "sft"
+        (name, pos_args, opts, flags) = self.cmd_default(name, args)
         forbs = []
         forb = dict()
-        for item in pos_args[1:]:
+        for item in pos_args[2:]:
             if type(item) == tuple:
                 forb[item[0]] = item[1]
             else:
@@ -514,7 +603,7 @@ class GriddyTransformer(Transformer_NonRecursive):
                 forb = dict()
         if forb:
             forbs.append(forb)
-        return (name, [pos_args[0], forbs], opts, flags)
+        return (name, [pos_args[1], forbs], opts, flags)
 
     def cmd_info(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("info", args)
@@ -623,6 +712,11 @@ class GriddyTransformer(Transformer_NonRecursive):
     def cmd_density_bound_multi_open(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
         label, *specs = pos_args
+        return (name, [label, specs], opts, flags)
+
+    def cmd_density_bound_multi_open_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label, *specs = pos_args
         return (name, [label, [specs[2*i:2*i+2] for i in range(len(specs)//2)]], opts, flags)
 
     def cmd_empty(self, args):
@@ -679,6 +773,40 @@ class GriddyTransformer(Transformer_NonRecursive):
             return Opts([("tracks", items[0])])
         else:
             return Opts([])
+
+    def cmd_sofic(self, args):
+        return self.cmd_default("sofic1D", args)
+
+    def cmd_minimize(self, args):
+        return self.cmd_default("minimize", args)
+
+    def cmd_trace(self, args):
+        return self.cmd_default("trace", args)
+
+    def cmd_union_default(self, args):
+        return self.cmd_default("union", args)
+
+    def cmd_union_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("union", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_language(self, args):
+        return self.cmd_default("language", args)
+
+    def cmd_determinize(self, args):
+        return self.cmd_default("determinize", args)
+
+    def cmd_sofic_image(self, args):
+        return self.cmd_default("sofic_image", args)
+
+    def cmd_regexp(self, args):
+        return self.cmd_default("regexp", args)
+
+    def cmd_find_automatic(self, args):
+        return self.cmd_default("find_automatic_conf", args)
+
+    def cmd_restrict_codomain(self, args):
+        return self.cmd_default("restrict_codomain", args)
 
     def start(self, cmds):
         return list(cmds)

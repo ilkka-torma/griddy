@@ -306,6 +306,8 @@ class NFA:
 
     @classmethod
     def singleton(self, alph, sym):
+        if sym not in alph:
+            raise Exception("Symbol {} not in alphabet {}".format(sym, alph))
         trans = dict()
         for sym2 in alph:
             if sym == sym2:
@@ -317,6 +319,9 @@ class NFA:
 
     @classmethod
     def one_of(self, alph, syms):
+        for sym in syms:
+            if sym not in alph:
+                raise Exception("Symbol {} not in alphabet {}".format(sym, alph))
         trans = dict()
         for sym in alph:
             if sym in syms:
