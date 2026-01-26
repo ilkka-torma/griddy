@@ -318,18 +318,49 @@ class BlockMap:
                     some_letter.append(circA) # one of these should say yes
                     #print(IFF(circA, circB))
                 # check that one says yes
-                some_image.append(OR(*some_letter)) 
+                some_image.append(OR(*some_letter))
+
+        # debug
+        #print("eq circuits")
+        #for s in eq_circuits:
+        #    print(s)
+
+        # debug
+        #print("some image")
+        #for s in some_image:
+        #    print(s)
                     
         origin = self.graph.origin()
         differents = []
         for n in self.from_nodes:
             for a in self.from_alphabet[n][1:]:
                 differents.append(XOR(V((origin, n, "A", a)), V((origin, n, "B", a))))
+
+        # debug
+        #print("differents")
+        #for s in differents:
+        #    print(s)
+                
         # all images must be the same, and some central node has diff preimage, and all images have to be specified
         def lda(a): return self.from_alphabet[a[1]]
         if verbose:print("Circuit constructed in time {}".format(time.time() - t))
         ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda))
         if verbose:print("Solved in time {}".format(time.time() - t))
+
+
+        # just for a quick debug, you can print the solution; should really return a pattern object for Griddy exploration I guess
+        """
+        if ret == False:
+            model = SAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda), True)
+            for m in model:
+                print(m, model[m])
+            """
+
+            
+                
+            
+
+        
         return ret
 
     # count "obstructions to injectivity":

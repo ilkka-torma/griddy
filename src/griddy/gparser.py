@@ -8,7 +8,7 @@ class Opts:
 
 class Just:
     def __init__(self, item):
-        print("making Just", item)
+        #print("making Just", item)
         self.item = item
     def __repr__(self):
         return "Just({})".format(self.item)
@@ -276,7 +276,7 @@ class GriddyTransformer(Transformer_NonRecursive):
     open_dict_of = dict
 
     def nested_default_dict_of(self, items):
-        print("nddo", items)
+        #print("nddo", items)
         the_dict = dict()
         for item in items:
             if isinstance(item, Just):
@@ -660,7 +660,7 @@ class GriddyTransformer(Transformer_NonRecursive):
         return self.cmd_default("nodes", args)
 
     def cmd_nodes_open(self, args):
-        print("nodes open", args)
+        #print("nodes open", args)
         return self.cmd_default("nodes", [args])
 
     def cmd_alph_default(self, args):

@@ -301,7 +301,9 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     global nodes
     nodes = list(the_SFT.nodes) #list(n for n in the_SFT.nodes)
     if any(node in nodeoffsets for node in nodes) and any(node not in nodeoffsets for node in nodes):
-        raise Exception("All or none of nodes should have offsets specified")
+        for n in nodes:
+            if n not in nodeoffsets:
+                raise Exception("All or none of nodes should have offsets specified ({} missing).".format(n))
     for node in nodeoffsets:
         if node not in nodes:
             print("Unknown node in offsets ({}); using default offsets instead".format(node))
@@ -892,9 +894,9 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
         if not cancel_non_UI:
             # note that there is also zoom code elsewhere
             if (keys[pygame.K_a] and not any_modifier):
-                zoommul *= 1.01 # = smul(1.01, zoom)
+                zoommul *= 1.03 # = smul(1.01, zoom)
             if keys[pygame.K_z] and not any_modifier:
-                zoommul /= 1.01 # = smul(1/1.01, zoom)
+                zoommul /= 1.03 # = smul(1/1.01, zoom)
             
             if keys[pygame.K_s] and not any_modifier:
                 shouldnodesize += 1

@@ -110,7 +110,7 @@ class Griddy:
         for parsed_line in parsed:
             cmd, args, kwds, flags = parsed_line
             #print("cmd", cmd, args, kwds, flags)
-            print("parsed line", parsed_line)
+            #print("parsed line", parsed_line)
             #if "ver_golden_mean_shift" in self.sfts:
                 #print(self.sfts["ver_golden_mean_shift"].circs)
             #print(self.topology)
@@ -172,10 +172,15 @@ class Griddy:
                     self.graph = None # this is outdated, now we should always have a graph!
                 else:
                     self.topology = []
+                    if grph == "trivial":
+                        # trivial group with any generators
+                        self.graph = graphs.TrivialGroup(args[1])
                     if grph == "Aleshin":
                         self.graph = graphs.Aleshin
                     if grph == "SC_F661":
                         self.graph = graphs.SC_F661
+                    if grph == "SC_G451_smp":
+                        self.graph = graphs.SC_G451_smp
                     
             elif cmd == "topology":
                 top = args[0]

@@ -142,7 +142,9 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             pos_formulas.append(formula_to_circuit_(graph, topology, nodes, alphabet, rem_formula,
                                                     variables_new, subst, externals, global_restr))
         if op == "FORALL":
+            #print(pos_formulas)
             ret = AND(*pos_formulas)
+            
         elif op == "EXISTS":
             ret = OR(*pos_formulas)
         else:
@@ -265,6 +267,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         # horrible hack
         try:
             p1 = eval_to_position(graph, topology, nodes, arg1, variables)
+            #print("evaltopos arg1", p1)
             if p1 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None # = F
@@ -293,6 +296,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         p2ispos = True
         try: # horrible hack #2
             p2 = eval_to_position(graph, topology, nodes, arg2, variables)
+            #print("evaltopos arg2", p2)
             if p2 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None
@@ -322,41 +326,56 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         elif p1ispos and p2ispos:
             if ret == None:
                 args = []
-                p1_alph = alphabet[p1[1]]
-                p2_alph = alphabet[p2[1]]
-                if p1_alph == p2_alph:
-                    # the nice case: equal alphabets
-                    for a in p1_alph[1:]:
-                        args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
+                #print(p1)
+                # the case of equality of cells (with nontrivial node set)
+                if len(nodes) > 1 and p1[1] == ():
+                    # if other is not cell, then not equal, but should perhaps raise error
+                    if p2[1] != ():
+                        return F
+                    for n in nodes:
+                        eq_formulas = []
+                        formu = ("VALEQ", (p1[0], n), (p2[0], n))
+                        eq_formulas.append(formula_to_circuit_(graph, topology, nodes,
+                                                    alphabet, formu, variables,
+                                                    subst, externals, global_restr))
+                    ret = AND(*eq_formulas)
+                # case of equality of nodes; intermediate levels will crash for now though, should perhaps check equality of shape and content of tree?
                 else:
-                    # the messy case: different alphabets
-                    for (i,a) in enumerate(p1_alph):
-                        for (j,b) in enumerate(p2_alph):
-                            if a == b:
-                                # force the occurrences to be logically equivalent
-                                if i and j:
-                                    args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
-                                elif i:
-                                    args.append(IFF(NOT(V(p1 + (a,))), OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
-                                elif j:
-                                    args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])), NOT(V(p2 + (a,)))))
-                                else:
-                                    args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])),
-                                                    OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
-                        else:
-                            # a is not in the other alphabet; forbid it
-                            if i:
-                                args.append(NOT(V(p1 + (a,))))
+                    p1_alph = alphabet[p1[1]]
+                    p2_alph = alphabet[p2[1]]
+                    if p1_alph == p2_alph:
+                        # the nice case: equal alphabets
+                        for a in p1_alph[1:]:
+                            args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
+                    else:
+                        # the messy case: different alphabets
+                        for (i,a) in enumerate(p1_alph):
+                            for (j,b) in enumerate(p2_alph):
+                                if a == b:
+                                    # force the occurrences to be logically equivalent
+                                    if i and j:
+                                        args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
+                                    elif i:
+                                        args.append(IFF(NOT(V(p1 + (a,))), OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
+                                    elif j:
+                                        args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])), NOT(V(p2 + (a,)))))
+                                    else:
+                                        args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])),
+                                                        OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
                             else:
-                                args.append(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])))
-                        # for good measure, also forbid everything unmatched in the other alphabet
-                        for (i,a) in enumerate(p2_alph):
-                            if a not in p1_alph:
+                                # a is not in the other alphabet; forbid it
                                 if i:
-                                    args.append(NOT(V(p2 + (a,))))
+                                    args.append(NOT(V(p1 + (a,))))
                                 else:
-                                    args.append(OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:])))
-                ret = AND(*args)
+                                    args.append(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])))
+                            # for good measure, also forbid everything unmatched in the other alphabet
+                            for (i,a) in enumerate(p2_alph):
+                                if a not in p1_alph:
+                                    if i:
+                                        args.append(NOT(V(p2 + (a,))))
+                                    else:
+                                        args.append(OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:])))
+                    ret = AND(*args)
 
         else:
             if not p1ispos and p2ispos:
@@ -912,7 +931,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
             if graph.has_move(pos[0], i):
                 #print("actualy")
                 newpos = graph.move(pos[0], (i, 1))
-                if newpos:
+                if newpos != None:
                     # copy node from previous, all cells have same nodes
                     pos = (newpos, pos[1])
                     continue
@@ -921,6 +940,9 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                 #print("here", pos, i, graph.move_rel(pos[0], i), pos[1])
                 pos = graph.move_rel(pos[0], i), pos[1]
                 continue
+            #print("In position", pos[0], "tried to move " + i)
+            #print(graph.generators)
+            #print(graph.has_move(pos[0], i))
             raise Exception("") # exception raised if 
         #print(pos)
     #print ("got 2 pos", pos)
