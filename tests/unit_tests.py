@@ -123,11 +123,11 @@ code_basic = """
 #testing one-dimensional XORs; first two are equal
 code_basic_xors = """
 %topology grid
-%SFT test Ao Ap let xor a b := (a & !b) | (!a & b) in
+%SFT test Ao let xor a b := (a & !b) | (!a & b) in
 xor (xor (o=1) (o.up=1)) (xor (o.dn=1) (o.up.up=1))
-%SFT test2 Ao Ap let xor a b := (a & !b) | (!a & b) in
+%SFT test2 Ao let xor a b := (a & !b) | (!a & b) in
 xor (xor (xor (o=1) (o.dn=1)) (o.up.up!=0)) (o.up=1)
-%SFT test3 Ao Ap let xor a b := (a & !b) | (!a & b) in
+%SFT test3 Ao let xor a b := (a & !b) | (!a & b) in
 xor (xor (xor (o=1) (o.dn.up=1)) (o.up.up!=0)) (o.up=1)
 %show_formula test2
 -- %compare_SFT_pairs_equality
@@ -783,12 +783,13 @@ code = """
 1 Ao o!=o.rt
 %sofic_image img xor inc_s
 %language aut2 img
-%regexp aut3 (1|())(0|01)*
+%regexp aut3 (1|())(0|0 1)*
 %regexp aut4 0*(1|())0*
 %equal expect=T aut aut3
 %equal expect=T aut2 aut4
 %contains expect=T aut aut2
 %contains expect=F aut2 aut
+%equal expect=F aut2 aut3
 """
 unit_tests.append(("sofic image and regex", code))
 
@@ -941,9 +942,10 @@ if __name__ == "__main__":
     process = psutil.Process(os.getpid())
     start_mem = process.memory_info().rss/1000
 
-    for (name, code) in unit_tests:
+    for (i, (name, code)) in enumerate(unit_tests, start=1):
         griddy_inst = griddy.Griddy()
-        print("Running test", name)
+        print()
+        print("Running test {}/{}: {}".format(i, len(unit_tests), name))
         griddy_inst.run(code, "assert")
 #print("total time", time.time()-t)
         #a =bb

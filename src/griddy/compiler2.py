@@ -267,6 +267,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         # horrible hack
         try:
             p1 = eval_to_position(graph, topology, nodes, arg1, variables)
+            #print("evaltopos arg1", p1)
             if p1 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None # = F
@@ -295,6 +296,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         p2ispos = True
         try: # horrible hack #2
             p2 = eval_to_position(graph, topology, nodes, arg2, variables)
+            #print("evaltopos arg2", p2)
             if p2 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None
@@ -325,8 +327,8 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             if ret == None:
                 args = []
                 #print(p1)
-                # the case of equality of cells
-                if p1[1] == ():
+                # the case of equality of cells (with nontrivial node set)
+                if len(nodes) > 1 and p1[1] == ():
                     # if other is not cell, then not equal, but should perhaps raise error
                     if p2[1] != ():
                         return F

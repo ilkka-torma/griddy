@@ -1,8 +1,8 @@
 import debug_print_hook
 
 try:
-    import dparser
-    import parsy
+    import lark
+    import gparser
 except ImportError as error:
     print("Perhaps you have not installed the prerequisite modules for Griddy.")
     print("The file pip_installs.bat contains a list of pip installs you should perform.")
@@ -74,10 +74,14 @@ class Griddy:
     """
     def process_nvec(self, nvec):
         #print(nvec)
-        if not self.has_nodes() and len(nvec) == self.dim:
-            return (nvec, ())
+        #if not self.has_nodes() and len(nvec) == self.dim:
+        #    return (nvec, ())
         #print((nvec[:self.dim], nvec[-1]))
-        return (nvec[:self.dim], nvec[-1])
+        #return (nvec[:self.dim], nvec[-1])
+        if type(nvec[-1]) == tuple:
+            return nvec
+        else:
+            return (nvec, ())
 
     def run_file(self, filename):
         with open(fix_filename(filename), 'r') as f:
@@ -89,11 +93,8 @@ class Griddy:
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
+            parsed = gparser.parse_griddy(code)
             if print_parsed:
-                print("parsing...")
-            parsed = dparser.parse_griddy(code)
-            if print_parsed:
-                print("parsed!")
                 print(parsed)
         except parsy.ParseError as e:
             if mode != "silent": print("Parse error: {}".format(e))
@@ -627,7 +628,7 @@ class Griddy:
                 if mode != "silent" and verbose_here: print("kikek")
                 if comp_mode in 'QS':
                     dens, minlen, stcyc, cyc = min_data
-                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else b for fr in cyc for b in fr.values()),
+                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else int(b) for fr in cyc for b in fr.values()),
                                                         len(cyc)*border_size)
                     if mode != "silent": print("Density", true_dens, "~", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", len(cyc))
                     if conf_name is None:
@@ -1185,6 +1186,8 @@ class Griddy:
                 node_offsets = kwds.get("node_offsets", self.tiler_nodeoffsets)
                 node_offsets = {node: tuple(float(a) for a in vec) for (node, vec) in node_offsets.items()}
                 pictures = kwds.get("pictures", None)
+                if type(pictures) == list:
+                    pictures = {node : pictures for node in self.nodes}
                 gridmoves = [tuple(map(float, move)) for move in kwds.get("gridmoves", self.tiler_gridmoves)]
                 conf_name = kwds.get("initial", None)
                 if conf_name is not None:
@@ -1601,10 +1604,12 @@ def fix_filename(filename):
 
 # change the topology to modern (graph compatible) format where we just have "command", "movement in cells", "from_node", "to_node"
 def modernize_topology(topology, dim = None):
+    #print("modernizing")
     if dim == None: # being called from the explicit list
         dim = len(topology[0][1]) - 1
     newtopology = []
     for t in topology:
+        #print("got edge", t)
         if len(t) == 4: # seems to be a modern tuple
             newtopology.append(t)
         else:
@@ -1615,6 +1620,7 @@ def modernize_topology(topology, dim = None):
                 name, offset, fromnode, tonode = t[0], vsub(t[2][:-1], t[1][:-1]), t[1][dim], t[2][dim]
                 #newtopology.append((name, graph.moves_to(offset), fromnode, tonode))
             newtopology.append((name, offset, fromnode, tonode))
+        #print("produced edge", newtopology[-1])
     #print(newtopology)
     return newtopology
 
