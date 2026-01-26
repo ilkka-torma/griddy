@@ -40,8 +40,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | ("show_formula" | "print_formula") STRICT_LABEL -> cmd_show_formula
        | "topology" (STRICT_LABEL | list_of{top_edge}) -> cmd_topology_default
        | "topology" (top_edge (";"? top_edge)* ";"?)? -> cmd_topology_open_edges
-       | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL}) cmd_opts -> cmd_nodes_default
-       | ("nodes" | "vertices") node_name+ -> cmd_nodes_open
+       | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL} cmd_opts) -> cmd_nodes_default
+       | ("nodes" | "vertices") node_name* -> cmd_nodes_open
        | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
        | ("alphabet" | "alph") LABEL+ -> cmd_alph_open
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
@@ -116,7 +116,7 @@ cmd_tiler_opts: ( /x_size/ "=" NAT
                 | /y_size/ "=" NAT
                 | /node_offsets/ "=" dict_of{node_name, list_of{fraction}}
                 | /gridmoves/ "=" list_of{list_of{fraction}}
-                | /pictures/ "=" dict_of{node_name, list_of{LABEL}}
+                | /pictures/ "=" (dict_of{node_name, list_of{LABEL}} | list_of{LABEL})
                 | /topology/ "=" STRICT_LABEL
                 | /initial/ "=" STRICT_LABEL
                 | /colors/ "=" dict_of{LABEL, list_of{NAT}}
@@ -261,7 +261,8 @@ class GriddyTransformer(Transformer_NonRecursive):
     LABEL = str
     STRICT_LABEL = str
 
-    fraction = Fraction
+    def fraction(self, items):
+        return Fraction(*items)
 
     list = list
     list_of = list

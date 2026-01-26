@@ -490,7 +490,7 @@ class BlockMap:
     def relation(self, tracks=None):
         "The relation defining this block map (as an SFT), i.e. its graph"
         if tracks is None:
-            tracks = (0,1)
+            tracks = ('0', '1')
         dom_alph = self.from_alphabet
         dom_nodes = self.from_nodes
         cod_alph = self.to_alphabet

@@ -624,7 +624,7 @@ class Griddy:
                 if mode != "silent" and verbose_here: print("kikek")
                 if comp_mode in 'QS':
                     dens, minlen, stcyc, cyc = min_data
-                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else b for fr in cyc for b in fr.values()),
+                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else int(b) for fr in cyc for b in fr.values()),
                                                         len(cyc)*border_size)
                     if mode != "silent": print("Density", true_dens, "~", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", len(cyc))
                     if conf_name is None:
@@ -1182,6 +1182,8 @@ class Griddy:
                 node_offsets = kwds.get("node_offsets", self.tiler_nodeoffsets)
                 node_offsets = {node: tuple(float(a) for a in vec) for (node, vec) in node_offsets.items()}
                 pictures = kwds.get("pictures", None)
+                if type(pictures) == list:
+                    pictures = {node : pictures for node in self.nodes}
                 gridmoves = [tuple(map(float, move)) for move in kwds.get("gridmoves", self.tiler_gridmoves)]
                 conf_name = kwds.get("initial", None)
                 if conf_name is not None:
