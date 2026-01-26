@@ -1,4 +1,4 @@
-#import debug_print_hook
+import debug_print_hook
 
 try:
     import dparser
