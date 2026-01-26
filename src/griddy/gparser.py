@@ -85,6 +85,23 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "find_automatic_conf" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts-> cmd_find_automatic
        | "restrict_codomain" STRICT_LABEL STRICT_LABEL -> cmd_restrict_codomain
        | "tiler" cmd_tiler_opts STRICT_LABEL cmd_tiler_opts -> cmd_tiler
+       | "graph" STRICT_LABEL -> cmd_graph
+       | "run" LABEL -> cmd_run
+       | "load_forbidden_patterns" STRICT_LABEL STRICT_LABEL -> cmd_load_forbs
+       | "image_intersects" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_image_intersects
+       | ("show_conf" | "print_conf") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
+       | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
+       | ("show_forbidden_patterns" | "print_forbidden_patterns") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_forbs
+       | ("show_graph" | "print_graph") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_graph
+       | ("show_environment" | "print_environment") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_environment
+       | ("compare_sft_pairs" | "compare_SFT_pairs") cmd_opts -> cmd_compare_sft_pairs
+       | ("compare_sft_pairs_equality" | "compare_SFT_pairs_equality") cmd_opts -> cmd_compare_sft_pairs_eq
+       | "entropy_upper_bound" cmd_opts STRICT_LABEL cmd_opts list_of{NAT} cmd_opts -> cmd_entropy_upper_default
+       | "entropy_upper_bound" cmd_opts STRICT_LABEL cmd_opts (NAT cmd_opts)* -> cmd_entropy_upper_open
+       | "entropy_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{NAT} cmd_opts list_of{NAT} cmd_opts -> cmd_entropy_lower_default
+       | "entropy_lower_bound" cmd_opts STRICT_LABEL cmd_opts (NAT cmd_opts)* /;/ cmd_opts (NAT cmd_opts)* -> cmd_entropy_lower_open
+       | "tile_box" STRICT_LABEL NAT -> cmd_tile_box
+       | "keep_tiling" cmd_opts STRICT_LABEL cmd_opts -> cmd_keep_tiling
 
 top_edge: LABEL vector~1..3
 
@@ -832,6 +849,66 @@ class GriddyTransformer(Transformer_NonRecursive):
                 data = items.pop(0)
                 opts.append((label, data))
         return Opts(opts)
+
+    def cmd_graph(self, args):
+        return self.cmd_default("graph", args)
+
+    def cmd_run(self, args):
+        return self.cmd_default("run", args)
+
+    def cmd_load_forbs(self, args):
+        return self.cmd_default("load_forbidden_patterns", args)
+
+    def cmd_image_intersects(self, args):
+        return self.cmd_default("image_intersects", args)
+
+    def cmd_show_conf(self, args):
+        return self.cmd_default("show_conf", args)
+
+    def cmd_show_parsed(self, args):
+        return self.cmd_default("show_parsed", args)
+
+    def cmd_show_forbs(self, args):
+        return self.cmd_default("show_forbidden_patterns", args)
+
+    def cmd_show_graph(self, args):
+        return self.cmd_default("show_graph", args)
+
+    def cmd_show_envinronment(self, args):
+        return self.cmd_default("show_environment", args)
+
+    def cmd_compare_sft_pairs(self, args):
+        return self.cmd_default("compare_sft_pairs", args)
+
+    def cmd_compare_sft_pairs_eq(self, args):
+        return self.cmd_default("compare_sft_pairs_equality", args)
+
+    def cmd_entropy_upper_default(self, args):
+        return self.cmd_default("entropy_upper_bound", args)
+
+    def cmd_entropy_upper_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("entropy_upper_bound", args)
+        return (name, [pos_args[0], pos_args[1:]], opts, flags)
+
+    def cmd_entropy_lower_default(self, args):
+        return self.cmd_default("entropy_lower_bound", args)
+
+    def cmd_entropy_lower_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("entropy_lower_bound", args)
+        label = pos_args.pop(0)
+        border_periods = []
+        while True:
+            per = pos_args.pop(0)
+            if per == ";":
+                break
+            border_periods.append(per)
+        return (name, [label, border_periods, pos_args], opts, flags)
+
+    def cmd_tile_box(self, args):
+        return self.cmd_default("tile_box", args)
+
+    def cmd_keep_tiling(self, args):
+        return self.cmd_default("keep_tiling", args)
 
     def start(self, cmds):
         return list(cmds)
