@@ -1,5 +1,5 @@
-:: The parsy module is used to parse Diddy code.
-python -m pip install parsy
+:: The Lark module is used to parse Diddy code.
+python -m pip install lark
 
 :: The python-sat module (imported as pysat) is.
 :: Do NOT install the module called pysat!

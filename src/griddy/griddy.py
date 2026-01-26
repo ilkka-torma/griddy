@@ -1,8 +1,7 @@
 #import debug_print_hook
 
 try:
-    import dparser
-    import parsy
+    import lark
     import gparser
 except ImportError as error:
     print("Perhaps you have not installed the prerequisite modules for Griddy.")

@@ -13,8 +13,8 @@ while getopts ":t:h" opt ; do
     esac
 done
 
-# The parsy module is used to parse Diddy code.
-pip install parsy
+# The Lark module is used to parse Diddy code.
+pip install lark
 
 # The python-sat module (imported as pysat) is used to solve SAT instances.
 # Do NOT install the module called pysat!
