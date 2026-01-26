@@ -84,6 +84,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "regexp" cmd_opts STRICT_LABEL cmd_opts regexp cmd_opts-> cmd_regexp
        | "find_automatic_conf" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts-> cmd_find_automatic
        | "restrict_codomain" STRICT_LABEL STRICT_LABEL -> cmd_restrict_codomain
+       | "tiler" cmd_tiler_opts STRICT_LABEL cmd_tiler_opts -> cmd_tiler
 
 top_edge: LABEL vector~1..3
 
@@ -94,6 +95,16 @@ cmd_opt: | STRICT_LABEL "=" value -> option
 cmd_alph_opts: ("default" "=" list_of{LABEL})?
 cmd_product_opts: (/tracks/ "=" list_of{LABEL} | /env/ "=" LABEL)*
 cmd_relation_opts: ("tracks" "=" list_of{LABEL})?
+cmd_tiler_opts: ( /x_size/ "=" NAT
+                | /y_size/ "=" NAT
+                | /node_offsets/ "=" dict_of{node_name, list_of{fraction}}
+                | /gridmoves/ "=" list_of{list_of{fraction}}
+                | /pictures/ "=" dict_of{node_name, list_of{LABEL}}
+                | /topology/ "=" STRICT_LABEL
+                | /initial/ "=" STRICT_LABEL
+                | /colors/ "=" dict_of{LABEL, list_of{NAT}}
+                | /hidden/ "=" list_of{node_name}
+                | "@" ( /x_periodic/ | /y_periodic/ ))*
 
 ### FORMULA GRAMMAR
 
@@ -807,6 +818,20 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_restrict_codomain(self, args):
         return self.cmd_default("restrict_codomain", args)
+
+    def cmd_tiler(self, args):
+        return self.cmd_default("tiler", args)
+
+    def cmd_tiler_opts(self, items):
+        opts = []
+        while items:
+            label = items.pop(0)
+            if label in ["x_periodic", "y_periodic"]:
+                opts.append(label)
+            else:
+                data = items.pop(0)
+                opts.append((label, data))
+        return Opts(opts)
 
     def start(self, cmds):
         return list(cmds)
