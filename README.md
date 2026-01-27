@@ -5,6 +5,7 @@ Griddy includes a domain-specific language for defining and analyzing
 * multidimensional sliding block codes (including cellular automata),
 * one-dimensional sofic shifts,
 * and more,
+
 using expressive logical formulas.
 For example, one can easily define the set of 2-vertex covers on the infinite square grid and compute its minimum density.
 
