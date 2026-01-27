@@ -660,7 +660,12 @@ def num_func_circ(func, arg, global_restr):
 def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
     op = formula[0]
     if op == "NUM_VAR":
-        return variables[formula[1]]
+        # check that the variable is numeric
+        var = formula[1]
+        if isinstance(var, moc.MOCircuit):
+            return variables[var]
+        else:
+            raise GriddyCompileError("Variable {} (line {} col {}) is not numeric".format(var, var.line, var.start_pos))
     elif op == "TRUTH_AS_NUM":
         cond = formula[1]
         circ = formula_to_circuit_(graph, topology, nodes, alphabet, cond, variables, subst, externals, global_restr)

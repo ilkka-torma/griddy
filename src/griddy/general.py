@@ -1,3 +1,10 @@
+
+class GriddyRuntimeError(Exception):
+    pass
+
+class GriddyCompileError(Exception):
+    pass
+
 def vadd(vec1, vec2):
     return tuple(a+b for (a,b) in zip(vec1, vec2))
 

@@ -90,7 +90,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "load_forbidden_patterns" STRICT_LABEL STRICT_LABEL -> cmd_load_forbs
        | "image_intersects" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_image_intersects
        | ("show_conf" | "print_conf") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
-       | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
+       | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_parsed
        | ("show_forbidden_patterns" | "print_forbidden_patterns") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_forbs
        | ("show_graph" | "print_graph") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_graph
        | ("show_environment" | "print_environment") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_environment
@@ -259,7 +259,10 @@ class GriddyTransformer(Transformer_NonRecursive):
     NAT = int
     INT = int
     LABEL = str
-    STRICT_LABEL = str
+    #STRICT_LABEL = str
+
+    def STRICT_LABEL(self, items):
+        return items
 
     def fraction(self, items):
         return Fraction(*items)

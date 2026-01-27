@@ -96,12 +96,14 @@ class Griddy:
             parsed = gparser.parse_griddy(code)
             if print_parsed:
                 print(parsed)
-        except parsy.ParseError as e:
-            if mode != "silent": print("Parse error: {}".format(e))
-            linenum, lineindex = parsy.line_info_at(e.stream, e.index)
-            the_line = e.stream.splitlines()[linenum]
-            if mode != "silent": print(the_line)
-            if mode != "silent": print(" "*lineindex + "^")
+        except lark.exceptions.UnexpectedInput as e:
+            if mode != "silent":
+                print("Parse error: {}".format(e))
+                #context = e.get_context(code)
+                #print(context)
+            #the_line = e.stream.splitlines()[linenum]
+            #if mode != "silent": print(the_line)
+            #if mode != "silent": print(" "*lineindex + "^")
             if mode == "assert" or mode == "silent":
                 raise Exception("Parse error")
             return None
@@ -321,7 +323,14 @@ class Griddy:
                     
                     #graph, topology, nodes, alphabet, formula, externals, simplify
                     #print(self.topology, "filippo")
-                    circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
+                    try:
+                        circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
+                    except GriddyCompileError as e:
+                        if mode != "silent":
+                            print("Compile error: {}".format(e))
+                        if mode == "assert" or mode == "silent":
+                            raise Exception("Compile error")
+                        return None
                     #vardict = dict()
                     #inst = circuit.circuit_to_sat_instance(circ, vardict)
                     #import abstract_SAT_simplify
@@ -1042,8 +1051,15 @@ class Griddy:
                             sym, formula = rule
                             node = ()
                         #print("CA rule", node, sym, formula)
-                        circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
-                                                           self.externals, simplify="simplify" in flags, graph=self.graph)
+                        try:
+                            circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
+                                                               self.externals, simplify="simplify" in flags, graph=self.graph)
+                        except GriddyCompileError as e:
+                            if mode != "silent":
+                                print("Compile error: {}".format(e))
+                            if mode == "assert" or mode == "silent":
+                                raise Exception("Compile error")
+                            return None
                         #print(circ)
                         #graph, topology, nodes, alphabet, formula, externals, simplify=True
                         #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
