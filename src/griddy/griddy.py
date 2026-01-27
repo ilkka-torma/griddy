@@ -206,10 +206,6 @@ class Griddy:
                     self.topology = hexgrid
                     # hex grid is currently implemented with nodes, instead of directly as a graph, so we cannot use nodes with it
                     self.nodes = sft.Nodes(['0','1'])
-                    if () in self.alphabet:
-                        self.alphabet = {node : self.alphabet[()] for node in self.nodes}
-                    else:
-                        self.alphabet = {node : ['0', '1'] for node in self.nodes}
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
                     #self.tiler_skew = 1
                     self.tiler_nodeoffsets = {('0',) : (0,0.15), ('1',) : (0.5,-0.15)}
@@ -273,7 +269,7 @@ class Griddy:
                                 self.topology.append(edge + ((), ()))
                     if legacy:
                         self.topology = modernize_topology(self.topology, self.dim)
-                if type(top) == str:
+                if isinstance(top, str):
                     alph0 = list(self.alphabet.values())[0]
                     if all(alph == alph0 for alph in self.alphabet.values()):
                         self.alphabet = {node : alph0 for node in self.nodes}
