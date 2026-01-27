@@ -130,7 +130,9 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             pos_formulas.append(formula_to_circuit_(graph, topology, nodes, alphabet, rem_formula,
                                                     variables_new, subst, externals, global_restr))
         if op == "FORALL":
+            #print(pos_formulas)
             ret = AND(*pos_formulas)
+            
         elif op == "EXISTS":
             ret = OR(*pos_formulas)
         else:
@@ -253,6 +255,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         # horrible hack
         try:
             p1 = eval_to_position(graph, topology, nodes, arg1, variables)
+            #print("evaltopos arg1", p1)
             if p1 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None # = F
@@ -281,6 +284,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         p2ispos = True
         try: # horrible hack #2
             p2 = eval_to_position(graph, topology, nodes, arg2, variables)
+            #print("evaltopos arg2", p2)
             if p2 == None:
                 # return None and not a circuit at all; soft error handling to simulate lazy evaluation
                 return None
@@ -309,32 +313,45 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
 
         elif p1ispos and p2ispos:
             if ret == None:
-                args = []
-                p1_alph = alphabet[p1[1]]
-                p1_vars = [V(p1+(l,)) for l in p1_alph.node_vars]
-                p2_alph = alphabet[p2[1]]
-                p2_vars = [V(p2+(l,)) for l in p2_alph.node_vars]
-                if p1_alph == p2_alph:
-                    # the nice case: equal alphabets
-                    args.append(p1_alph.node_eq_node(p1_vars, p2_vars))
+                # the case of equality of cells (with nontrivial node set)
+                if len(nodes) > 1 and p1[1] == ():
+                    # if other is not cell, then not equal, but should perhaps raise error
+                    if p2[1] != ():
+                        return F
+                    for n in nodes:
+                        eq_formulas = []
+                        formu = ("VALEQ", (p1[0], n), (p2[0], n))
+                        eq_formulas.append(formula_to_circuit_(graph, topology, nodes,
+                                                    alphabet, formu, variables,
+                                                    subst, externals, global_restr))
+                    ret = AND(*eq_formulas)
                 else:
-                    # the messy case: different alphabets
-                    for a in p1_alph:
+                    # the case of equality of nodes
+                    args = []
+                    p1_alph = alphabet[p1[1]]
+                    p1_vars = [V(p1+(l,)) for l in p1_alph.node_vars]
+                    p2_alph = alphabet[p2[1]]
+                    p2_vars = [V(p2+(l,)) for l in p2_alph.node_vars]
+                    if p1_alph == p2_alph:
+                        # the nice case: equal alphabets
+                        args.append(p1_alph.node_eq_node(p1_vars, p2_vars))
+                    else:
+                        # the messy case: different alphabets
+                        for a in p1_alph:
+                            for b in p2_alph:
+                                if a == b:
+                                    # force equivalence of these symbols
+                                    args.append(IFF(p1_alph.node_eq_sym(p1_vars, a),
+                                                    p2_alph.node_eq_sym(p2_vars, b)))
+                                    break
+                                else:
+                                    # a is not in p2's alphabet => forbid
+                                    args.append(NOT(p1_alph.node_eq_sym(p1_vars, a)))
+                        # also forbid p2's symbols not in p1's alphabet
                         for b in p2_alph:
-                            if a == b:
-                                # force equivalence of these symbols
-                                args.append(IFF(p1_alph.node_eq_sym(p1_vars, a),
-                                                p2_alph.node_eq_sym(p2_vars, b)))
-                                break
-                            else:
-                                # a is not in p2's alphabet => forbid
-                                args.append(NOT(p1_alph.node_eq_sym(p1_vars, a)))
-                    # also forbid p2's symbols not in p1's alphabet
-                    for b in p2_alph:
-                        if b not in p1_alph:
-                            args.append(NOT(p2_alph.node_eq_sym(p2_vars, a)))
-                ret = AND(*args)
-
+                            if b not in p1_alph:
+                                args.append(NOT(p2_alph.node_eq_sym(p2_vars, a)))
+                    ret = AND(*args)
         else:
             if not p1ispos and p2ispos:
                 p1, p2val = p2, p1val
@@ -617,7 +634,14 @@ def num_func_circ(func, arg, global_restr):
 def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
     op = formula[0]
     if op == "NUM_VAR":
-        return variables[formula[1]]
+        # check that the variable is numeric
+        val = variables[formula[1]]
+        print("val", val)
+        if isinstance(val, moc.MOCircuit) or (type(val) == tuple and val[0] is None and type(val[1]) == int):
+            return val
+        else:
+            var = formula[1]
+            raise GriddyCompileError("Variable {} (line {} col {}) is not numeric".format(var, var.line, var.start_pos))
     elif op == "TRUTH_AS_NUM":
         cond = formula[1]
         circ = formula_to_circuit_(graph, topology, nodes, alphabet, cond, variables, subst, externals, global_restr)
@@ -872,7 +896,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
             if graph.has_move(pos[0], i):
                 #print("actualy")
                 newpos = graph.move(pos[0], (i, 1))
-                if newpos:
+                if newpos != None:
                     # copy node from previous, all cells have same nodes
                     pos = (newpos, pos[1])
                     continue
@@ -881,7 +905,10 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                 #print("here", pos, i, graph.move_rel(pos[0], i), pos[1])
                 pos = graph.move_rel(pos[0], i), pos[1]
                 continue
-            raise Exception("") # exception raised if 
+            #print("In position", pos[0], "tried to move " + i)
+            #print(graph.generators)
+            #print(graph.has_move(pos[0], i))
+            raise GriddyCompileError("Could not process transition {} from {}".format(i, pos)) # exception raised if 
         #print(pos)
     #print ("got 2 pos", pos)
     if top:

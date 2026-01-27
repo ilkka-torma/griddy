@@ -1,2 +1,2 @@
 %SFT golden_mean Ao o=1->o.up=0&o.rt=0
-%tiler golden_mean @x_periodic
+%tiler golden_mean @x_periodic colors={0 : [0 0 255] 1 : [0 255 255]}

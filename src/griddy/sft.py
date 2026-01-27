@@ -515,6 +515,7 @@ class SFT:
     # Onesided is a list of dimensions
     # In a onesided SFT, the set of forbidden patterns and the circuit are translated so that the onesided coordinates are nonnegative and start at 0
     def __init__(self, dim, nodes, alph, topology, graph, forbs=None, circuit=None, formula=None, onesided=None):
+        #print("making sft with forbs", forbs)
         self.dim = dim
         self.nodes = nodes
         self.alph = alph

@@ -171,26 +171,26 @@ def sofic_from_BM_and_sofic(BM, sofic):
         #print("evaling", w)
         # convert to pattern (= truth values for variables)
         pattern = {}
-        for v in nbhd:
-            for n_idx, n in enumerate(BM.from_nodes):
+        for vec in nbhd:
+            for n_idx, node in enumerate(BM.from_nodes):
                 #print("an node", n_idx, n)
-                for s in BM.from_alphabet[n]:
-                    # note that n is a number, not a vector of len 1
-                    if w[v + nbhd_min][n_idx] == s:
-                        pattern[(v,), n, s] = True
-                    else:
-                        pattern[(v,), n, s] = False
+                # pick a model for each input symbol
+                local_alph = BM.from_alphabet[node]
+                nvars = [circuit.V(l) for l in local_alph.node_vars]
+                models = {sym : circuit.SAT(circuit.AND(local_alph.node_eq_sym(nvars, sym),
+                                                        local_alph.node_constraint(nvars)),
+                                            return_model=True)
+                          for sym in local_alph}
+                for l in local_alph.node_vars:
+                    pattern[vec, node, l] = models[w[vec + nbhd_min][n_idx]]
         #print(pattern)
         # now evaluate circuits
         result = []
-        for n in BM.to_nodes:
-            for a in BM.to_alphabet[n]:
-                circ = BM.circuits[n, a].copy()
-                if circuit.evaluate(circ, pattern):
-                    result.append(a)
-                    break
-            else:
-                raise Exception("Bug: BlockMap circuits do not cover all cases!")
+        for node in BM.to_nodes:
+            local_alph = BM.to_alphabet[node]
+            vals = [circuit.evaluate(BM.circuits[node, l].copy(), pattern)
+                    for l in local_alph.node_vars]
+            result.append(local_alph.model_to_sym(vals))
         #print(result)
         return tuple(result)
 

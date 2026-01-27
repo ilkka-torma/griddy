@@ -1,8 +1,8 @@
 #import debug_print_hook
 
 try:
-    import dparser
-    import parsy
+    import lark
+    import gparser
 except ImportError as error:
     print("Perhaps you have not installed the prerequisite modules for Griddy.")
     print("The file pip_installs.bat contains a list of pip installs you should perform.")
@@ -78,10 +78,14 @@ class Griddy:
     """
     def process_nvec(self, nvec):
         #print(nvec)
-        if not self.has_nodes() and len(nvec) == self.dim:
-            return (nvec, ())
+        #if not self.has_nodes() and len(nvec) == self.dim:
+        #    return (nvec, ())
         #print((nvec[:self.dim], nvec[-1]))
-        return (nvec[:self.dim], nvec[-1])
+        #return (nvec[:self.dim], nvec[-1])
+        if type(nvec[-1]) == tuple:
+            return nvec
+        else:
+            return (nvec, ())
 
     def run_file(self, filename):
         with open(fix_filename(filename), 'r') as f:
@@ -93,15 +97,17 @@ class Griddy:
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
-            parsed = dparser.parse_griddy(code)
+            parsed = gparser.parse_griddy(code)
             if print_parsed:
                 print(parsed)
-        except parsy.ParseError as e:
-            if mode != "silent": print("Parse error: {}".format(e))
-            linenum, lineindex = parsy.line_info_at(e.stream, e.index)
-            the_line = e.stream.splitlines()[linenum]
-            if mode != "silent": print(the_line)
-            if mode != "silent": print(" "*lineindex + "^")
+        except lark.exceptions.UnexpectedInput as e:
+            if mode != "silent":
+                print("Parse error: {}".format(e))
+                #context = e.get_context(code)
+                #print(context)
+            #the_line = e.stream.splitlines()[linenum]
+            #if mode != "silent": print(the_line)
+            #if mode != "silent": print(" "*lineindex + "^")
             if mode == "assert" or mode == "silent":
                 raise Exception("Parse error")
             return None
@@ -174,10 +180,15 @@ class Griddy:
                     self.graph = None # this is outdated, now we should always have a graph!
                 else:
                     self.topology = []
+                    if grph == "trivial":
+                        # trivial group with any generators
+                        self.graph = graphs.TrivialGroup(args[1])
                     if grph == "Aleshin":
                         self.graph = graphs.Aleshin
                     if grph == "SC_F661":
                         self.graph = graphs.SC_F661
+                    if grph == "SC_G451_smp":
+                        self.graph = graphs.SC_G451_smp
                     
             elif cmd == "topology":
                 top = args[0]
@@ -200,7 +211,7 @@ class Griddy:
                     self.dim = 2
                     self.topology = hexgrid
                     # hex grid is currently implemented with nodes, instead of directly as a graph, so we cannot use nodes with it
-                    self.nodes = sft.Nodes(['0','1']) 
+                    self.nodes = sft.Nodes(['0','1'])
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
                     #self.tiler_skew = 1
                     self.tiler_nodeoffsets = {('0',) : (0,0.15), ('1',) : (0.5,-0.15)}
@@ -264,7 +275,7 @@ class Griddy:
                                 self.topology.append(edge + ((), ()))
                     if legacy:
                         self.topology = modernize_topology(self.topology, self.dim)
-                if type(top) == str:
+                if isinstance(top, str):
                     alph0 = list(self.alphabet.values())[0]
                     if all(alph == alph0 for alph in self.alphabet.values()):
                         self.alphabet = {node : alph0 for node in self.nodes}
@@ -318,7 +329,14 @@ class Griddy:
                     
                     #graph, topology, nodes, alphabet, formula, externals, simplify
                     #print(self.topology, "filippo")
-                    circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
+                    try:
+                        circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
+                    except GriddyCompileError as e:
+                        if mode != "silent":
+                            print("Compile error: {}".format(e))
+                        if mode == "assert" or mode == "silent":
+                            raise Exception("Compile error")
+                        return None
                     #vardict = dict()
                     #inst = circuit.circuit_to_sat_instance(circ, vardict)
                     #import abstract_SAT_simplify
@@ -625,7 +643,7 @@ class Griddy:
                 if mode != "silent" and verbose_here: print("kikek")
                 if comp_mode in 'QS':
                     dens, minlen, stcyc, cyc = min_data
-                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else b for fr in cyc for b in fr.values()),
+                    true_dens = fractions.Fraction(sum(self.weights[b] if self.weights is not None else int(b) for fr in cyc for b in fr.values()),
                                                         len(cyc)*border_size)
                     if mode != "silent": print("Density", true_dens, "~", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", len(cyc))
                     if conf_name is None:
@@ -1039,8 +1057,15 @@ class Griddy:
                             sym, formula = rule
                             node = ()
                         #print("CA rule", node, sym, formula)
-                        circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
-                                                           self.externals, simplify="simplify" in flags, graph=self.graph)
+                        try:
+                            circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
+                                                               self.externals, simplify="simplify" in flags, graph=self.graph)
+                        except GriddyCompileError as e:
+                            if mode != "silent":
+                                print("Compile error: {}".format(e))
+                            if mode == "assert" or mode == "silent":
+                                raise Exception("Compile error")
+                            return None
                         #print(circ)
                         #graph, topology, nodes, alphabet, formula, externals, simplify=True
                         #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
@@ -1183,6 +1208,8 @@ class Griddy:
                 node_offsets = kwds.get("node_offsets", self.tiler_nodeoffsets)
                 node_offsets = {node: tuple(float(a) for a in vec) for (node, vec) in node_offsets.items()}
                 pictures = kwds.get("pictures", None)
+                if type(pictures) == list:
+                    pictures = {node : pictures for node in self.nodes}
                 gridmoves = [tuple(map(float, move)) for move in kwds.get("gridmoves", self.tiler_gridmoves)]
                 conf_name = kwds.get("initial", None)
                 if conf_name is not None:
@@ -1599,10 +1626,12 @@ def fix_filename(filename):
 
 # change the topology to modern (graph compatible) format where we just have "command", "movement in cells", "from_node", "to_node"
 def modernize_topology(topology, dim = None):
+    #print("modernizing")
     if dim == None: # being called from the explicit list
         dim = len(topology[0][1]) - 1
     newtopology = []
     for t in topology:
+        #print("got edge", t)
         if len(t) == 4: # seems to be a modern tuple
             newtopology.append(t)
         else:
@@ -1613,6 +1642,7 @@ def modernize_topology(topology, dim = None):
                 name, offset, fromnode, tonode = t[0], vsub(t[2][:-1], t[1][:-1]), t[1][dim], t[2][dim]
                 #newtopology.append((name, graph.moves_to(offset), fromnode, tonode))
             newtopology.append((name, offset, fromnode, tonode))
+        #print("produced edge", newtopology[-1])
     #print(newtopology)
     return newtopology
 

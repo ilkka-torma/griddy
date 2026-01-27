@@ -12,4 +12,4 @@
 
 
 %tiler paths x_size=15 y_size=15 -- @x_periodic @y_periodic
-pictures={0:[empty arrow_r90 arrow_r270 arrow_r180 arrow]}
+pictures=[empty arrow_r90 arrow_r270 arrow_r180 arrow]

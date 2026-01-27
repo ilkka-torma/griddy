@@ -41,6 +41,14 @@ class TrivialGroup(Graph):
         return ""
     def move(self, cell, generator):
         return cell
+    def moves(self):
+        return self.generators
+    def has_cell(self, cell):
+        return cell == ""
+    def has_move(self, cell, move):
+        return cell == "" and move in self.generators
+    def move_rel(self, cell, offset):
+        return ""
         
 def sign(i):
     if i == 0:
