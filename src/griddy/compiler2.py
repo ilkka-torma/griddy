@@ -380,7 +380,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         else:
             if not p1ispos and p2ispos:
                 p1, p2val = p2, p1val
-            #print("here p1", p1, "p2val", p2val)
+            #print("here p1", p1, "p2val", p2val, "alphabet", alphabet)
             local_alph = alphabet[p1[1]]
             if p2val not in local_alph:
                 ret = F
@@ -661,10 +661,12 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
     op = formula[0]
     if op == "NUM_VAR":
         # check that the variable is numeric
-        var = formula[1]
-        if isinstance(var, moc.MOCircuit):
-            return variables[var]
+        val = variables[formula[1]]
+        print("val", val)
+        if isinstance(val, moc.MOCircuit) or (type(val) == tuple and val[0] is None and type(val[1]) == int):
+            return val
         else:
+            var = formula[1]
             raise GriddyCompileError("Variable {} (line {} col {}) is not numeric".format(var, var.line, var.start_pos))
     elif op == "TRUTH_AS_NUM":
         cond = formula[1]
@@ -948,7 +950,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
             #print("In position", pos[0], "tried to move " + i)
             #print(graph.generators)
             #print(graph.has_move(pos[0], i))
-            raise Exception("") # exception raised if 
+            raise GriddyCompileError("Could not process transition {} from {}".format(i, pos)) # exception raised if 
         #print(pos)
     #print ("got 2 pos", pos)
     if top:
