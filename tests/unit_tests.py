@@ -853,10 +853,11 @@ unit_tests.append(("finite sets", code))
 
 code = """
 %nodes a1 B_2 0 01 00
-%alphabet _x 27 x27 01 0_1
+%alphabet _x 27 x27 01 0_1 "a.b.#\\"!"
 %topology
 A7 (0,0;B_2) (1,0;00);
 7A (0,0;01) (1,0;0)
+%sft "%sft test" ACo o.01.7A = "a.b.#\\"!"
 %info
 """
 unit_tests.append(("node and symbol names", code))
@@ -932,6 +933,8 @@ code = """
 %empty int3 expect=T
 """
 unit_tests.append(("Intersecting SFTs and clopen sets", code))
+
+
 
 if __name__ == "__main__":
 

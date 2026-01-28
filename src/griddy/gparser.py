@@ -91,7 +91,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "load_forbidden_patterns" STRICT_LABEL STRICT_LABEL -> cmd_load_forbs
        | "image_intersects" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_image_intersects
        | ("show_conf" | "print_conf") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
-       | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
+       | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_parsed
        | ("show_forbidden_patterns" | "print_forbidden_patterns") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_forbs
        | ("show_graph" | "print_graph") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_graph
        | ("show_environment" | "print_environment") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_environment
@@ -242,8 +242,8 @@ just{val}: val
 dict: "{" (dict_pair (","? dict_pair))? "}"
 dict_pair: value ":" value
 
-LABEL: /[a-zA-Z0-9_]+/
-STRICT_LABEL: /[a-zA-Z_][a-zA-Z0-9_]*/
+LABEL: /[a-zA-Z0-9_]+/ |  ESCAPED_STRING
+STRICT_LABEL: /[a-zA-Z_][a-zA-Z0-9_]*/ | ESCAPED_STRING
 NAT: /0|[1-9][0-9]*/
 INT: /0|-?[1-9][0-9]*/
 ?fraction: INT ("/" NAT)?
@@ -252,6 +252,7 @@ COMMENT: /--[^\n]*/x
 %ignore COMMENT
 
 %import common.WS
+%import common.ESCAPED_STRING
 %ignore WS
 """
 
@@ -260,7 +261,10 @@ class GriddyTransformer(Transformer_NonRecursive):
     NAT = int
     INT = int
     LABEL = str
-    STRICT_LABEL = str
+    #STRICT_LABEL = str
+
+    def STRICT_LABEL(self, items):
+        return items
 
     def fraction(self, items):
         return Fraction(*items)
