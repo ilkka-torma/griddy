@@ -1,4 +1,4 @@
-:: The Lark module is used to parse Diddy code.
+:: The Lark module is used to parse Griddy code.
 python -m pip install lark
 
 :: The python-sat module (imported as pysat) is.

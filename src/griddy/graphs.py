@@ -382,7 +382,7 @@ SC_G451 = SquareComplex2(["axax", "ayay", "azbz", "bxbx", "bycy", "cxcz",
                           "apap", "aqaq", "bpbq", "cpcp", "cqdq", "dxdy", "dzdp"],
                          involutions = invs)
 
-
+"""
 
 print(SC_G451.move_rel(('', 'zy'), ('ac', '')))
 
@@ -404,6 +404,7 @@ o = SC_G451_smp.origin()
 o = SC_G451_smp.move(o, ("zy", 1))
 o = SC_G451_smp.move(o, ("ac", 1))
 print(o)
+"""
 
 
 """

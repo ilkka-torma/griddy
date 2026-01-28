@@ -1,4 +1,4 @@
-import debug_print_hook
+#import debug_print_hook
 
 try:
     import lark
@@ -841,6 +841,11 @@ class Griddy:
                         self.confs[conf_name] = conf
                 else:
                     raise Exception("No SFT or sofic shift named {}".format(name))
+
+            elif cmd == "instance":
+                name = args[0]
+                size = args[1]
+                print(name, size)
 
             elif cmd == "equal":
                 name1 = args[0]
