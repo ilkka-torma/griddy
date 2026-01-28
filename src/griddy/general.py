@@ -50,10 +50,10 @@ def vmod(m, vec):
     return tuple(a%m for a in vec)
 
 def nvmod(m, nvec):
-    return tuple(a%m for a in nvec[:-1]) + nvec[-1:]
+    return (tuple(a%m for a in nvec[0]), nvec[1])
     
 def nvmods(mods, nvec):
-    return tuple(a if m is None else a%m for (m,a) in zip(mods, nvec[:-1])) + nvec[-1:]
+    return (tuple(a if m is None else a%m for (m,a) in zip(mods, nvec[0])), nvec[1])
     
 def nvwraps(markers, nvec):
     "Wrap a nodevector around recognizability markers"

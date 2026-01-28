@@ -102,7 +102,9 @@ class BlockMap:
                                         local_alph.node_constraint(nvars)),
                                     return_model=True)
                           for sym in local_alph}
-                # define the variable circuits in terms of these
+                # define the variable circuits in terms of these:
+                # a variable is true iff there is a symbol such that
+                # the variable is true in its model and its formula is true
                 for l in local_alph.node_vars:
                     self.circuits[node, l] = OR(*(circuits.get((node, sym), F)
                                                   for sym in local_alph
@@ -604,22 +606,23 @@ class BlockMap:
 
     def fixed_points(self):
         "The SFT of fixed points of this CA"
+        if self.partial:
+            raise Exception("Fixed points not supported for partial CA")
         assert self.is_CA()
         alph = self.from_alphabet
         nodes = self.from_nodes
         dim = self.dimension
         anded = []
-        for ((node, sym), circ) in self.circuits.items():
-            new_circ = circ.copy()
-            if sym != alph[node][0]:
-                anded.append(IMP(V(((0,)*dim, node, sym)), new_circ))
-            else:
-                not_others = AND(*(NOT(V(((0,)*dim, node, sym2))) for sym2 in alph[node][1:]))
-                anded.append(IMP(not_others, new_circ))
+        for node in nodes:
+            in_vars = [V(((0,)*dim, node, l)) for l in alph[node].node_vars]
+            out_vars = [self.circuits[node, l].copy() for l in alph[node].node_vars]
+            anded.append(alph[node].node_eq_node(in_vars, out_vars))
         return SFT(dim, nodes, alph, self.from_topology, self.graph, circuit=AND(*anded))
 
     def spacetime_diagram(self, onesided=True, time_axis=None):
         "The SFT of spacetime diagrams of this CA"
+        if self.partial:
+            raise Exception("Spacetime diagram not supported for partial CA")
         assert self.is_CA()
         alph = self.from_alphabet
         nodes = self.from_nodes
@@ -629,17 +632,12 @@ class BlockMap:
             time_axis = self.dimension
 
         anded = []
-        for ((node, sym), circ) in self.circuits.items():
-            #print("circ info", node, sym, circ)
+        for ((node, label), circ) in self.circuits.items():
+            print("circ info", node, label, circ)
             new_circ = circ.copy()
             transform(new_circ, lambda var: (var[0][:time_axis] + (0,) + var[0][time_axis:], var[1], var[2]))
             val_vec = ((0,)*time_axis + (1,) + (0,)*(dim-time_axis), node)
-            local_alph = alph[node]
-            if sym == local_alph[0]:
-                is_val = AND(*(NOT(V(val_vec + (sym2,))) for sym2 in local_alph[1:]))
-            else:
-                is_val = V(val_vec + (sym,))
-            anded.append(IFF(new_circ, is_val))
+            anded.append(IFF(new_circ, V(val_vec + (label,))))
 
         #print(self.from_topology)
 

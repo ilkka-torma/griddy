@@ -45,7 +45,7 @@ import graphs
 
 from basic_things import *
 
-default_alph = Alphabet.test_alph
+default_alph = Alphabet.unary_minus_one
 
 class Griddy:
     def __init__(self):
@@ -1245,7 +1245,7 @@ class Griddy:
                 for h in dimensions:
                     rect = set(vec+(i,) for vec in rect for i in range(h))
                     size *= h
-                rect = set(vec+(n,) for vec in rect for n in the_sft.nodes)
+                rect = set((vec, n) for vec in rect for n in the_sft.nodes)
                 size *= len(the_sft.nodes)
                 if mode != "silent": print("Computing upper bound for topological entropy of {} using dimensions {}".format(name, dimensions))
                 tim = time.time()
@@ -1268,7 +1268,7 @@ class Griddy:
                 variables = set(the_sft.circuit.get_variables())
                 var_dims = []
                 for k in range(the_sft.dim):
-                    vdmin, vdmax = min(var[k] for var in variables), max(var[k] for var in variables)
+                    vdmin, vdmax = min(var[0][k] for var in variables), max(var[0][k] for var in variables)
                     var_dims.append(vdmax - vdmin)
                 big_periods = [a*b for (a,b) in zip(periods, dims)]
                 big_domain = set([tuple()])
@@ -1276,13 +1276,13 @@ class Griddy:
                 for p in big_periods:
                     big_domain = set(vec + (i,) for vec in big_domain for i in range(p))
                     size *= p
-                big_domain = set(vec + (n,) for vec in big_domain for n in the_sft.nodes)
+                big_domain = set((vec, n) for vec in big_domain for n in the_sft.nodes)
                 size *= len(the_sft.nodes)
                 if mode != "silent": print("Computing lower bound for topological entropy of {} using {}-periodic points and {}-size blocks".format(name, periods, big_periods))
                 num_pats = 0
                 tim = time.time()
                 for pat in the_sft.all_periodics(periods):
-                    border = {nvec : pat[nvmods(periods, nvec)] for nvec in big_domain if any(a <= b for (a,b) in zip(nvec, var_dims))}
+                    border = {nvec : pat[nvmods(periods, nvec)] for nvec in big_domain if any(a <= b for (a,b) in zip(nvec[0], var_dims))}
                     num_pats = max(num_pats, sum(1 for _ in the_sft.all_periodics(big_periods, existing=border)))
                 if mode != "silent": print("Entropy is at least log2({})/{} ~ {}".format(num_pats, size, math.log(num_pats, 2)/size))
                 if mode != "silent": print("Eta is at least {}^(1/{}) ~ {}".format(num_pats, size, num_pats**(1/size)))

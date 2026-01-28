@@ -886,7 +886,7 @@ class SFT:
 
         
         all_positions = set(hyperrect([(0,p) for p in periods]))
-        nvecs = set(vec + (node,)
+        nvecs = set((vec, node)
                     for vec in all_positions
                     for node in self.nodes)
         
@@ -901,7 +901,9 @@ class SFT:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             circuits.append(node_alph.node_eq_sym(nvars, sym))
 
-        ciruits.append(node_constraints(self.alph)(circuits))
+        circuits.append(node_constraints(self.alph)(circuits))
+
+        #print("nvecs", nvecs, "alph", self.alph)
 
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in nvecs for l in self.alph[nvec[1]].node_vars]):
             pat = dict()
@@ -991,6 +993,8 @@ class SFT:
 
         if existing is None:
             existing = dict()
+
+        #print("domain", domain)
         
         vecs = set(vadd(nvec[0], tr)
                     for nvec in domain

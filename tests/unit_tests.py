@@ -377,6 +377,8 @@ code = """
 %SFT var onesided=[1] Ao o!=o.rt <-> o.up=1
 --%show_environment sft=var
 %equal expect=T diagram var @verbose
+%SFT var2 onesided=[1] Ao o!=o.rt -> o.up=1
+%equal expect=F diagram var2 @verbose
 """
 unit_tests.append(("spacetime diagram", code))
 
@@ -936,6 +938,13 @@ code = """
 %equal expect=T a b
 """
 unit_tests.append(("External functions", code))
+
+code = """
+%sft test Ao o=o.up=1 -> o.rt=1
+%entropy_upper_bound test 3 4
+%entropy_lower_bound test 1 2; 5 3
+"""
+unit_tests.append(("Entropy", code))
 
 if __name__ == "__main__":
 

@@ -77,7 +77,7 @@ class Alphabet:
     def test_alph(self, syms):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true. Used for testing."
 
-        labels = [(sym, None) for sym in syms]
+        labels = [(sym, "TEST!") for sym in syms]
 
         def m_to_s(bools):
             return syms[bools.index(True)]
