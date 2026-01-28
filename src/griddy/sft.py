@@ -828,16 +828,22 @@ class SFT:
         #print("unknowns", unknowns)
         
         # circuits will only contain the circuits that refer only to nodes in the domain
-        circuits = {}
+        circuits = []
         #vecs = set(nvec[:-1] for nvec in conf.pat)
     
         for vec in vec_domain:
             circ = self.circuit.copy()
             transform(circ, lambda var: nvwraps(conf.markers, nvadd(var[:-1], vec)) + var[-1:])
             if all(conf[var[:-1]] is not None for var in circ.get_variables()):
-                circuits[vec] = circ
-                
+                circuits.append(circ)
+
+        seen_nvecs = set(var[:2] for circ in circuits for var in circ.get_variables())
         #print("circuits", list(sorted(circuits.keys())))
+        for nvec in conf.pat:
+            if nvec not in seen_nvecs:
+                node_alph = self.alph[nvec[1]]
+                nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+                circuits.append(node_alph.node_constraint(nvars))
         
         forceds = set()
         for (nvec, syms) in conf.pat.items():
@@ -850,11 +856,12 @@ class SFT:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
 
-        circuits = list(circuits.values())
+        #circuits = list(circuits.values())
+        #print("circuits", circuits)
 
         # Make SAT instance, solve and extract model
         instance = AND(*(list(circuits) + list(forceds)))
-        #print("forceds", forceds)
+        #print("instance", instance)
         model = SAT_under(instance, node_constraints(self.alph), True)
         if model == False:
             return None
