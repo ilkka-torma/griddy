@@ -11,17 +11,19 @@ def is_nat(string):
         return True
     return False
 
-def node_constraints(alphabets, circuits):
+def node_constraints(alphabets):
     "Give all node constaints for a circuit or list of circuits."
-    if type(circuits) == Circuit:
-        circuits = [circuits]
-    nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables())
-    anded = []
-    for node in nodes:
-        alph = alphabets[node[1]]
-        nvars = [V(node+(l,)) for l in alph.node_vars]
-        anded.append(alph.node_constraint(nvars))
-    return AND(*anded)
+    def func(circuits):
+        if type(circuits) == Circuit:
+            circuits = [circuits]
+        nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables())
+        anded = []
+        for node in nodes:
+            alph = alphabets[node[1]]
+            nvars = [V(node+(l,)) for l in alph.node_vars]
+            anded.append(alph.node_constraint(nvars))
+        return AND(*anded)
+    return func
 
 class Alphabet:
     "A finite alphabet plus a method of encoding it into circuits."

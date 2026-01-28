@@ -294,12 +294,9 @@ class CSIntersection:
             #print()
 
         # the following could be an UNSAT_under call.
-        circuits.append(node_constraints(self.alph, circuits))
+        #circuits.append(node_constraints(self.alph, circuits))
         #print("no22")
-        m = SAT(AND(*circuits))
-        if m == False:
-            return True
-        return False
+        return UNSAT_under(AND(*circuits), node_constraints(self.alph))
 
     # the circuit is what is checked precisely at the origin, as this is what
     # we happen to need in ball_forces_allowed, but it is not very meaningful in general.
@@ -401,9 +398,8 @@ class CSIntersection:
         circuits.append(OR(*others))
 
         #print(circuits)
-        circuits.append(node_constraints(self.alph, circuits))
 
-        m = SAT(AND(*circuits), True)
+        m = SAT_under(AND(*circuits), node_constraints(self.alph), True)
         
         if m == False:
             if return_conf:
@@ -590,7 +586,7 @@ class SFT:
                     nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
                     sym_circs.append(node_alph.node_eq_sym(nvars, conf[conf_nvec]))
                 #print("circuit", self.circuit, "sym_circs", sym_circs)
-                if not SAT(AND(self.circuit, node_constraints(self.alph, self.circuit), *sym_circs)):
+                if not SAT_under(AND(self.circuit, *sym_circs), node_constraints(self.alph)):
                     return False
             return True
         elif isinstance(conf, automatic_conf.AutomaticConf):
@@ -702,9 +698,8 @@ class SFT:
         circuits.append(OR(*others))
 
         #print(circuits)
-        circuits.append(node_constraints(self.alph, circuits))
 
-        m = SAT(AND(*circuits), True)
+        m = SAT_under(AND(*circuits), node_constraints(self.alph), True)
         
         if m == False:
             if return_conf:
@@ -756,9 +751,8 @@ class SFT:
             #print(c)
             #print(c.get_variables())
             #print()
-        circuits.append(node_constraints(self.alph, circuits))
         #print("no22")
-        m = SAT(AND(*circuits))
+        m = SAT_under(AND(*circuits), node_constraints(self.alph))
         if m == False:
             return True
         return False
@@ -857,12 +851,11 @@ class SFT:
             forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
 
         circuits = list(circuits.values())
-        circuits.append(node_constraints(self.alph, circuits))
 
         # Make SAT instance, solve and extract model
         instance = AND(*(list(circuits) + list(forceds)))
         #print("forceds", forceds)
-        model = SAT(instance, True)
+        model = SAT_under(instance, node_constraints(self.alph), True)
         if model == False:
             return None
 
@@ -901,7 +894,7 @@ class SFT:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             circuits.append(node_alph.node_eq_sym(nvars, sym))
 
-        ciruits.append(node_constraints(self.alph, circuits))
+        ciruits.append(node_constraints(self.alph)(circuits))
 
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in nvecs for l in self.alph[nvec[1]].node_vars]):
             pat = dict()
@@ -974,7 +967,7 @@ class SFT:
         #print("nvecs", nvecs)
         #assert all(var[:-1] in nvecs for circ in circuits for var in circ.get_variables())
         
-        circuits.append(node_constraints(self.alph, circuits))
+        circuits.append(node_constraints(self.alph)(circuits))
 
         
         
@@ -1017,7 +1010,7 @@ class SFT:
         #for c in circuits:
         #    print (c.get_variables())
 
-        circuits.append(node_constraints(self.alph, circuits))
+        circuits.append(node_constraints(self.alph)(circuits))
 
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in domain for l in self.alph[nvec[1]].node_vars]):
             pat = dict()
@@ -1120,12 +1113,11 @@ class SFT:
                     #if all(c == 0 for c in vec):
                     #    forb_here_circuits.append(OR(*oreds))
 
-            forb_circuits.append(node_constraints(self.alph, forb_circuits))
             #forb_here_circuits.append(node_constraints(self.alph, forb_here_circuits))
 
             final_circ = AND(*forb_circuits)
             #print("final circ", final_circ)
-            m = SAT(final_circ, True)
+            m = SAT_under(final_circ, node_constraints(self.alph), True)
             if m == False:
                 break
 
@@ -1149,7 +1141,8 @@ class SFT:
             for (var, val) in minimal.items():
                 proj_circs.append(V(var) if val else NOT(V(var)))
             new_forb_found = False
-            for model in projections(AND(*proj_circs), support_vars):
+            constr = node_constraints(self.alph)(proj_circs)
+            for model in projections(AND(constr, *proj_circs), support_vars):
                 #print("model", model)
                 new_forb = dict()
                 for nvec in support:

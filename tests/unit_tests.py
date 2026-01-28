@@ -865,7 +865,7 @@ unit_tests.append(("node and symbol names", code))
 
 
 code = """
-%sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
+%sft x onesided=[0 1] Ao o=o.up=1 | o.rt=o.rt.rt=1
 %sft y onesided=[0 1] Ao o=1 -> (o.up = o.up.up = o.up.up.rt = 0)
 %find_automatic_conf mode=angluin c x
 %contains expect=T x c
@@ -902,21 +902,16 @@ b 1 Ao o.b=1;
 unit_tests.append(("Post-inverses of CA (= injectivity)", code))
 
 code = """
-%alphabet 0 1 2 wut
 %topology line
-%save_environment big
 %alphabet 0 1 2
-%save_environment small
-%CA test codomain=big --@verbose
---0 Ao let sz a b := a=0&b=0|a=1&b=2|a=2&b=1 in
---let so a b := a=1&b=0|a=0&b=1|a=2&b=2 in
---let st a b := a=2&b=0|a=0&b=2|a=1&b=1 in
---sz o o.rt;
+%CA full
 0 Ao o=0&o.rt=1 | o=1&o.rt=2;
-wut Ao o@o
-%has_post_inverse test radius=4 expect=F
-%restrict_codomain test small
-%has_post_inverse test radius=4 expect=T
+1 Ao o@o
+%has_post_inverse full radius=4 expect=F
+%CA partial
+0 Ao o=0&o.rt=1 | o=1&o.rt=2;
+nil Ao o@o
+%has_post_inverse partial radius=4 expect=T
 """
 unit_tests.append(("Post-inverses of partial CA", code))
 
