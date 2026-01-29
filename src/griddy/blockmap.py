@@ -423,25 +423,32 @@ class BlockMap:
                 return self.graph.move_rel(cell, x[0]), x[1], label, x[2]
                     
             for node in self.to_nodes:
-                for sym in self.to_alphabet[node]:
-                    circA = self.circuits[node, sym].copy()
-                    circB = self.circuits[node, sym].copy()
-                    transform(circA, lambda y: shift(y, "A"))
-                    transform(circB, lambda y: shift(y, "B"))
-                    im_circs[cell, node, sym] = (circA, circB)
-                    eq_circuits.append(IFF(circA, circB))
+                local_alph = self.to_alphabet[node]
+                circsA = []
+                circsB = []
+                for label in local_alph.node_vars:
+                    circA = self.circuits[node, label].copy()
+                    circB = circA.copy()
+                    transform(circA, lambda y:shift(y, "A"))
+                    transform(circB, lambda y:shift(y, "B"))
+                    circsA.append(circA)
+                    circsB.append(circB)
+                eq_circuits.append(local_alph.node_eq_node(circsA, circsB))
 
         origin = self.graph.origin()
         differents = []
         circ_A = T
-        for node in self.to_nodes:
-            for sym in self.from_alphabet[node][1:]:
-                circ_A = AND(circ_A, NOT(V((origin, node, "A", sym))))
-                differents.append(AND(circ_A, V((origin, node, "B", sym))))
+        for node in self.from_nodes:
+            local_alph = self.from_alphabet[node]
+            nvars_A = [V((origin, node, "A", l)) for l in local_alph.node_vars]
+            nvars_B = [V((origin, node, "B", l)) for l in local_alph.node_vars]
+            for sym in self.from_alphabet[node]:
+                circ_A = AND(circ_A, NOT(local_alph.node_eq_sym(nvars_A, sym)))
+                differents.append(AND(circ_A, local_alph.node_eq_sym(nvars_B, sym)))
 
-        lda =  LDAC2(lambda a: self.from_alphabet[a[1]])
+        #lda =  LDAC2(lambda a: self.from_alphabet[a[1]])
         circ = AND(OR(*differents), *eq_circuits)
-        circ = AND(circ, lda([circ]))
+        circ = AND(circ, node_constraints(self.from_alphabet)(circ))
         if verbose: print("Circuit constructed in time {}".format(time.time() - t))
 
         proj_vars = []
@@ -449,13 +456,13 @@ class BlockMap:
             cell = origin
             for move in moves:
                 cell = self.graph.move(cell, (move,1))
-            for sym in self.from_alphabet[node][1:]:
-                for label in ["A","B"]:
-                    proj_vars.append((cell, node, label, sym))
+            for label in self.from_alphabet[node].node_vars:
+                for tag in ["A","B"]:
+                    proj_vars.append((cell, node, tag, label))
 
         #print(circ)
         #print(proj_vars)
-        circ_vars = list(circ.get_variables())
+        #circ_vars = list(circ.get_variables())
         #for var in proj_vars:
         #    if var not in circ_vars:
         #        print(var)
@@ -470,6 +477,32 @@ class BlockMap:
             
         if verbose: print("Enumerated in time {}".format(time.time() - t))
 
+    def image_intersects(self, clopen, verbose=False):
+        clopen_cells = set([var[0] for var in clopen.circuit.get_variables()])
+        img_exists = []
+        bm_circuits = dict()
+        for cell in clopen_cells:
+            def shift(var):
+                new_cell = self.graph.move_rel(cell, var[0])
+                return new_cell, var[1], var[2]
+            for node in self.to_nodes:
+                local_alph = self.to_alphabet[node]
+                node_circs = []
+                for label in local_alph.node_vars:
+                    bm_circ = self.circuits[node, label].copy()
+                    transform(bm_circ, shift)
+                    node_circs.append(bm_circ)
+                    bm_circuits[cell, node, label] = bm_circ
+                if self.partial:
+                    p_circ = self.partial_circuits[node].copy()
+                    transform(p_circ, shift)
+                    img_exists.append(NOT(p_circ))
+        clopen_circ = clopen.circuit.copy()
+        transform(clopen_circ, lambda var: bm_circuits[var])
+        return SAT_under(AND(clopen_circ, *img_exists), node_constraints(self.from_alphabet))
+        #return SAT_under(AND(clopen_circ, *image_constr), node_constraints(self.from_alphabet))
+            
+    """
     # construct a circuit that states preimage and image, and that image is in clopen
     def image_intersects(self, clopen, verbose):
         positions = set([v[0] for v in clopen.circuit.get_variables()])
@@ -479,10 +512,10 @@ class BlockMap:
             for n in self.to_nodes:
                 # at each node, check that image has correct symbol.
                 for a in self.to_alphabet[n]:
-                    """
-                    Check that image has letter, i.e. (p,n,img,a) is true,
-                    iff circA moved to (p,n,pre,a) evaluates to true.
-                    """
+                    
+                    # Check that image has letter, i.e. (p,n,img,a) is true,
+                    # iff circA moved to (p,n,pre,a) evaluates to true.
+                    
                     circ = self.circuits[(n, a)].copy()
                     def shift(x, label):
                         m = self.graph.move_rel(p, x[0])
@@ -521,7 +554,7 @@ class BlockMap:
         test = AND(*circuits)
 
         return SAT(test)
-                
+    """
         
         
         
