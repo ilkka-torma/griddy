@@ -946,6 +946,45 @@ code = """
 """
 unit_tests.append(("Entropy", code))
 
+code = """
+%alphabet encoding=unary 0 1 2
+%sft x1 Ao Aq[Bo 1 o] q != o
+%alphabet 0 1 2
+%sft x2 Ao Aq[Bo 1 o] q != o
+%product tracks=[a b] p1 x1 x2
+%load_environment p1
+%sft d1 ACo o.a != o.b
+%intersection i1 p1 d1
+%save_environment e
+
+%topology grid
+%alphabet 0 1 2 3
+%sft y1 Ao Aq[Bo 1 o] q != o
+%alphabet encoding=unary 0 1 2
+%sft y2 Ao Aq[Bo 1 o] q != o
+%product tracks=[a b] p2 y1 y2
+%load_environment p2
+%sft d2 ACo o.a != o.b
+%intersection i2 p2 d2
+
+%CA id1 codomain=e
+a 0 ACo o.a=0;
+a 1 ACo o.a=1;
+b 0 ACo o.b=0;
+b 1 ACo o.b=1
+
+%has_post_inverse expect=F id1 radius=1
+
+%CA id2 domain=e
+a 0 ACo o.a=0;
+a 1 ACo o.a=1;
+b 0 ACo o.b=0;
+b 1 ACo o.b=1
+
+%has_post_inverse expect=T id2 radius=1
+"""
+unit_tests.append(("Alphabet encodings", code))
+
 if __name__ == "__main__":
 
     t = time.time()

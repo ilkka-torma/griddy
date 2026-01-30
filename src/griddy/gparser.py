@@ -43,7 +43,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL} cmd_opts) -> cmd_nodes_default
        | ("nodes" | "vertices") node_name* -> cmd_nodes_open
        | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
-       | ("alphabet" | "alph") LABEL+ -> cmd_alph_open
+       | ("alphabet" | "alph") cmd_alph_opts (LABEL cmd_alph_opts)+ -> cmd_alph_open
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* ";"? -> cmd_blockmap_node_sym
        | "compose" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_compose_default
@@ -112,7 +112,7 @@ cmd_opts: cmd_opt*
 cmd_opt: | STRICT_LABEL "=" value -> option
          | "@" STRICT_LABEL       -> flag
 
-cmd_alph_opts: ("default" "=" list_of{LABEL})?
+cmd_alph_opts: (/default/ "=" list_of{LABEL} | /encoding/ "=" LABEL)*
 cmd_product_opts: (/tracks/ "=" list_of{LABEL} | /env/ "=" LABEL)*
 cmd_relation_opts: ("tracks" "=" list_of{LABEL})?
 cmd_tiler_opts: ( /x_size/ "=" NAT
@@ -674,14 +674,16 @@ class GriddyTransformer(Transformer_NonRecursive):
         return self.cmd_default("alphabet", args)
 
     def cmd_alph_open(self, args):
-        return self.cmd_default("alphabet", [args])
+        (name, pos_args, opts, flags) = self.cmd_default("alphabet", args)
+        return (name, [pos_args], opts, flags)
 
     def cmd_alph_opts(self, items):
         #print("cmd_alph_opts", items)
-        if items:
-            return Opts([("default", items[0])])
-        else:
-            return Opts([])
+        opts = []
+        while items:
+            opts.append(tuple(items[:2]))
+            items = items[2:]
+        return Opts(opts)
 
     def cmd_blockmap_sym(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
