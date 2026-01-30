@@ -103,6 +103,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "entropy_lower_bound" cmd_opts STRICT_LABEL cmd_opts (NAT cmd_opts)* /;/ cmd_opts (NAT cmd_opts)* -> cmd_entropy_lower_open
        | "tile_box" STRICT_LABEL NAT -> cmd_tile_box
        | "keep_tiling" cmd_opts STRICT_LABEL cmd_opts -> cmd_keep_tiling
+       | "start_cache" NAT NAT -> cmd_start_cache
+       | "end_cache" -> cmd_end_cache
 
 top_edge: LABEL vector~1..3
 
@@ -918,6 +920,12 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_keep_tiling(self, args):
         return self.cmd_default("keep_tiling", args)
+
+    def cmd_start_cache(self, args):
+        return self.cmd_default("start_cache", args)
+    
+    def cmd_end_cache(self, args):
+        return self.cmd_default("end_cache", args)
 
     def start(self, cmds):
         return list(cmds)

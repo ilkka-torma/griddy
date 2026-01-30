@@ -46,6 +46,7 @@ import graphs
 from basic_things import *
 
 default_alph = Alphabet.unary_minus_one
+#default_alph = Alphabet.unary
 
 class Griddy:
     def __init__(self):
@@ -865,7 +866,7 @@ class Griddy:
                     inst = the_sft.tiling_instance(size)
                     if mode == "report":
                         print("Computed tiling instance for SFT %s and area %s." % (size, name))
-                        print("Size of instance: %s clauses, total length %s." % (len(inst), sum(len(i) for i in inst))
+                        print("Size of instance: %s clauses, total length %s." % (len(inst), sum(len(i) for i in inst)))
                     results.append(inst)
                 else:
                     raise Exception("Command tiling_instance expects SFT.")
@@ -1019,6 +1020,7 @@ class Griddy:
             # and (through compiler) tell Circuit that we are using one,
             elif cmd == "start_cache":
                 compiler.start_cache(args[0], args[1])
+                
             elif cmd == "end_cache":
                 compiler.end_cache()
 

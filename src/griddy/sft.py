@@ -1346,20 +1346,48 @@ class SFT:
             print("Solved instance in {} seconds".format(time.time() - tim))
         return not (m == False)
 
-    def tiling_instance(self, bounds, periodic_axes):
+    """
+    Return a SAT instance corresponding to valid tilings of the area "bounds".
+    For now, it's just a vector giving the size, eventually should be a subset of the complex.
+    We return (circuit, clauses, main, var_to_name).
+    * "circuit" is the Circuit object, a structured logical formula.
+    * "clauses" is the clauses, LAST ONE states that "main" is true
+    * "main" is the variable name of "circuit"
+    * "var_to_name" is a dict giving the names of variables corresponding to
+      subcircuits, note that variables are in V-less format, and circuits are
+      in the dict by their id(.)
+    """
+    def tiling_instance(self, bounds, periodic_axes=None):
         all_positions = set()
         circuits = []
-        vec_domain = list(hyperrect([(0, i-1) for i in bounds]))
-        print(vec_domain)
+        vec_domain = list(hyperrect([(0, i) for i in bounds]))
         for vec in vec_domain:
             circ = self.circuit.copy()
             transform(circ, lambda var: nvadd(var[:-1], vec) + var[-1:])
             for var in circ.get_variables():
-                all_positions.add(var[:-1]) # drop letter
+                all_positions.add(var[:-1])
             circuits.append(circ)
-        add_uniqueness_constraints(self.alph, circuits, all_positions)
+
+        if periodic_axes != None:
+            raise Exception("Periodic axes not supported!")
+
+        #for c in circuits:
+        #    print (c.get_variables())
+
+        for nvec in all_positions:
+            node_alph = self.alph[nvec[-1]]
+            nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+            circuits.append(node_alph.node_constraint(nvars))
+
+        #for c in circuits:
+        #    print(c.nice_str())
+        
         inst = AND(*circuits)
-        return circuit_to_sat_instance(inst)
+        
+        var_to_name = dict()
+        clauses, main = circuit_to_sat_instance(inst, var_to_name)
+        clauses.append([main])
+        return inst, clauses, main, var_to_name
         
 
 # intersection allows clopen sets and other intersection objects

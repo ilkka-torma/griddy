@@ -249,7 +249,7 @@ class SquareComplex2(Graph):
         N_colors = set([t[1].lower() for t in tiles])
         W_colors = set([t[2].lower() for t in tiles])
         S_colors = set([t[3].lower() for t in tiles])
-        print(E_colors, W_colors)
+        #print(E_colors, W_colors)
         assert E_colors == W_colors
         assert N_colors == S_colors
         assert E_colors.intersection(N_colors) == set()
@@ -273,13 +273,13 @@ class SquareComplex2(Graph):
     def moves(self):
         return set(self.V_colors) | set(self.H_colors)
     def move(self, cell, generator):
-        print("cell", cell, generator)
+        #print("cell", cell, generator)
         generator, power = generator
         if power == -1:
             generator = inverse2(generator, self.involutions)
         if generator.lower() in self.H_colors:
             return cell[0], free_simplify2(cell[1] + generator, self.involutions)
-        print("here", generator)
+        #print("here", generator)
         newh = ""
         for c in reversed(cell[1]): # go over horizontals of cell
             nextgenerator = None

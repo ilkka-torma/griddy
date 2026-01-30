@@ -1,4 +1,4 @@
-
+import math
 from circuit import Circuit, AND, OR, NOT, T, F, IFF, V
 
 # Does this string represent a number?
@@ -169,3 +169,49 @@ class Alphabet:
                 return None
                           
         return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one")
+
+    @classmethod
+    def binary(self, syms):
+        """
+        An alphabet encoded in binary: ceil(log_2(n)) bits used for n variables.
+        First variable is coded 000, then 001, etc..
+        """
+
+        vrs = list(range(math.ceil(math.log2(syms))))
+
+        def m_to_s(bools):
+            "Return symbol coded by bits in bools list."
+            v = 0
+            for b in bools:
+                v *= 2
+                v += int(b)
+            if v >= len(syms):
+                raise Exception("Internal error, non-letter seen.")
+            return syms[v]
+
+        #!!!
+        def codes_something(circs):
+            "return a circuit for "
+            seen = circs[0]
+            two = F
+            for circ in circs[1:]:
+                two = OR(two, AND(seen, circ))
+                seen = OR(seen, circ)
+            return AND(seen, NOT(two))
+
+        def n_eq_s(circs, sym):
+            return circs[syms.index(sym)]
+
+        def n_eq_n(circs1, circs2):
+            return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
+        def s_to_num(sym):
+            if is_nat(sym):
+                return int(sym)
+            else:
+                return None
+                          
+        return self(syms, syms, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="unary")
+
+
+

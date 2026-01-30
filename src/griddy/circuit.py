@@ -195,6 +195,29 @@ class Circuit:
     #def __hash__(self):
     #    return 0
 
+    def nice_str(self, tab = 4, depth = 0, suppress_first = False, values = None):
+        value = ""
+        if values:
+            # assume values is in the stupid format where V is suppressed in vars, and others are by their id...
+            if self.op == "V":
+                ss = self.inputs[0]
+            else:
+                ss = id(self)
+            v = "T" if values[ss] else "F"
+            value = v+"="
+        if self.op == "V":
+            ret = value + str(self) + "\n"
+        elif self.op == "!":
+            ret = value+"!" + self.inputs[0].nice_str(tab, depth+1, True, values)
+        else:
+            ret = value+self.op + " "*(tab-len(self.op)-len(value))
+            for i, inp in enumerate(self.inputs):
+                ret += inp.nice_str(tab, depth+tab, i == 0, values)
+        if suppress_first:
+            return ret
+        else:
+            return " "*depth + ret
+
 #print(Circuit.global_simplify_threshold_min, Circuit.global_simplify_threshold_max)
 
 def tostr(c):

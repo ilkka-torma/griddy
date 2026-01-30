@@ -802,6 +802,8 @@ def var_of_pos_expr(f):
 def eval_to_position(graph, topology, nodes, expr, pos_variables, top=True):
     #print("Evaluating to pos", graph, topology, nodes, expr, pos_variables, top)
     ret = eval_to_position_(graph, topology, nodes, expr, pos_variables, top)
+    if ret == (((1, 0), ('W',)), ('N',)):
+        print("moi")
     #print("Result", ret)
     return ret
 
