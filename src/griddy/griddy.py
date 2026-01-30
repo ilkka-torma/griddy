@@ -158,10 +158,21 @@ class Griddy:
             elif cmd == "alphabet":
                 alph = args[0]
                 default = kwds.get("default", None)
+                encoding = kwds.get("encoding", None)
+                if encoding is None:
+                    mk_alph = default_alph
+                elif encoding == "unary_minus_one":
+                    mk_alph = Alphabet.unary_minus_one
+                elif encoding == "unary":
+                    mk_alph = Alphabet.unary
+                elif encoding == "test":
+                    mk_alph = Alphabet.test_alph
+                else:
+                    raise GriddyRuntimeError("Invalid alphabet encoding: {}".format(encoding))
                 if default is not None:
-                    default = default_alph(default)
+                    default = mk_alph(default)
                 if type(alph) == list and default is None:
-                    default = default_alph(alph)
+                    default = mk_alph(alph)
                 self.alphabet = {node:default for node in self.nodes}
                 if type(alph) == dict:
                     for (labels, local_alph) in alph.items():
@@ -170,7 +181,7 @@ class Griddy:
                             raise Exception("Invalid subtrack for {}: {}".format(self.nodes, labels))
                         for subnode in subtr:
                             node = labels + subnode
-                            self.alphabet[node] = default_alph(local_alph)
+                            self.alphabet[node] = mk_alph(local_alph)
                 if None in self.alphabet.values():
                     raise Exception("Incomplete alphabet definition")
 
