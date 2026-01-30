@@ -3,6 +3,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "src", "griddy")))
 import griddy
 import time
+import circuit
 
 print(griddy)
 
@@ -376,6 +377,8 @@ code = """
 %SFT var onesided=[1] Ao o!=o.rt <-> o.up=1
 --%show_environment sft=var
 %equal expect=T diagram var @verbose
+%SFT var2 onesided=[1] Ao o!=o.rt -> o.up=1
+%equal expect=F diagram var2 @verbose
 """
 unit_tests.append(("spacetime diagram", code))
 
@@ -864,7 +867,7 @@ unit_tests.append(("node and symbol names", code))
 
 
 code = """
-%sft x onesided=[0 1] Ao o=1 | o.up=1 | o.up.rt=1
+%sft x onesided=[0 1] Ao o=o.up=1 | o.rt=o.rt.rt=1
 %sft y onesided=[0 1] Ao o=1 -> (o.up = o.up.up = o.up.up.rt = 0)
 %find_automatic_conf mode=angluin c x
 %contains expect=T x c
@@ -901,21 +904,16 @@ b 1 Ao o.b=1;
 unit_tests.append(("Post-inverses of CA (= injectivity)", code))
 
 code = """
-%alphabet 0 1 2 wut
 %topology line
-%save_environment big
 %alphabet 0 1 2
-%save_environment small
-%CA test codomain=big --@verbose
---0 Ao let sz a b := a=0&b=0|a=1&b=2|a=2&b=1 in
---let so a b := a=1&b=0|a=0&b=1|a=2&b=2 in
---let st a b := a=2&b=0|a=0&b=2|a=1&b=1 in
---sz o o.rt;
+%CA full
 0 Ao o=0&o.rt=1 | o=1&o.rt=2;
-wut Ao o@o
-%has_post_inverse test radius=4 expect=F
-%restrict_codomain test small
-%has_post_inverse test radius=4 expect=T
+1 Ao o@o
+%has_post_inverse full radius=4 expect=F
+%CA partial
+0 Ao o=0&o.rt=1 | o=1&o.rt=2;
+nil Ao o@o
+%has_post_inverse partial radius=4 expect=T
 """
 unit_tests.append(("Post-inverses of partial CA", code))
 
@@ -934,7 +932,19 @@ code = """
 """
 unit_tests.append(("Intersecting SFTs and clopen sets", code))
 
+code = """
+%sft a Ao is_zero o
+%sft b Ao o=0
+%equal expect=T a b
+"""
+unit_tests.append(("External functions", code))
 
+code = """
+%sft test Ao o=o.up=1 -> o.rt=1
+%entropy_upper_bound test 3 4
+%entropy_lower_bound test 1 2; 5 3
+"""
+unit_tests.append(("Entropy", code))
 
 if __name__ == "__main__":
 
@@ -947,6 +957,14 @@ if __name__ == "__main__":
 
     for (i, (name, code)) in enumerate(unit_tests, start=1):
         griddy_inst = griddy.Griddy()
+        if name == "External functions":
+            def is_zero(cxt, a):
+                graph, topology, nodes, alphabet, formula, variables = cxt
+                apos = variables[a]
+                zero, _ = alph = alphabet[()]
+                avars = [circuit.V(apos + (label,)) for label in alph.node_vars]
+                return alph.node_eq_sym(avars, zero)
+            griddy_inst.add_external("is_zero", is_zero)
         print()
         print("Running test {}/{}: {}".format(i, len(unit_tests), name))
         griddy_inst.run(code, "assert")

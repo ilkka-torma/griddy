@@ -96,18 +96,6 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
                 ret = T
             elif ret == False:
                 ret = F
-            # if returns a circuit, in case V(pos + (sym,)) we must fix alphabet[0]
-            # because we are using the space efficient coding
-            if type(ret) == Circuit:
-                def eliminate_zero(v):
-                    pos = v[1]
-                    sym = v[2]
-                    if sym != alphabet[pos][0]:
-                        return v
-                    return AND(*(NOT(V(pos + (a,))) for a in alphabet[pos][1:]))
-                #print("before elimination", ret)
-                circuit.transform(ret, eliminate_zero)
-                #print("after elimination", ret)
         else:
             # default functions
             if var == "has":
@@ -325,8 +313,6 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
 
         elif p1ispos and p2ispos:
             if ret == None:
-                args = []
-                #print(p1)
                 # the case of equality of cells (with nontrivial node set)
                 if len(nodes) > 1 and p1[1] == ():
                     # if other is not cell, then not equal, but should perhaps raise error
@@ -339,55 +325,44 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
                                                     alphabet, formu, variables,
                                                     subst, externals, global_restr))
                     ret = AND(*eq_formulas)
-                # case of equality of nodes; intermediate levels will crash for now though, should perhaps check equality of shape and content of tree?
                 else:
+                    # the case of equality of nodes
+                    args = []
                     p1_alph = alphabet[p1[1]]
+                    p1_vars = [V(p1+(l,)) for l in p1_alph.node_vars]
                     p2_alph = alphabet[p2[1]]
+                    p2_vars = [V(p2+(l,)) for l in p2_alph.node_vars]
                     if p1_alph == p2_alph:
                         # the nice case: equal alphabets
-                        for a in p1_alph[1:]:
-                            args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
+                        args.append(p1_alph.node_eq_node(p1_vars, p2_vars))
                     else:
                         # the messy case: different alphabets
-                        for (i,a) in enumerate(p1_alph):
-                            for (j,b) in enumerate(p2_alph):
+                        for a in p1_alph:
+                            for b in p2_alph:
                                 if a == b:
-                                    # force the occurrences to be logically equivalent
-                                    if i and j:
-                                        args.append(IFF(V(p1 + (a,)), V(p2 + (a,))))
-                                    elif i:
-                                        args.append(IFF(NOT(V(p1 + (a,))), OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
-                                    elif j:
-                                        args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])), NOT(V(p2 + (a,)))))
-                                    else:
-                                        args.append(IFF(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])),
-                                                        OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:]))))
-                            else:
-                                # a is not in the other alphabet; forbid it
-                                if i:
-                                    args.append(NOT(V(p1 + (a,))))
+                                    # force equivalence of these symbols
+                                    args.append(IFF(p1_alph.node_eq_sym(p1_vars, a),
+                                                    p2_alph.node_eq_sym(p2_vars, b)))
+                                    break
                                 else:
-                                    args.append(OR(*(V(p1 + (a2,)) for a2 in p1_alph[1:])))
-                            # for good measure, also forbid everything unmatched in the other alphabet
-                            for (i,a) in enumerate(p2_alph):
-                                if a not in p1_alph:
-                                    if i:
-                                        args.append(NOT(V(p2 + (a,))))
-                                    else:
-                                        args.append(OR(*(V(p2 + (a2,)) for a2 in p2_alph[1:])))
+                                    # a is not in p2's alphabet => forbid
+                                    args.append(NOT(p1_alph.node_eq_sym(p1_vars, a)))
+                        # also forbid p2's symbols not in p1's alphabet
+                        for b in p2_alph:
+                            if b not in p1_alph:
+                                args.append(NOT(p2_alph.node_eq_sym(p2_vars, a)))
                     ret = AND(*args)
-
         else:
             if not p1ispos and p2ispos:
                 p1, p2val = p2, p1val
-            #print("here p1", p1, "p2val", p2val, "alphabet", alphabet)
+            #print("here p1", p1, "p2val", p2val)
+            # now p1 is a position and p2 a symbol
             local_alph = alphabet[p1[1]]
             if p2val not in local_alph:
                 ret = F
-            if p2val == local_alph[0]:
-                ret = AND(*(NOT(V(p1 + (sym,))) for sym in local_alph[1:]))
             else:
-                ret = V(p1 + (p2val,))
+                p1_vars = [V(p1+(l,)) for l in local_alph.node_vars]
+                ret = local_alph.node_eq_sym(p1_vars, p2val)
             
     elif op == "ISNEIGHBOR" or op == "ISPROPERNEIGHBOR":
         #print("test nbr")
@@ -550,7 +525,6 @@ def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, si
     global_restr = []
     subst = {}
     form = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
-    #return tech_simp(form)
     form = tech_simp(AND(*([form]+global_restr)))
     if simplify:
         _, form = ass.simplify_circ_eqrel(form)
@@ -718,40 +692,24 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
     #else:
     #    print("numexpr_to_circ", formula, ret[0].circuits, ret[1])
     return ret
-
-# Does this string represent a number?
-def is_nat(string):
-    if not string:
-        return False
-    if string == '0':
-        return True
-    if string[0] != '0' and all(c in "0123456789" for c in string):
-        return True
-    return False
     
 # Make a numeric circuit that
-# (a) restricts the node to have a "numeric" symbol, and
+# (a) restricts the node to have a numeric symbol (as defined by the alphabet), and
 # (b) evaluates to the corresponding number
 def sym_to_num(nvec, alphabet, global_restr):
     node = nvec[1]
     node_alph = alphabet[node]
-    nums = list(sorted(sym for sym in node_alph if is_nat(sym)))
+    nums = list(sorted((num, sym) for sym in node_alph
+                       if (num := node_alph.sym_to_num(sym)) is not None))
     circs = dict()
-    for (i, num) in enumerate(nums):
-        if num == node_alph[0]:
-            circ = AND(*(NOT(V(nvec + (sym,))) for sym in node_alph[1:]))
-        else:
-            circ = V(nvec + (num,))
-        circs[i] = circ
+    nvars = [V(nvec + (l,)) for l in node_alph.node_vars]
+    circs = {i : node_alph.node_eq_sym(nvars, sym)
+             for (i, (_, sym)) in enumerate(nums)}
     for sym in node_alph:
-        if sym not in nums:
-            if sym == node_alph[0]:
-                circ = OR(*(V(nvec + (sym2,)) for sym2 in node_alph[1:]))
-            else:
-                circ = NOT(V(nvec + (sym,)))
-            global_restr.append(circ)
+        if node_alph.sym_to_num(sym) is None:
+            global_restr.append(NOT(node_alph.node_eq_sym(nvars, sym)))
 
-    return moc.MOCircuit(circs), [int(num) for num in nums]
+    return moc.MOCircuit(circs), [num for (num, _) in nums]
 
 def collect_unbound_vars(formula, bound = None):
     #print("collecting", formula)

@@ -669,7 +669,8 @@ def solver_process(circ, ret_assignment=False):
             #print("solver got", values, "has var_to_name",
             #      {v : n for (v,n) in var_to_name.items() if type(v) != int})
             assum = [(-1)**(1-val) * var_to_name[var]
-                     for (var, val) in values.items()]
+                     for (var, val) in values.items()
+                     if var in var_to_name]
             res = solver.solve(assumptions=assum)
             if res:
                 if ret_assignment:
@@ -961,8 +962,10 @@ def AND(*inputs):
             return F
         if inp.op == "&":
             andeds.extend(inp.inputs)
-        else:
+        elif inp not in andeds:
             andeds.append(inp)
+    if len(andeds) == 1:
+        return andeds[0]
     return circuit("&", *andeds)
 
 def OR(*inputs):
@@ -985,14 +988,20 @@ def OR(*inputs):
             continue
         if inp.op == "|":
             oreds.extend(inp.inputs)
-        else:
+        elif inp not in oreds:
             oreds.append(inp)
+    if len(oreds) == 1:
+        return oreds[0]
     return circuit("|", *inputs)
 def NOT(*inputs):
     #print(inputs)
     assert len(inputs) == 1
     if inputs[0] == None:
         return None
+    if inputs[0] == T:
+        return F
+    if inputs[0] == F:
+        return T
     if inputs[0].op == "!":
         return inputs[0].inputs[0]
     return circuit("!", *inputs)
@@ -1012,7 +1021,8 @@ def IMP(*inputs):
     #return Circuit("->", *inputs)
 def IFF(*inputs):
     assert len(inputs) == 2
-    return AND(IMP(inputs[0], inputs[1]), IMP(inputs[1], inputs[0]))
+    return OR(AND(inputs[0], inputs[1]), AND(NOT(inputs[0]), NOT(inputs[1])))
+    #return AND(IMP(inputs[0], inputs[1]), IMP(inputs[1], inputs[0]))
 def XOR(*inputs):
     if len(inputs) == 1:
         assert type(inputs[0]) == Circuit

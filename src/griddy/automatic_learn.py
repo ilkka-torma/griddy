@@ -5,7 +5,7 @@ from infer_dfa import DFALearner, infer_dfa
 from automatic_conf import AutomaticStructure, AutomaticConf
 from sft import Nodes, SFT, add_uniqueness_constraints
 from finite_automata import DFA, NFA
-from circuit import AND, solver_process, transform
+from circuit import AND, solver_process, transform, V, SAT, AND
 from frozendict import frozendict
 
 class PatternBuilder:
@@ -141,7 +141,8 @@ class LexMinBuilder(PatternBuilder):
                 
             #if len(self.pattern) < 6:
             #print("tr_vec", tr_vec)
-            solver_values = {}
+            # solver_values is a dict of (vec, node, var) -> bool
+            solver_values = dict()
             #print(self.circuit_nvecs)
             # for debugging purposes, we sort as if legacy...
             #cc = list(self.circuit_nvecs)
@@ -151,22 +152,25 @@ class LexMinBuilder(PatternBuilder):
             for proc_nvec in proc_nvecs: #self.circuit_nvecs:
                 #print("trying", circ_nvec)
                 node = proc_nvec[1]
+                node_alph = self.sft.alph[node]
+                nvars = [V(l) for l in node_alph.node_vars]
+                models = {sym : SAT(AND(node_alph.node_eq_sym(nvars, sym),
+                                        node_alph.node_constraint(nvars)),
+                                    return_model=True)
+                          for sym in node_alph}
                 pat_nvec = nvadd(proc_nvec, tr_vec)
                 #print("circ_nvec", circ_nvec, "pat_nvec", pat_nvec)
                 if pat_nvec in self.pattern:
                     pat_sym = self.pattern[pat_nvec]
-                    #print("in pattern", pat_sym)
-                    for the_sym in self.sft.alph[node][1:]:
-                        solver_values[proc_nvec + (the_sym,)] = pat_sym == the_sym
+                    for (label, val) in models[pat_sym].items():
+                        solver_values[proc_nvec + (label,)] = val
                 elif pat_nvec == nvec:
                     #print("is nvec", sym)
-                    for the_sym in self.sft.alph[node][1:]:
-                        solver_values[proc_nvec + (the_sym,)] = sym == the_sym
-
-            
+                    for (label, val) in models[sym].items():
+                        solver_values[proc_nvec + (label,)] = val
 
             #if len(self.pattern) < 6:
-            #print("sent values", {a[:-1] : a[-1] for (a,b) in solver_values.items() if b})
+            #print("sent values", solver_values)
             is_sat = proc.send(solver_values)
             #print("is_sat", is_sat)
             if is_sat:

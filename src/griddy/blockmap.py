@@ -1,21 +1,24 @@
 from circuit import *
+from mocircuits import *
 from general import *
 from sft import *
-import mocircuits
+from alphabet import node_constraints
 import time
 
 
 """
-circuits is a dict of circuits : (node, symbol) -> circuit
-for each node exactly one should say yes or this is nondeterministic
-variables in circuits are (vector, node, symbol) encodeed
+circuits is a dict : (node, label) -> circuit
+the labels come from to_alphabet[node].node_vars
+together the circuits associated to a single node form the circuit for the output symbol
+for each node exactly one output symbol should be produced or this is nondeterministic
+variables in circuits are (vector, node, label) encoded on the preimage side
 overlaps should be "ignore", "check" or "remove"
 """
 class BlockMap:
     def __init__(self, from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology,
-                 to_topology, graph, overlaps="remove", verbose=False):
+                 to_topology, graph, overlaps="remove", verbose=False, partial=False):
 
-        ##print(circuits)
+        #print("BlockMap circuits", circuits)
                      
         #print(from_alphabet, to_alphabet, from_nodes, to_nodes, dimension, circuits, from_topology, to_topology, overlaps, graph)
         
@@ -29,7 +32,7 @@ class BlockMap:
         self.to_topology = to_topology
         self.graph = graph
 
-        self.partial = False
+        self.partial = partial
 
         #assert type(circuits) == dict
         if verbose:
@@ -37,55 +40,88 @@ class BlockMap:
             
 
         #  dict is only used internally, assume disjointness and full specification
-        if type(circuits) == dict:
+        if isinstance(circuits, dict):
             self.circuits = circuits #[(n,a,circuits[(n,a)]) for (n,a) in circuits]
 
         # inputs can be messier, and we remove intersections and add defaults
         # default is first missing symbol, if one is missing.
         # but if all appear, we use the first letter of the alphabet.
-        if type(circuits) == list:
+        elif type(circuits) == list:
             
-            self.circuits = self.circuits_from_list(circuits, overlaps)
+            circuits, is_partial = self.circuits_from_list(circuits, overlaps)
+            self.partial = is_partial
 
             # check that there are no additional circuits, just to catch bugs
-            for (n, a) in self.circuits:
-                if n not in to_nodes:
-                    raise Exception(n, "is not a node in range of CA")
-                if a not in to_alphabet[n]:
-                    raise Exception(a, "is not in alphabet of node", n, "in range of CA")
+            for (node, sym) in circuits:
+                if node not in to_nodes:
+                    raise Exception(node, "is not a node in range of CA")
+                if sym not in to_alphabet[node]:
+                    raise Exception(sym, "is not in alphabet of node", n, "in range of CA")
             
-            ##print("here", self.circuits)
+            #print("here", circuits)
 
-            for n in to_nodes:
-                circs = {}
-                for a in to_alphabet[n]:
-                    if (n, a) in self.circuits:
-                        circs[a] = self.circuits[(n, a)]
-                # check if we should add default case because one is explicitly missing
-                if len(circs) < len(to_alphabet[n]):
-                    default_found = False
-                    for a in to_alphabet[n]:
-                        if a not in circs:
-                            if not default_found:
-                                if verbose:
-                                    print("Using {} as default symbol for node {} in block map".format(a, n))
-                                self.circuits[(n, a)] = AND(*(NOT(b) for b in circs.values()))
-                            else:
-                                self.circuits[(n, a)] = F
-                # all formulas are there, but we should possibly still add a default case
-                # if it's possible that no formula triggers; default is first letter then
-                else:
-                    ldac = LDAC2(lambda a:self.from_alphabet[a[1]])
-                    first_sym = from_alphabet[n][0]
-                    if SAT_under(AND(*(NOT(b) for b in circs.values())), ldac):
-                        if verbose:
-                            print("Using {} as default symbol for node {} in block map".format(first_sym, n))
-                        self.circuits[(n, first_sym)] = AND(*(NOT(circs[b]) for b in circs if b != first_sym))
-                        
+            # Add default cases
+            if not self.partial:
+                for node in to_nodes:
+                    circs = {}
+                    for sym in to_alphabet[node]:
+                        if (node, sym) in circuits:
+                            circs[sym] = circuits[node, sym]
+                    # check if we should add default case because one is explicitly missing
+                    if len(circs) < len(to_alphabet[node]):
+                        default_needed = True
+                        for sym in to_alphabet[node]:
+                            if sym not in circs:
+                                if default_needed:
+                                    if verbose:
+                                        print("Using {} as explicit default symbol for node {} in block map".format(sym, node))
+                                    circuits[node, sym] = AND(*(NOT(circ) for circ in circs.values()))
+                                    default_needed = False
+                                else:
+                                    circuits[node, sym] = F
+                    # all formulas are there, but we should possibly still add a default case
+                    # if it's possible that no formula triggers; default is first letter then
+                    else:
+                        #ldac = LDAC2(lambda a:self.from_alphabet[a[1]])
+                        first_sym = from_alphabet[node][0]
+                        no_circ = AND(*(NOT(circ) for circ in circs.values()))
+                        if SAT_under(no_circ, node_constraints(self.from_alphabet)):
+                            if verbose:
+                                print("Using {} as implicit default symbol for node {} in block map".format(first_sym, node))
+                            circuits[node, first_sym] = AND(circuits[first_sym],
+                                                            *(NOT(circ) for (sym, circ) in circs.items()
+                                                              if sym != first_sym))
+
+            # transform into dict : node, label -> circ
+            self.circuits = dict()
+            for node in to_nodes:
+                # pick a model for each output symbol
+                local_alph = to_alphabet[node]
+                nvars = [V(l) for l in local_alph.node_vars]
+                models = {sym : SAT(AND(local_alph.node_eq_sym(nvars, sym),
+                                        local_alph.node_constraint(nvars)),
+                                    return_model=True)
+                          for sym in local_alph}
+                # define the variable circuits in terms of these:
+                # a variable is true iff there is a symbol such that
+                # the variable is true in its model and its formula is true
+                for l in local_alph.node_vars:
+                    self.circuits[node, l] = OR(*(circuits.get((node, sym), F)
+                                                  for sym in local_alph
+                                                  if models[sym][l]))
+            # add partial circuit
+            if self.partial:
+                self.partial_circuits = dict()
+                for node in to_nodes:
+                    self.partial_circuits[node] = AND(*(NOT(circuits.get((node, sym), F))
+                                                        for sym in self.to_alphabet[node]))
+        
         if verbose:
-            for n in to_nodes:
-                for a in to_alphabet[n]:
-                    print("Circuit for out node", n, "letter", a, "is", self.circuits[(n, a)])
+            for node in to_nodes:
+                for l in to_alphabet[node].node_vars:
+                    print("Circuit for out node", node, "label", l, "is", self.circuits[node, l])
+                if self.partial:
+                    print("Partial circuit for out node", node, "is", self.partial_circuits[node])
 
         """
         # check dimensions...
@@ -122,6 +158,7 @@ class BlockMap:
     # if overlaps is "remove", we should refine to disjoints:
     # if (n, a, C) appears, and (n, b) already has formula,
     # then, remove simultaneous solutions from C
+    # return a dict : (node, sym) -> circuit and a boolean for existence of extra symbols (partial BM)
     # if overlaps is "check", we should raise an exception if the rules are not disjoint
     # if overlaps if "ignore", assume the rules are disjoint
     def circuits_from_list(self, circuits, overlaps):
@@ -132,27 +169,30 @@ class BlockMap:
             for (node, sym, formula) in circuits:
                 form = formula
                 # go over all previous
+                overlapping = []
                 for (node_, sym_, formula_) in disjoints:
-                    if node_ != node:
-                        continue
-                    if sym_ != sym:
-                        #print("from_alphabet", self.from_alphabet)
-                        ldac = LDAC2(lambda nvec: self.from_alphabet[nvec[-1]])
-                        if SAT_under(AND(form, formula_), ldac):
+                    if node_ == node and sym_ != sym:
+                        if SAT_under(AND(formula, NOT(OR(*overlapping)), formula_), node_constraints(self.from_alphabet)):
                             if overlaps == "check":
-                                raise Exception("Overlapping rules for node {}, symbols {} and {}".format(node_, sym_, sym))
-                            form = AND(form, NOT(formula_))
+                                raise Exception("Overlapping rules for node {}, symbols {} and {}".format(node, sym_, sym))
+                            overlapping.append(formula_)
+                form = AND(form, NOT(OR(*overlapping)))
                 disjoints.append((node, sym, form))
-        ret_circuits = {}
+
+        partial = False
+        ret_circuits = dict()
         for (node, sym, formula) in disjoints:
-            if (node, sym) not in ret_circuits:
-                ret_circuits[(node, sym)] = formula
+            if sym in self.to_alphabet[node]:
+                try:
+                    ret_circuits[node, sym] = OR(ret_circuits[node, sym], formula)
+                except KeyError:
+                    ret_circuits[node, sym] = formula
             else:
-                ret_circuits[(node, sym)] = OR(ret_circuits[(node, sym)], formula)
-        return ret_circuits
+                partial = True
+        return ret_circuits, partial
 
     def tomocircuit(self):
-        return mocircuits.MOCircuit(self.circuits)
+        return MOCircuit(self.circuits)
 
     # compose with other; other is done after
     def then(self, other, verbose = False):
@@ -168,48 +208,54 @@ class BlockMap:
 
         # calculate all cells that will be used
         other_cells = set()
-        for c in other.circuits:
-            for s in other.circuits[c].get_variables():
+        for circ in other.circuits.values():
+            for var in circ.get_variables():
                 #print(s)
-                other_cells.add(s[0]) # just need to know the cells
+                other_cells.add(var[0]) # just need to know the cells
                 
         # Make shifted copies of our circuits, one for each cell used by other.
         # Note that the circuits that do not get used are actually killed by
         # Python's GC, because they are literally not going to be involved in
         # the final circuit.
         circuits = {}
-        for s in other_cells: 
-            for ns in self.circuits:
-                circuit_copy = self.circuits[ns].copy()
+        for cell in other_cells:
+            for ((node, var), circ) in self.circuits.items():
+                circuit_copy = circ.copy()
                 def shift(v):
                     #print("shifting", v, "by", s)
-                    return (vadd(v[0], s),) + v[1:] # TODO replace with graph.move_rel
+                    return (vadd(v[0], cell),) + v[1:] # TODO replace with graph.move_rel
                 #print("transforming")
                 #print(circuit_copy, s)
                 transform(circuit_copy, shift)
                 #print(circuit_copy)
                 #print((s,) + ns, " is where")
-                circuits[(s,) + ns] = circuit_copy
+                circuits[cell, node, var] = circuit_copy
 
         # now the circuits dict has for each relevant position-symbol combo a circuit
         # we just combine them with the other circuit by literally replacing
 
         ret_circuits = {}
-        for ns in other.circuits: # ns = node, symbol
-            # we should construct the circuit for a particular node and symbol
+        for ((node, var), circ) in other.circuits.items():
+            # we should construct the circuit for a particular node and var
             # make a copy of the relevant circuit
-            ret_circuit = other.circuits[ns].copy()
+            ret_circuit = circ.copy()
             # ns = node, symbol
-            transform(ret_circuit, lambda a:circuits[a])
-            ret_circuits[ns] = ret_circuit
+            transform(ret_circuit, lambda cnv: circuits[cnv])
+            ret_circuits[node, var] = ret_circuit
 
-        ret = BlockMap(self.from_alphabet, other.to_alphabet, self.from_nodes, other.to_nodes, self.dimension, ret_circuits, self.from_topology, other.to_topology, self.graph)
+        # TODO: add partial circuits
+        if self.partial or other.partial:
+            raise Exception("Composition not yet supported for partial block maps")
+
+        ret = BlockMap(self.from_alphabet, other.to_alphabet, self.from_nodes, other.to_nodes, self.dimension, ret_circuits, self.from_topology, other.to_topology, self.graph, partial=self.partial or other.partial)
         return ret
 
     def after(self, other, verbose = False):
         return other.then(self, verbose)
 
     def __eq__(self, other):
+        if self.partial or other.partial:
+            raise Exception("Equality check not yet supported for partial block maps")
         if self.from_alphabet != other.from_alphabet:
             return False
         if self.to_alphabet != other.to_alphabet:
@@ -220,32 +266,30 @@ class BlockMap:
             return False
         if self.to_nodes != other.to_nodes:
             return False
+        if self.partial != other.partial:
+            return False
         # TODO: remove this or fix
         for ns in self.circuits:
-            ldac = LDAC2(self.from_alphabet) #lambda a: last_diff_and_count(a, len(self.to_alphabet))
-            if not equivalent_under(self.circuits[ns], other.circuits[ns], ldac):
+            #lambda a: last_diff_and_count(a, len(self.to_alphabet))
+            if not equivalent_under(self.circuits[ns], other.circuits[ns], node_constraints(self.from_alphabet)):
                 return False
         return True
 
     def separating(self, other):
         "Return a witness for inequality, or None if one does not exist"
-        for ns in self.circuits:
-            #print(ns)
-            #ldac = LDAC2(self.from_alphabet) #lambda a: last_diff_and_count(a, len(self.to_alphabet))
-            ldac = LDAC2(lambda nvec: self.from_alphabet[nvec[-1]])
-            diff = equivalent_under(self.circuits[ns], other.circuits[ns], ldac, return_sep=True)
+        if self.partial or other.partial:
+            raise Exception("Separation check not yet supported for partial block maps")
+        for ((node, var), circ) in self.circuits.items():
+            circ2 = other.circuits[node, var]
+            diff = equivalent_under(circ, circ2, node_constraints(self.from_alphabet), return_sep=True)
             if diff != True:
                 pat = dict()
-                domain = set(var[:-2] for var in diff)
-                for vec in domain:
-                    for node in self.from_nodes:
-                        for sym in self.from_alphabet[node][1:]:
-                            if diff.get(vec+(node,sym), False):
-                                pat[vec+(node,)] = sym
-                                break
-                        else:
-                            pat[vec+(node,)] = self.from_alphabet[node][0]
-                return (ns, pat)
+                domain = set(var[:2] for var in diff)
+                for nvec in domain:
+                    local_alph = self.from_alphabet[nvec[1]]
+                    vals = [diff[nvec + (var,)] for var in local_alph.node_vars]
+                    pat[nvec] = local_alph.model_to_sym(vals)
+                return ((node, var), pat)
         return None
 
     # this cannot be up to date because now we can have different alphabet for each node
@@ -287,6 +331,9 @@ class BlockMap:
         # force images same
         # force preimage different at origin
 
+        #print("self.circuits")
+        #for ((node, var), circ) in self.circuits.items():
+        #    print("{} {} : {}".format(node, var, circ))
         #print(self.to_alphabet)
         
         # construct circuits saying that two have same image
@@ -294,31 +341,29 @@ class BlockMap:
         # we allow a partial CA, but injectivity only checked if we actually specify _some_ image everywhere
         some_image = []
         if verbose: t = time.time()
-        bb = self.graph.ball(r)
-        if verbose: print("Ball is of size", len(bb))
-        for p in bb:
-            for n in self.to_nodes:
+        ball = self.graph.ball(r)
+        if verbose: print("Ball is of size", len(ball))
+        for cell in ball:
+            def shift(x, tag):
+                # here x = (cell, node var)
+                return (self.graph.move_rel(cell, x[0]), x[1], tag, x[2])
+            for node in self.to_nodes:
+                local_alph = self.to_alphabet[node]
                 some_letter = []
-                for a in self.to_alphabet[n]:
-                    circA = self.circuits[(n, a)].copy()
-                    circB = self.circuits[(n, a)].copy()
-                    # shift the cell, i.e. not node or letter
-                    # and also add x at the end, we make two copies of each
-                    # def move_rel(self, cell, offset): = move to cell that is at offset relative to the input cell
-                    # x[2] is the VALUE of the cell, so label should be before for ldaccing to work
-                    def shift(x, label):
-                        return self.graph.move_rel(p, x[0]), x[1], label, x[2] #return vadd(v[:-2], p) + v[-2:] + (x,)
+                circsA = []
+                circsB = []
+                for label in local_alph.node_vars:
+                    circA = self.circuits[node, label].copy()
+                    circB = circA.copy()
                     transform(circA, lambda y:shift(y, "A"))
-                    #circuits[p + (n, a, 0)] = circA
-                    #print("circA", circA)
                     transform(circB, lambda y:shift(y, "B"))
-                    #print("circB", circB)
-                    #circuits[p + (n, a, 1)] = circB
-                    eq_circuits.append(IFF(circA, circB))
-                    some_letter.append(circA) # one of these should say yes
-                    #print(IFF(circA, circB))
-                # check that one says yes
-                some_image.append(OR(*some_letter))
+                    circsA.append(circA)
+                    circsB.append(circB)
+                eq_circuits.append(local_alph.node_eq_node(circsA, circsB))
+                if self.partial:
+                    p_circA = self.partial_circuits[node].copy()
+                    transform(p_circA, lambda y:shift(y, "A"))
+                    some_image.append(NOT(p_circA))
 
         # debug
         #print("eq circuits")
@@ -329,12 +374,14 @@ class BlockMap:
         #print("some image")
         #for s in some_image:
         #    print(s)
-                    
+        
         origin = self.graph.origin()
         differents = []
-        for n in self.from_nodes:
-            for a in self.from_alphabet[n][1:]:
-                differents.append(XOR(V((origin, n, "A", a)), V((origin, n, "B", a))))
+        for node in self.from_nodes:
+            local_alph = self.from_alphabet[node]
+            varsA = [V((origin, node, "A", l)) for l in local_alph.node_vars]
+            varsB = [V((origin, node, "B", l)) for l in local_alph.node_vars]
+            differents.append(NOT(local_alph.node_eq_node(varsA, varsB)))
 
         # debug
         #print("differents")
@@ -342,25 +389,20 @@ class BlockMap:
         #    print(s)
                 
         # all images must be the same, and some central node has diff preimage, and all images have to be specified
-        def lda(a): return self.from_alphabet[a[1]]
+        #def lda(a): return self.from_alphabet[a[1]]
         if verbose:print("Circuit constructed in time {}".format(time.time() - t))
-        ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda))
+        ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), node_constraints(self.from_alphabet))
+        #ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents)), node_constraints(self.from_alphabet))
         if verbose:print("Solved in time {}".format(time.time() - t))
-
 
         # just for a quick debug, you can print the solution; should really return a pattern object for Griddy exploration I guess
         """
         if ret == False:
-            model = SAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), LDAC2(lda), True)
+            #model = SAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), node_constraints(self.from_alphabet), True)
+            model = SAT_under(AND(AND(*eq_circuits), OR(*differents)), node_constraints(self.from_alphabet), True)
             for m in model:
                 print(m, model[m])
-            """
-
-            
-                
-            
-
-        
+        """
         return ret
 
     # count "obstructions to injectivity":
@@ -381,25 +423,32 @@ class BlockMap:
                 return self.graph.move_rel(cell, x[0]), x[1], label, x[2]
                     
             for node in self.to_nodes:
-                for sym in self.to_alphabet[node]:
-                    circA = self.circuits[node, sym].copy()
-                    circB = self.circuits[node, sym].copy()
-                    transform(circA, lambda y: shift(y, "A"))
-                    transform(circB, lambda y: shift(y, "B"))
-                    im_circs[cell, node, sym] = (circA, circB)
-                    eq_circuits.append(IFF(circA, circB))
+                local_alph = self.to_alphabet[node]
+                circsA = []
+                circsB = []
+                for label in local_alph.node_vars:
+                    circA = self.circuits[node, label].copy()
+                    circB = circA.copy()
+                    transform(circA, lambda y:shift(y, "A"))
+                    transform(circB, lambda y:shift(y, "B"))
+                    circsA.append(circA)
+                    circsB.append(circB)
+                eq_circuits.append(local_alph.node_eq_node(circsA, circsB))
 
         origin = self.graph.origin()
         differents = []
         circ_A = T
-        for node in self.to_nodes:
-            for sym in self.from_alphabet[node][1:]:
-                circ_A = AND(circ_A, NOT(V((origin, node, "A", sym))))
-                differents.append(AND(circ_A, V((origin, node, "B", sym))))
+        for node in self.from_nodes:
+            local_alph = self.from_alphabet[node]
+            nvars_A = [V((origin, node, "A", l)) for l in local_alph.node_vars]
+            nvars_B = [V((origin, node, "B", l)) for l in local_alph.node_vars]
+            for sym in self.from_alphabet[node]:
+                circ_A = AND(circ_A, NOT(local_alph.node_eq_sym(nvars_A, sym)))
+                differents.append(AND(circ_A, local_alph.node_eq_sym(nvars_B, sym)))
 
-        lda =  LDAC2(lambda a: self.from_alphabet[a[1]])
+        #lda =  LDAC2(lambda a: self.from_alphabet[a[1]])
         circ = AND(OR(*differents), *eq_circuits)
-        circ = AND(circ, lda([circ]))
+        circ = AND(circ, node_constraints(self.from_alphabet)(circ))
         if verbose: print("Circuit constructed in time {}".format(time.time() - t))
 
         proj_vars = []
@@ -407,13 +456,13 @@ class BlockMap:
             cell = origin
             for move in moves:
                 cell = self.graph.move(cell, (move,1))
-            for sym in self.from_alphabet[node][1:]:
-                for label in ["A","B"]:
-                    proj_vars.append((cell, node, label, sym))
+            for label in self.from_alphabet[node].node_vars:
+                for tag in ["A","B"]:
+                    proj_vars.append((cell, node, tag, label))
 
         #print(circ)
         #print(proj_vars)
-        circ_vars = list(circ.get_variables())
+        #circ_vars = list(circ.get_variables())
         #for var in proj_vars:
         #    if var not in circ_vars:
         #        print(var)
@@ -428,6 +477,32 @@ class BlockMap:
             
         if verbose: print("Enumerated in time {}".format(time.time() - t))
 
+    def image_intersects(self, clopen, verbose=False):
+        clopen_cells = set([var[0] for var in clopen.circuit.get_variables()])
+        img_exists = []
+        bm_circuits = dict()
+        for cell in clopen_cells:
+            def shift(var):
+                new_cell = self.graph.move_rel(cell, var[0])
+                return new_cell, var[1], var[2]
+            for node in self.to_nodes:
+                local_alph = self.to_alphabet[node]
+                node_circs = []
+                for label in local_alph.node_vars:
+                    bm_circ = self.circuits[node, label].copy()
+                    transform(bm_circ, shift)
+                    node_circs.append(bm_circ)
+                    bm_circuits[cell, node, label] = bm_circ
+                if self.partial:
+                    p_circ = self.partial_circuits[node].copy()
+                    transform(p_circ, shift)
+                    img_exists.append(NOT(p_circ))
+        clopen_circ = clopen.circuit.copy()
+        transform(clopen_circ, lambda var: bm_circuits[var])
+        return SAT_under(AND(clopen_circ, *img_exists), node_constraints(self.from_alphabet))
+        #return SAT_under(AND(clopen_circ, *image_constr), node_constraints(self.from_alphabet))
+            
+    """
     # construct a circuit that states preimage and image, and that image is in clopen
     def image_intersects(self, clopen, verbose):
         positions = set([v[0] for v in clopen.circuit.get_variables()])
@@ -437,10 +512,10 @@ class BlockMap:
             for n in self.to_nodes:
                 # at each node, check that image has correct symbol.
                 for a in self.to_alphabet[n]:
-                    """
-                    Check that image has letter, i.e. (p,n,img,a) is true,
-                    iff circA moved to (p,n,pre,a) evaluates to true.
-                    """
+                    
+                    # Check that image has letter, i.e. (p,n,img,a) is true,
+                    # iff circA moved to (p,n,pre,a) evaluates to true.
+                    
                     circ = self.circuits[(n, a)].copy()
                     def shift(x, label):
                         m = self.graph.move_rel(p, x[0])
@@ -479,7 +554,7 @@ class BlockMap:
         test = AND(*circuits)
 
         return SAT(test)
-                
+    """
         
         
         
@@ -564,22 +639,23 @@ class BlockMap:
 
     def fixed_points(self):
         "The SFT of fixed points of this CA"
+        if self.partial:
+            raise Exception("Fixed points not supported for partial CA")
         assert self.is_CA()
         alph = self.from_alphabet
         nodes = self.from_nodes
         dim = self.dimension
         anded = []
-        for ((node, sym), circ) in self.circuits.items():
-            new_circ = circ.copy()
-            if sym != alph[node][0]:
-                anded.append(IMP(V(((0,)*dim, node, sym)), new_circ))
-            else:
-                not_others = AND(*(NOT(V(((0,)*dim, node, sym2))) for sym2 in alph[node][1:]))
-                anded.append(IMP(not_others, new_circ))
+        for node in nodes:
+            in_vars = [V(((0,)*dim, node, l)) for l in alph[node].node_vars]
+            out_vars = [self.circuits[node, l].copy() for l in alph[node].node_vars]
+            anded.append(alph[node].node_eq_node(in_vars, out_vars))
         return SFT(dim, nodes, alph, self.from_topology, self.graph, circuit=AND(*anded))
 
     def spacetime_diagram(self, onesided=True, time_axis=None):
         "The SFT of spacetime diagrams of this CA"
+        if self.partial:
+            raise Exception("Spacetime diagram not supported for partial CA")
         assert self.is_CA()
         alph = self.from_alphabet
         nodes = self.from_nodes
@@ -589,17 +665,12 @@ class BlockMap:
             time_axis = self.dimension
 
         anded = []
-        for ((node, sym), circ) in self.circuits.items():
-            #print("circ info", node, sym, circ)
+        for ((node, label), circ) in self.circuits.items():
+            print("circ info", node, label, circ)
             new_circ = circ.copy()
             transform(new_circ, lambda var: (var[0][:time_axis] + (0,) + var[0][time_axis:], var[1], var[2]))
             val_vec = ((0,)*time_axis + (1,) + (0,)*(dim-time_axis), node)
-            local_alph = alph[node]
-            if sym == local_alph[0]:
-                is_val = AND(*(NOT(V(val_vec + (sym2,))) for sym2 in local_alph[1:]))
-            else:
-                is_val = V(val_vec + (sym,))
-            anded.append(IFF(new_circ, is_val))
+            anded.append(IFF(new_circ, V(val_vec + (label,))))
 
         #print(self.from_topology)
 
@@ -619,19 +690,13 @@ class BlockMap:
         if not only_cells:
             raise Exception("Neighborhood in terms of nodes not implemented.")
         circs = self.circuits
-        neighborhood = set()
-        for n in self.to_nodes:
-            for s in self.to_alphabet[n]:
-                for q in circs[n, s].get_variables():
-                    vec = q[0]
-                    neighborhood.add(vec) # drop node and symbol
-                    
+        neighborhood = set(var[0] for circ in self.circuits.values() for var in circ.get_variables())
         # to prevent bugs and maybe remove special cases
         # always give a nonempty nbhd (it's not guaranteed minimal anyway)
         if len(neighborhood) == 0:
             neighborhood.add((0,)*self.dimension)
             
-        return neighborhood       
+        return neighborhood
 
     """
     def explicit_local_rule(self, contiguous = False):
@@ -686,14 +751,14 @@ def find_relations(CAs, rad):
     nodes = firstCA.to_nodes
     dimension = firstCA.dimension
     indices = []
-    for n in nodes:
-        for a in alphabet[n]:
-            indices.append((n, a))
-    mod = mocircuits.MOCircuitDict(indices)
+    for node in nodes:
+        for label in alphabet[node].node_vars:
+            indices.append((node, label))
+    mod = MOCircuitDict(indices)
     identityrule = {}
-    for n in nodes:
-        for a in alphabet[n][1:]:
-            identityrule[(n, a)] = V(((0,)*dimension, n, a))
+    for node in nodes:
+        for label in alphabet[node].node_vars:
+            identityrule[node, label] = V(((0,)*dimension, node, label))
     # topology None because it really does not matter
     idca = BlockMap(alphabet, alphabet, nodes, nodes, dimension, identityrule, None, None, CAs[0].graph)
     #assert idca.then(idca) == idca
