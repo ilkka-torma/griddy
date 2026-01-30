@@ -851,10 +851,18 @@ class Griddy:
                 else:
                     raise Exception("No SFT or sofic shift named {}".format(name))
 
-            elif cmd == "instance":
+            elif cmd == "tiling_instance":
                 name = args[0]
                 size = args[1]
-                print(name, size)
+                if name in self.SFTs:
+                    the_sft = self.SFTs[name]
+                    inst = the_sft.tiling_instance(size)
+                    if mode == "report":
+                        print("Computed tiling instance for SFT %s and area %s." % (size, name))
+                        print("Size of instance: %s clauses, total length %s." % (len(inst), sum(len(i) for i in inst))
+                    results.append(inst)
+                else:
+                    raise Exception("Command tiling_instance expects SFT.")
 
             elif cmd == "equal":
                 name1 = args[0]

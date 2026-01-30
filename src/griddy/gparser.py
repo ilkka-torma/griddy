@@ -62,7 +62,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts (list_of{list_of{vector}} cmd_opts)+ -> cmd_density_bound_multi_open
        | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open_open
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
-       | "instance" cmd_opts vector
+       | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts (STRICT_LABEL cmd_opts)* -> cmd_ca_ball_open
        | "save_environment" STRICT_LABEL -> cmd_save_env
@@ -756,8 +756,8 @@ class GriddyTransformer(Transformer_NonRecursive):
     def cmd_empty(self, args):
         return self.cmd_default("empty", args)
 
-    def cmd_instance(self, args):
-        return self.cmd_default("instance", args)
+    def cmd_tiling_instance(self, args):
+        return self.cmd_default("tiling_instance", args)
 
     def cmd_ca_ball_default(self, args):
         return self.cmd_default("compute_CA_ball", args)

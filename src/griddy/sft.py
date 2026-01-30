@@ -1369,6 +1369,22 @@ class SFT:
             print("Solved instance in {} seconds".format(time.time() - tim))
         return not (m == False)
 
+    def tiling_instance(self, bounds, periodic_axes):
+        all_positions = set()
+        circuits = []
+        vec_domain = list(hyperrect([(0, i-1) for i in bounds]))
+        print(vec_domain)
+        for vec in vec_domain:
+            circ = self.circuit.copy()
+            transform(circ, lambda var: nvadd(var[:-1], vec) + var[-1:])
+            for var in circ.get_variables():
+                all_positions.add(var[:-1]) # drop letter
+            circuits.append(circ)
+        add_uniqueness_constraints(self.alph, circuits, all_positions)
+        inst = AND(*circuits)
+        return circuit_to_sat_instance(inst)
+        
+
 # intersection allows clopen sets and other intersection objects
 def intersection(*sfts):
     #print("making inter", [(sft.circuit, type(sft)) for sft in sfts])

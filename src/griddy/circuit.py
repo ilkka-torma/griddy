@@ -619,8 +619,6 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     
     for v in variables:
         var_to_name[v] = next_name
-        # if v in variables1:
-        #    clauses.append([next_name])
         next_name += 1
     if circ.op == "V":
         var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
@@ -908,6 +906,9 @@ def SAT(C, return_model = False):
         if m == True:
             return False
         return m
+
+
+    
         
         
 def TAUTO(C):
