@@ -626,20 +626,28 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
     Circuit.smart_simplify = False
     if next_name is None:
         next_name = 1
+    else:
+        # next_name could be returned from a call to this,
+        # and thus be the negation of something, in which case
+        # I wouldn't trust it was incremented correctly
+        assert next_name > 0
 
     variables = circ.get_variables()
     
     for v in variables:
-        var_to_name[v] = next_name
+        if v not in var_to_name:
+            var_to_name[v] = next_name
         next_name += 1
     if circ.op == "V":
-        var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
+        if id(circ) not in var_to_name:
+            var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
 
     clauses = []
     # NB. it's a children-before-parents ordering
     for q in circ.internal_nodes():
         assert q.op != "V"
-        # we usually use a new name, but ! will cancel
+        if id(q) in var_to_name: continue
+        # we usually use a new name, although ! will cancel
         var_to_name[id(q)] = next_name
         inps = []
         for i in q.inputs:
@@ -672,7 +680,12 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
         next_name += 1
     
     Circuit.smart_simplify = sm
-    return clauses, next_name-1
+    # return the clauses, and the name of the last clause, which corresponds to the actual circuit value
+    # this can be negated (minus), 
+    top_name = next_name - 1
+    # double nots are impossible, so not at top level means that top is negation of variable in input
+    if circ.op == "!": top_name = -top_name
+    return clauses, top_name
 
 def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     sm = Circuit.smart_simplify
@@ -683,14 +696,19 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     variables = circ.get_variables()
     
     for v in variables:
-        var_to_name[v] = next_name
-        next_name += 1
+        if v not in var_to_name:
+            var_to_name[v] = next_name
+            next_name += 1
     if circ.op == "V":
-        var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
+        if id(circ) not in var_to_name:
+            var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
 
     clauses = []
     for q in circ.internal_nodes(): 
         assert q.op != "V"
+        # it seems we are calling this many times, and encountering the same subcircuit;
+        # then we have a variable for this already
+        if id(q) in var_to_name: continue
         var_to_name[id(q)] = next_name
         inps = []
         for i in q.inputs:
@@ -824,39 +842,25 @@ some C2 value has 0...
 def models(C1, C2, return_sep = False):
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
-    #print(C1, C2)
-    #print(C1)
     if type(C1) != Circuit:
         C1 = AND(*C1)
     if type(C2) != Circuit:
         C2 = AND(*C2)
-    #print(C2.op, C2.inputs)
-
-    #print(C1, C2)
-    
-    #a = bbb
-    #print(C2.internal_nodes(), "killo")
-    
+        
+    Circuit.smart_simplify = sm
     variables = set(C1.get_variables())
     variables.update(set(C2.get_variables()))
-    #print(variables)
+    """
     next_name = 1
     var_to_name = {}
     clauses = []
     for v in variables:
         var_to_name[v] = next_name
-        # if v in variables1:
-        #    clauses.append([next_name])
         next_name += 1
     if C1.op == "V":
         var_to_name[id(C1)] = var_to_name[C1.inputs[0]]
     if C2.op == "V":
         var_to_name[id(C2)] = var_to_name[C2.inputs[0]]
-    #print (var_to_name)
-    #for v in var_to_name:
-    #    print(type(v))
-    # these come topologically sorted
-    #print(nodes, list(map(str, nodes)), list(map(id, nodes)), "node")
     seen = set()
     for q in it.chain(C1.internal_nodes(), C2.internal_nodes()):
         if q in seen:
@@ -870,7 +874,6 @@ def models(C1, C2, return_sep = False):
                 inps.append(var_to_name[i.inputs[0]])
             else:
                 inps.append(var_to_name[id(i)])
-        #print(q.op, len(inps))
         if q.op == "!":
             nam = inps[0]
             clauses.append([nam, next_name])
@@ -890,23 +893,23 @@ def models(C1, C2, return_sep = False):
         else:
             raise Exception("nope")
         next_name += 1
-    #somefalse = []
-    
-    #print(clauses)
-    #print(var_to_name)
-    """
-    for v in variables:
-        if v not in variables1:
-            somefalse.append(-var_to_name[v])
-    """
     clauses.append([var_to_name[id(C1)]])
     clauses.append([-var_to_name[id(C2)]])
-    #print(clauses)
     Circuit.smart_simplify = sm
+    """
+
+    var_to_name = {}
+    clauses, next_name = circuit_to_sat_instance(C1, var_to_name)
+    clauses.append([var_to_name[id(C1)]])
+    clauses2, _ = circuit_to_sat_instance(C2, var_to_name, abs(next_name) + 1)
+    clauses.extend(clauses2)
+    clauses.append([-var_to_name[id(C2)]])
+    
     with Glucose4(bootstrap_with=clauses) as s:
         if s.solve():
             if return_sep:
                 m = s.get_model()
+                print(m)
                 varvals = {}
                 for v in variables:
                     if m[var_to_name[v] - 1] > 0:

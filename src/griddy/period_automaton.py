@@ -36,7 +36,6 @@ def hyperrectangle(heights):
                 yield (coord,) + vec
 
 def pats(domain, alph, forbs, i=0):
-    #print("AM DOING PATS", domain, alph, forbs, i)
     if i >= len(domain):
         yield dict()
     else:
@@ -230,8 +229,10 @@ class PeriodAutomaton:
         n = 0
         task_q = mp.Queue()
         res_q = mp.Queue()
+        # strip alphabet from extra stuff, since inner functions crash on Windows
+        alph = {node:list(self.sft.alph[node]) for node in self.sft.alph}
         processes = [mp.Process(target=populate_worker,
-                                args=(self.pmat, self.sft.alph, self.border_forbs, self.node_frontier, self.sym_bound, self.rotate,
+                                args=(self.pmat, alph, self.border_forbs, self.node_frontier, self.sym_bound, self.rotate,
                                       task_q, res_q, self.weight_numerators, chunk_size))
                      for _ in range(num_threads)]
         if debug_verbose: print("processes built")
