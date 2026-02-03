@@ -163,7 +163,7 @@ class Circuit:
             if isinstance(q, Circuit):
                 q.collect_inputs(sofar)
             else:
-                print(q)
+                #print(q)
                 sofar.add(q)
         return sofar
     def copy(self, copies = None):
@@ -619,9 +619,11 @@ def last_diff_and_count2(circs, count):
     return AND(*andeds)
 
 
-# copied from models
-# TODO: rewrite
-def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
+# toplevel=True means we will feed the instance into a solver
+# and won't use the name of the input circuit for anything.
+# We can append new clauses to the instance.
+def circuit_to_sat_instance_good(circ, var_to_name, next_name=None, toplevel=False, ret_next_name=False):
+    #print("c2si", circ, next_name)
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
     if next_name is None:
@@ -636,15 +638,63 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
     
     for v in variables:
         if v not in var_to_name:
+            #print("var", v, "got name", next_name)
             var_to_name[v] = next_name
-        next_name += 1
+            next_name += 1
     if circ.op == "V":
+        name = var_to_name[circ.inputs[0]]
         if id(circ) not in var_to_name:
-            var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
+            var_to_name[id(circ)] = name
+        if ret_next_name:
+            return [], name, next_name
+        else:
+            return [], name
 
     clauses = []
+    if toplevel and circ.op == "&":
+        #print("toplevel AND", circ)
+        #print("next_name now", next_name)
+        # We have a toplevel AND => splat it
+        for inp in circ.inputs:
+            if inp.op == "|":
+                # We have an OR inside the toplevel AND => splat it
+                #print("toplevel OR", inp)
+                or_clause = []
+                for inp2 in inp.inputs:
+                    old_next_name = next_name
+                    inp2_clauses, top_name, next_name = circuit_to_sat_instance_good(inp2, var_to_name, next_name=next_name, ret_next_name=True)
+                    clauses.extend(inp2_clauses)
+                    #print("extended by", inp2_clauses)
+                    or_clause.append(top_name)
+                clauses.append(or_clause)
+                #print("appended or_clause", or_clause)
+            else:
+                # We have something else inside the toplevel AND => add the singleton
+                #print("toplevel other", inp)
+                old_next_name = next_name
+                inp_clauses, top_name, next_name = circuit_to_sat_instance_good(inp, var_to_name, next_name=next_name, ret_next_name=True)
+                clauses.extend(inp_clauses)
+                clauses.append([top_name])
+                #print("extended by", inp_clauses, [top_name])
+        Circuit.smart_simplify = sm
+        #print("result", clauses)
+        #print("var_to_name", var_to_name)
+        #node_names = dict()
+        #for v in circ.get_variables():
+        #    node_names[v] = var_to_name[v]
+        #for q in circ.internal_nodes():
+        #    if id(q) in var_to_name:
+        #        node_names[q] = var_to_name[id(q)]
+        #print("internal node names")
+        #for (a,b) in sorted(set(node_names.items()), key=lambda p:p[1]):
+        #    print("{} : {}".format(a,b))
+        if ret_next_name:
+            return clauses, None, next_name
+        else:
+            return clauses, None
     # NB. it's a children-before-parents ordering
     for q in circ.internal_nodes():
+        #print("internal node", q)
         assert q.op != "V"
         if id(q) in var_to_name: continue
         # we usually use a new name, although ! will cancel
@@ -655,7 +705,7 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
                 inps.append(var_to_name[i.inputs[0]])
             else:
                 inps.append(var_to_name[id(i)])
-        #print(q.op, len(inps))
+        #print("not yet handled", q.op, len(inps))
         if q.op == "!":
             #nam = inps[0]
             #clauses.append([nam, next_name])
@@ -681,11 +731,21 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
     
     Circuit.smart_simplify = sm
     # return the clauses, and the name of the last clause, which corresponds to the actual circuit value
-    # this can be negated (minus), 
-    top_name = next_name - 1
+    # this can be negated (minus),
+    if circ.op == "!":
+        inp = circ.inputs[0]
+        if inp.op == "V":
+            top_name = -var_to_name[inp.inputs[0]]
+        else:
+            top_name = -var_to_name[id(inp)]
+    else:
+        top_name = next_name - 1
     # double nots are impossible, so not at top level means that top is negation of variable in input
-    if circ.op == "!": top_name = -top_name
-    return clauses, top_name
+
+    if ret_next_name:
+        return clauses, top_name, next_name
+    else:
+        return clauses, top_name
 
 def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     sm = Circuit.smart_simplify
@@ -744,8 +804,9 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
 def solver_process(circ, ret_assignment=False):
     "A generator for repeatedly checking satisfiability with different initial assignments"
     var_to_name = dict()
-    clauses, next_name = circuit_to_sat_instance(circ, var_to_name)
-    clauses.append([next_name])
+    clauses, top_name = circuit_to_sat_instance_good(circ, var_to_name, toplevel=True)
+    if top_name is not None:
+        clauses.append([top_name])
     # Get a first batch of values (dict of varname : bool)
     values = yield None
     with Glucose4(bootstrap_with=clauses) as solver:
@@ -774,8 +835,9 @@ def projections(circ, the_vars):
     "All possible satisfiable values of the given variables"
     #print(circ)
     var_to_name = dict()
-    clauses, next_name = circuit_to_sat_instance(circ, var_to_name)
-    clauses.append([next_name])
+    clauses, top_name = circuit_to_sat_instance_good(circ, var_to_name, toplevel=True)
+    if top_name is not None:
+        clauses.append([next_name])
     circ_vars = circ.get_variables()
     used = [var for var in the_vars if var in circ_vars]
     unused = [var for var in the_vars if var not in circ_vars]
@@ -840,6 +902,7 @@ to top levels of C1 circuits have value 1, but
 some C2 value has 0...
 """
 def models(C1, C2, return_sep = False):
+    #print("models", C1, C2)
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
     if type(C1) != Circuit:
@@ -899,17 +962,23 @@ def models(C1, C2, return_sep = False):
     """
 
     var_to_name = {}
-    clauses, next_name = circuit_to_sat_instance(C1, var_to_name)
-    clauses.append([var_to_name[id(C1)]])
-    clauses2, _ = circuit_to_sat_instance(C2, var_to_name, abs(next_name) + 1)
+    clauses, top_name, next_name = circuit_to_sat_instance_good(C1, var_to_name, toplevel=True, ret_next_name=True)
+    if top_name is not None:
+        clauses.append([top_name])
+        #clauses.append([var_to_name[id(C1)]])
+        #print("clauses 1", clauses, [top_name])
+    clauses2, top_name = circuit_to_sat_instance_good(C2, var_to_name, next_name)
     clauses.extend(clauses2)
-    clauses.append([-var_to_name[id(C2)]])
+    clauses.append([-top_name])
+    #print("clauses 2", clauses2, [-top_name])
+
+    #print("models clauses", clauses)
     
     with Glucose4(bootstrap_with=clauses) as s:
         if s.solve():
             if return_sep:
                 m = s.get_model()
-                print(m)
+                #print(m)
                 varvals = {}
                 for v in variables:
                     if m[var_to_name[v] - 1] > 0:
@@ -991,6 +1060,7 @@ def TAUTO(C):
     return models(T, C)
 
 def equivalent_under(C1, C2, under, return_sep = False):
+    #print("eq_under", C1, C2)
     m = models_under(C1, C2, under, return_sep)
     #print(C1, C2, m)
     if m != True:
