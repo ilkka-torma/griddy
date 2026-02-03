@@ -909,7 +909,7 @@ def models(C1, C2, return_sep = False):
         if s.solve():
             if return_sep:
                 m = s.get_model()
-                print(m)
+                #print(m)
                 varvals = {}
                 for v in variables:
                     if m[var_to_name[v] - 1] > 0:

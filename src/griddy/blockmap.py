@@ -666,7 +666,7 @@ class BlockMap:
 
         anded = []
         for ((node, label), circ) in self.circuits.items():
-            print("circ info", node, label, circ)
+            #print("circ info", node, label, circ)
             new_circ = circ.copy()
             transform(new_circ, lambda var: (var[0][:time_axis] + (0,) + var[0][time_axis:], var[1], var[2]))
             val_vec = ((0,)*time_axis + (1,) + (0,)*(dim-time_axis), node)
@@ -744,7 +744,7 @@ class BlockMap:
 
 # given a list of cellular automata, compute relations
 # among them up to radius rad as semigroup
-def find_relations(CAs, rad):
+def find_relations(CAs, rad, verbose=False):
     i = 0
     firstCA = CAs[0]
     alphabet = firstCA.to_alphabet
@@ -786,7 +786,8 @@ def find_relations(CAs, rad):
 
     relations = []
     for r in range(rad):
-        print("Frontier size %s at depth %s; total number of CA %s." % (len(frontier), r, len(mod)))
+        if verbose:
+            print("Frontier size %s at depth %s; total number of CA %s." % (len(frontier), r, len(mod)))
         #for ca, w in frontier:
         #    print(w)
         newfrontier = []

@@ -1,4 +1,4 @@
-#import debug_print_hook
+import debug_print_hook
 
 try:
     import lark
@@ -45,7 +45,7 @@ import graphs
 
 from basic_things import *
 
-default_alph = Alphabet.unary_minus_one
+default_alph = Alphabet.unary
 #default_alph = Alphabet.unary
 
 class Griddy:
@@ -168,6 +168,8 @@ class Griddy:
                     mk_alph = Alphabet.unary
                 elif encoding == "binary":
                     mk_alph = Alphabet.binary
+                elif encoding == "tally":
+                    mk_alph = Alphabet.tally
                 elif encoding == "test":
                     mk_alph = Alphabet.test_alph
                 else:
@@ -717,7 +719,8 @@ class Griddy:
                 print_freq = kwds.get("print_freq", 5000)
                 verb = "verbose" in flags
                 show_rules = "show_rules" in flags
-                print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
+                if mode != "silent":
+                    print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
                 # TODO: display nhoods properly
                 #patterns = list(the_sft.all_patterns(nhood))
                 data = density_linear_program.optimal_density(the_sft, specs, rad, weights=self.weights, verbose=verb, print_freq=print_freq, ret_shares=show_rules, load_constr=load_constr, save_constr=save_constr)
@@ -903,7 +906,7 @@ class Griddy:
                 elif name1 in self.automata and name2 in self.automata:
                     aut1 = self.automata[name1]
                     aut2 = self.automata[name2]
-                    report_aut_equal((name1, aut1), (name2, aut2), truth=expect, verbose=verb)
+                    report_aut_equal((name1, aut1), (name2, aut2), mode=mode, truth=expect, verbose=verb)
                 
                 else:
                     raise Exception("%s and %s are not comparable." % (name1, name2))
@@ -937,7 +940,7 @@ class Griddy:
                     aut1 = self.automata[item1]
                     if item2 in self.automata:
                         aut2 = self.automata[item2]
-                        report_aut_contains((item1, aut1), (item2, aut2), truth=expect, verbose=verb)
+                        report_aut_contains((item1, aut1), (item2, aut2), mode=mode, truth=expect, verbose=verb)
                     else:
                         raise Exception("No automaton named {}".format(item2))
                 else:
@@ -1158,7 +1161,7 @@ class Griddy:
                 assert all(gen.is_CA() for gen in generators)
                 if filename is not None:
                     with open(filename, "w") as outfile:
-                        for output in blockmap.find_relations(generators, radius):
+                        for output in blockmap.find_relations(generators, radius, verbose=mode!="silent"):
                             def zz(l):
                                 return " ".join(map(lambda a:gen_names[a], l))
                             if output[0] == "rel":
@@ -1522,7 +1525,8 @@ def forbos_to_formula(fof):
     
 def report_SFT_empty(a, mode="report", truth=True, verbose=False):
     name, the_sft = a
-    print("Testing whether %s is empty." % name)
+    if mode != "silent":
+        print("Testing whether %s is empty." % name)
     if isinstance(the_sft, sft.SFT) or isinstance(the_sft, sft.Clopen) or isinstance(the_sft, sft.CSIntersection):
         empty = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, onesided=the_sft.onesided, circuit=circuit.F)
     else:
@@ -1530,85 +1534,99 @@ def report_SFT_empty(a, mode="report", truth=True, verbose=False):
     tim = time.time()
     res, rad, conf = empty.contains(the_sft, return_radius_and_sep = True, method="periodic", verbose=verbose)
     tim = time.time() - tim
-    if res:
-        print("%s is EMPTY (radius %s, time %s)" % (name, rad, tim))
-    else:
-        print("%s is NONEMPTY (radius %s, time %s)" % (name, rad, tim))
-        if mode == "report":
-            print("Has element: " + conf.display_str())
+    if mode != "silent":
+        if res:
+            print("%s is EMPTY (radius %s, time %s)" % (name, rad, tim))
+        else:
+            print("%s is NONEMPTY (radius %s, time %s)" % (name, rad, tim))
+            if mode == "report":
+                print("Has element: " + conf.display_str())
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
-    print()
+    if mode != "silent":
+        print()
     return conf
 
 def report_SFT_contains(a, b, mode="report", truth=True, method=None, verbose=False):
     aname, aSFT = a
     bname, bSFT = b
-    print("Testing whether %s contains %s." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether %s contains %s." % (aname, bname))
     tim = time.time()
     res, rad, conf = aSFT.contains(bSFT, return_radius_and_sep = True, method=method, verbose=verbose)
     tim = time.time() - tim
-    if res:
-        print("%s CONTAINS %s (radius %s, time %s)" % (aname, bname, rad, tim))
-    else:
-        print("%s DOES NOT CONTAIN %s (radius %s, time %s)" % (aname, bname, rad, tim))
-        if mode == "report":
-            print("Separated by: " + conf.display_str())
+    if mode != "silent":
+        if res:
+            print("%s CONTAINS %s (radius %s, time %s)" % (aname, bname, rad, tim))
+        else:
+            print("%s DOES NOT CONTAIN %s (radius %s, time %s)" % (aname, bname, rad, tim))
+            if mode == "report":
+                print("Separated by: " + conf.display_str())
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
-    print()
+    if mode != "silent":
+        print()
     return conf
 
 def report_SFT_equal(a, b, mode="report", truth=True, method=None, verbose=False):
     aname, aSFT = a
     bname, bSFT = b
-    print("Testing whether SFTs %s and %s are equal." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether SFTs %s and %s are equal." % (aname, bname))
     tim = time.time()
     #print("inmediate", aSFT.circuit.copy().get_variables())
     res, rad = aSFT.equals(bSFT, return_radius = True, method=method, verbose=verbose)
     tim = time.time() - tim
-    if res: 
-        print("They are EQUAL (radius %s, time %s)." % (rad, tim))
-    else:
-        print("They are DIFFERENT (radius %s, time %s)." % (rad, tim))
-    if mode == "assert":
-        print(res, "=", (truth == "T"))
-        assert res == (truth == "T")
-    print()
+    if mode != "silent":
+        if res: 
+            print("They are EQUAL (radius %s, time %s)." % (rad, tim))
+        else:
+            print("They are DIFFERENT (radius %s, time %s)." % (rad, tim))
+        if mode == "assert":
+            print(res, "=", (truth == "T"))
+            assert res == (truth == "T")
+    if mode != "silent":
+        print()
 
 def report_SFT_in(a, b, mode="report", truth=True):
     aname, aSFT = a
     bname, bconf = b
-    print("Testing whether SFT %s contains configuration %s." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether SFT %s contains configuration %s." % (aname, bname))
     tim = time.time()
     res = bconf in aSFT
     tim = time.time() - tim
-    if res: 
-        print("It DOES (time %s)." % tim)
-    else:
-        print("It DOES NOT (time %s)." % tim)
+    if mode != "silent":
+        if res: 
+            print("It DOES (time %s)." % tim)
+        else:
+            print("It DOES NOT (time %s)." % tim)
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
-    print()
+    if mode != "silent":
+        print()
 
 def report_blockmap_equal(a, b, mode="report", truth=True, verbose=False): # verbose does nothing here
+
     aname, amap = a
     bname, bmap = b
-    print("Testing whether block maps %s and %s are equal." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether block maps %s and %s are equal." % (aname, bname))
     tim = time.time()
     diff = amap.separating(bmap)
     tim = time.time() - tim
-    if diff is None:
-        print("They are EQUAL (time %s)." % (tim))
-    else:
-        print("They are DIFFERENT (time %s)." % (tim))
-        (node, value), pattern = diff
-        print("Separated by pattern with return value {} on node {}:".format(value, node))
-        print(pattern)
-    print()
+    if mode != "silent":
+        if diff is None:
+            print("They are EQUAL (time %s)." % (tim))
+        else:
+            print("They are DIFFERENT (time %s)." % (tim))
+            (node, value), pattern = diff
+            print("Separated by pattern with return value {} on node {}:".format(value, node))
+            print(pattern)
+        print()
     if mode == "assert":
         print(diff is None, "=", (truth == "T"))
         assert (diff is None) == (truth == "T")
@@ -1616,33 +1634,38 @@ def report_blockmap_equal(a, b, mode="report", truth=True, verbose=False): # ver
 def report_aut_contains(a, b, mode="report", truth=True, method=None, verbose=False):
     aname, aaut = a
     bname, baut = b
-    print("Testing whether %s contains %s." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether %s contains %s." % (aname, bname))
     tim = time.time()
     res, word = aaut.contains(baut, verbose=verbose, track=True)
     tim = time.time() - tim
-    if res:
-        print("%s CONTAINS %s (time %s)" % (aname, bname, tim))
-    else:
-        print("%s DOES NOT CONTAIN %s (time %s)" % (aname, bname, tim))
-        if mode == "report":
-            print("Separated by {}".format(word))
+    if mode != "silent":
+        if res:
+            print("%s CONTAINS %s (time %s)" % (aname, bname, tim))
+        else:
+            print("%s DOES NOT CONTAIN %s (time %s)" % (aname, bname, tim))
+            if mode == "report":
+                print("Separated by {}".format(word))
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
-    print()
+    if mode != "silent":
+        print()
 
 def report_aut_equal(a, b, mode="report", truth=True, verbose=False): # verbose does nothing here
     aname, aaut = a
     bname, baut = b
-    print("Testing whether finite automata %s and %s are equivalent." % (aname, bname))
+    if mode != "silent":
+        print("Testing whether finite automata %s and %s are equivalent." % (aname, bname))
     tim = time.time()
     res = aaut.equals(baut)
     tim = time.time() - tim
-    if res:
-        print("They are EQUAL (time %s)." % (tim))
-    else:
-        print("They are DIFFERENT (time %s)." % (tim))
-    print()
+    if mode != "silent":
+        if res:
+            print("They are EQUAL (time %s)." % (tim))
+        else:
+            print("They are DIFFERENT (time %s)." % (tim))
+        print()
     if mode == "assert":
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")

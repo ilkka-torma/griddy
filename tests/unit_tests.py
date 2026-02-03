@@ -5,7 +5,7 @@ import griddy
 import time
 import circuit
 
-print(griddy)
+#print(griddy)
 
 unit_tests = []
 unit_tests2 = []
@@ -946,7 +946,8 @@ code = """
 """
 unit_tests.append(("Entropy", code))
 
-encodings = ["unary_minus_one", "unary", "binary"]
+# of course, whatever is default is checked everywhere
+encodings = ["unary_minus_one", "unary", "tally", "binary"]
 for enc in encodings:
     code = """
 %alphabet encoding={0} 0 1 2

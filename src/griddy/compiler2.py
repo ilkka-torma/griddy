@@ -636,7 +636,7 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
     if op == "NUM_VAR":
         # check that the variable is numeric
         val = variables[formula[1]]
-        print("val", val)
+        #print("val", val)
         if isinstance(val, moc.MOCircuit) or (type(val) == tuple and val[0] is None and type(val[1]) == int):
             return val
         else:

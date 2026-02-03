@@ -171,6 +171,45 @@ class Alphabet:
         return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one")
 
     @classmethod
+    def tally(self, syms):
+        "An alphabet encoded in unary: one variable per symbol s, and first s many are true."
+
+        def m_to_s(bools):
+            ix = 0
+            while ix < len(bools) and bools[ix]:
+                ix += 1
+            return syms[ix]
+
+        # 1^*0^* = locally testable, check 01 does not appear
+        def contiguous(circs):
+            seen = circs[0]
+            checks = []
+            for i in range(len(circs)-1):
+                checks.append(OR(circs[i], NOT(circs[i+1])))
+            return AND(*checks)
+
+        def n_eq_s(circs, sym):
+            ix = syms.index(sym)
+            if ix:
+                if ix == len(syms)-1: # for last symbol, we just check last pos
+                    return circs[ix-1]
+                # otherwise look for 10 pattern
+                return AND(circs[ix-1], NOT(circs[ix]))
+            else:
+                return NOT(circs[0])
+
+        def n_eq_n(circs1, circs2):
+            return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
+        def s_to_num(sym):
+            if is_nat(sym):
+                return int(sym)
+            else:
+                return None
+                          
+        return self(syms, syms[1:], m_to_s, contiguous, n_eq_s, n_eq_n, s_to_num, encoding="tally")
+
+    @classmethod
     def binary(self, syms):
         """
         An alphabet encoded in binary: ceil(log_2(n)) bits used for n variables.
