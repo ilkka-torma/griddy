@@ -899,9 +899,9 @@ def models(C1, C2, return_sep = False):
     """
 
     var_to_name = {}
-    clauses, next_name = circuit_to_sat_instance(C1, var_to_name)
+    clauses, next_name = circuit_to_sat_instance_good(C1, var_to_name)
     clauses.append([var_to_name[id(C1)]])
-    clauses2, _ = circuit_to_sat_instance(C2, var_to_name, abs(next_name) + 1)
+    clauses2, _ = circuit_to_sat_instance_good(C2, var_to_name, abs(next_name) + 1)
     clauses.extend(clauses2)
     clauses.append([-var_to_name[id(C2)]])
     
