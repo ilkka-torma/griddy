@@ -1,4 +1,4 @@
-#import debug_print_hook
+import debug_print_hook
 
 try:
     import lark
@@ -166,6 +166,8 @@ class Griddy:
                     mk_alph = Alphabet.unary_minus_one
                 elif encoding == "unary":
                     mk_alph = Alphabet.unary
+                elif encoding == "binary":
+                    mk_alph = Alphabet.binary
                 elif encoding == "test":
                     mk_alph = Alphabet.test_alph
                 else:

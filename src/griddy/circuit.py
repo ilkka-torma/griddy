@@ -280,17 +280,11 @@ def tostr_(c, appears_multiply, alreadys = None, running = None):
 
 def evaluate(c, values):
     eve = c
-    #if str(eve) == "C!T()":
-    #    global kiliman
-    #    kiliman = True
-    #print(c, values)
     values = dict(values)
     c = Circuit.copy(c)
     for v in c.get_variables():
         if v not in values:
             values[v] = F
-    #if kiliman:
-    #    print(c)
     values[None] = None
     for a in values:
         val = values[a]
@@ -299,15 +293,10 @@ def evaluate(c, values):
         elif val == True:
             val = T
         substitute(c, a, val)
-    #if kiliman:
-    #    print(c)
-
     if c.op == "T":
         return True
     elif c.op == "F":
         return False
-    
-    print(c, eve)
     raise Exception("problem")
 
     
@@ -632,6 +621,59 @@ def last_diff_and_count2(circs, count):
 
 # copied from models
 # TODO: rewrite
+def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
+    sm = Circuit.smart_simplify
+    Circuit.smart_simplify = False
+    if next_name is None:
+        next_name = 1
+
+    variables = circ.get_variables()
+    
+    for v in variables:
+        var_to_name[v] = next_name
+        next_name += 1
+    if circ.op == "V":
+        var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
+
+    clauses = []
+    # NB. it's a children-before-parents ordering
+    for q in circ.internal_nodes():
+        assert q.op != "V"
+        # we usually use a new name, but ! will cancel
+        var_to_name[id(q)] = next_name
+        inps = []
+        for i in q.inputs:
+            if i.op == "V":
+                inps.append(var_to_name[i.inputs[0]])
+            else:
+                inps.append(var_to_name[id(i)])
+        #print(q.op, len(inps))
+        if q.op == "!":
+            #nam = inps[0]
+            #clauses.append([nam, next_name])
+            #clauses.append([-nam, -next_name])
+            # trivial optimization, we just use the negation directly
+            var_to_name[id(q)] = -inps[0]
+            next_name -= 1
+        elif q.op == "&":
+            for inp in inps:
+                clauses.append([inp, -next_name])
+            clauses.append(list([-inp for inp in inps]) + [next_name])
+        elif q.op == "|":
+            for inp in inps:
+                clauses.append([-inp, next_name])
+            clauses.append(inps + [-next_name])
+        elif q.op == "T":
+            clauses.append([var_to_name[id(q)]])
+        elif q.op == "F":
+            clauses.append([-var_to_name[id(q)]])
+        else:
+            raise Exception("nope")
+        next_name += 1
+    
+    Circuit.smart_simplify = sm
+    return clauses, next_name-1
+
 def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
@@ -647,7 +689,7 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
         var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
 
     clauses = []
-    for q in circ.internal_nodes():
+    for q in circ.internal_nodes(): 
         assert q.op != "V"
         var_to_name[id(q)] = next_name
         inps = []
@@ -669,7 +711,8 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
             for inp in inps:
                 clauses.append([-inp, next_name])
             clauses.append(inps + [-next_name])
-        elif q.op == "T":
+        # these should be optimized away anyway except at root, so no worries that they are inefficient
+        elif q.op == "T": 
             clauses.append([var_to_name[id(q)]])
         elif q.op == "F":
             clauses.append([-var_to_name[id(q)]])

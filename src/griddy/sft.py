@@ -1385,7 +1385,7 @@ class SFT:
         inst = AND(*circuits)
         
         var_to_name = dict()
-        clauses, main = circuit_to_sat_instance(inst, var_to_name)
+        clauses, main = circuit_to_sat_instance_good(inst, var_to_name)
         clauses.append([main])
         return inst, clauses, main, var_to_name
         

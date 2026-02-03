@@ -177,7 +177,7 @@ class Alphabet:
         First variable is coded 000, then 001, etc..
         """
 
-        vrs = list(range(math.ceil(math.log2(syms))))
+        vrs = list(range(math.ceil(math.log2(len(syms)))))
 
         def m_to_s(bools):
             "Return symbol coded by bits in bools list."
@@ -189,18 +189,32 @@ class Alphabet:
                 raise Exception("Internal error, non-letter seen.")
             return syms[v]
 
-        #!!!
         def codes_something(circs):
-            "return a circuit for "
-            seen = circs[0]
-            two = F
-            for circ in circs[1:]:
-                two = OR(two, AND(seen, circ))
-                seen = OR(seen, circ)
-            return AND(seen, NOT(two))
+            "circuit value can't be more more than len(sym)-1"
+            symc = list(int(a) for a in bin(len(syms) - 1)[2:])
+            assert len(symc) == len(vrs)
+            # we've seen a larger digit in alphabet already
+            ok_already = F
+            checks = []
+            for ib, b in enumerate(symc):
+                # if the current bit is 0
+                if not b:
+                    checks.append(OR(ok_already, NOT(circs[ib])))
+                if b:
+                    ok_already = OR(ok_already, NOT(circs[ib]))
+            return AND(*checks)
 
         def n_eq_s(circs, sym):
-            return circs[syms.index(sym)]
+            ix = syms.index(sym)
+            symc = list(int(a) for a in bin(ix)[2:])
+            symc = [0] * (len(vrs)- len(symc)) + symc
+            checks = []
+            for i in range(len(vrs)):
+                if symc[i]:
+                    checks.append(circs[i])
+                else:
+                    checks.append(NOT(circs[i]))
+            return AND(*checks)
 
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
@@ -211,7 +225,8 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, syms, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="unary")
+        return self(syms, vrs, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="binary")
+
 
 
 
