@@ -1,6 +1,6 @@
 #from circuit import *
 import circuit
-from circuit import NOT, V, AND, OR, T, F, IMP, IFF, tech_simp, Circuit
+from circuit import NOT, V, AND, OR, T, F, IMP, IFF, tech_simp, Circuit, SAT
 import mocircuits as moc
 import abstract_SAT_simplify as ass
 import sft
@@ -233,136 +233,161 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
     elif op == "VALEQ":
         
         ret = None
-        arg1 = formula[1]
-        arg2 = formula[2]
-        #print(arg1, arg2, "valeq")
+        input1 = formula[1]
+        input2 = formula[2]
+        if input1[0] != "SWITCH":
+            input1 = ("SWITCH", ("T", input1))
+        if input2[0] != "SWITCH":
+            input2 = ("SWITCH", ("T", input2))
+        #print(input1, input2, "valeq")
 
-        # check that these are not numeric variables, as for now they are compared with == (for some reason)
-        while arg1 in variables:
-            val = variables[arg1]
-            if type(val) == tuple and isinstance(val[0], moc.MOCircuit):
-                # We have a numeric variable instead of a node
-                raise Exception("Cannot compare numeric variable {} with =, use ==.".format(formula[1]))
-            arg1 = val
-        while arg2 in variables:
-            val = variables[arg2]
-            if type(val) == tuple and isinstance(val[0], moc.MOCircuit):
-                # We have a numeric variable instead of a node
-                raise Exception("Cannot compare numeric variable {} with =, use ==.".format(formula[1]))
-            arg2 = val
-        
-        p1ispos = True
-        # horrible hack
-        try:
-            p1 = eval_to_position(graph, topology, nodes, arg1, variables)
-            #print("evaltopos arg1", p1)
-            if p1 == None:
-                # return None and not a circuit at all; soft error handling to simulate lazy evaluation
-                return None # = F
-            # evaluates to cell or symbol
-            if is_cell(p1):
-            #elif type(p1) == tuple and len(p1) != dim+1:
-                raise Exception("Cannot compare value of cell, only node.")
-            # if the node has been substituted, use the substituted value instead
-            if p1 in subst:
-                p1ispos = False
-                p1val = subst[p1]
+        pairs1 = []
+        for (formula, val) in input1[1:]:
+            circ = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
+            pairs1.append((circ, val))
+        pairs2 = []
+        for (formula, val) in input2[1:]:
+            circ = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
+            pairs2.append((circ, val))
 
-        # This means we will interpret as value, as we ended up looking up a
-        # value as variable. I suppose the reasoning is that we may want to use
-        # something like "a" as both a variable and a symbol, and we only know
-        # at runtime whether something is a variable, because the parser is very basic.
-        except KeyError: 
-            #print("eval to pos failed for arg1", arg1)
-            p1ispos = False
-            #print(formula[1], "formula 1 fast")
-            if is_letter(arg1):
-                p1val = arg1
-            else:
-                raise Exception("Could not handle argument {} for =".format(arg1))
+        # make the switch conditions disjoint
+        pairs1 = disjointify(pairs1)
+        pairs2 = disjointify(pairs2)
 
-        p2ispos = True
-        try: # horrible hack #2
-            p2 = eval_to_position(graph, topology, nodes, arg2, variables)
-            #print("evaltopos arg2", p2)
-            if p2 == None:
-                # return None and not a circuit at all; soft error handling to simulate lazy evaluation
-                return None
-            if is_cell(p2):
-                raise Exception("Cannot compare value of cell, only node.")
-            # if the node has been substituted, use the substituted value instead
-            if p2 in subst:
-                p2ispos = False
-                p2val = subst[p2]
-            
-        except KeyError:
-            #print("eval to pos failed for arg2", arg2)
-            #print("eval to pos failed, alphabet", alphabet)
-            p2ispos = False
-            if is_letter(arg2):
-                p2val = arg2
-            else:
-                raise Exception("Could not handle argument {} for =".format(arg2))
+        andeds = []
 
-        #print("arg1", arg1, "p1ispos", p1ispos, "arg2", arg2, "p2ispos", p2ispos, "subst", subst)
-        
-        if not p1ispos and not p2ispos:
-            if p1val == p2val:
-                return T
-            return F
+        for (circ1, arg1) in pairs1:
+            for (circ2, arg2) in pairs2:
+                # check that these are not numeric variables, as for now they are compared with == (for some reason)
+                while arg1 in variables:
+                    val = variables[arg1]
+                    if type(val) == tuple and isinstance(val[0], moc.MOCircuit):
+                        # We have a numeric variable instead of a node
+                        raise Exception("Cannot compare numeric variable {} with =, use ==.".format(formula[1]))
+                    arg1 = val
+                while arg2 in variables:
+                    val = variables[arg2]
+                    if type(val) == tuple and isinstance(val[0], moc.MOCircuit):
+                        # We have a numeric variable instead of a node
+                        raise Exception("Cannot compare numeric variable {} with =, use ==.".format(formula[1]))
+                    arg2 = val
 
-        elif p1ispos and p2ispos:
-            if ret == None:
-                # the case of equality of cells (with nontrivial node set)
-                if len(nodes) > 1 and p1[1] == ():
-                    # if other is not cell, then not equal, but should perhaps raise error
-                    if p2[1] != ():
-                        return F
-                    for n in nodes:
-                        eq_formulas = []
-                        formu = ("VALEQ", (p1[0], n), (p2[0], n))
-                        eq_formulas.append(formula_to_circuit_(graph, topology, nodes,
-                                                    alphabet, formu, variables,
-                                                    subst, externals, global_restr))
-                    ret = AND(*eq_formulas)
-                else:
-                    # the case of equality of nodes
-                    args = []
-                    p1_alph = alphabet[p1[1]]
-                    p1_vars = [V(p1+(l,)) for l in p1_alph.node_vars]
-                    p2_alph = alphabet[p2[1]]
-                    p2_vars = [V(p2+(l,)) for l in p2_alph.node_vars]
-                    if p1_alph == p2_alph:
-                        # the nice case: equal alphabets
-                        args.append(p1_alph.node_eq_node(p1_vars, p2_vars))
+                p1ispos = True
+                # horrible hack
+                try:
+                    p1 = eval_to_position(graph, topology, nodes, arg1, variables)
+                    #print("evaltopos arg1", p1)
+                    if p1 == None:
+                        # return None and not a circuit at all; soft error handling to simulate lazy evaluation
+                        return None # = F
+                    # evaluates to cell or symbol
+                    if is_cell(p1):
+                    #elif type(p1) == tuple and len(p1) != dim+1:
+                        raise Exception("Cannot compare value of cell, only node.")
+                    # if the node has been substituted, use the substituted value instead
+                    if p1 in subst:
+                        p1ispos = False
+                        p1val = subst[p1]
+
+                # This means we will interpret as value, as we ended up looking up a
+                # value as variable. I suppose the reasoning is that we may want to use
+                # something like "a" as both a variable and a symbol, and we only know
+                # at runtime whether something is a variable, because the parser is very basic.
+                except KeyError: 
+                    #print("eval to pos failed for arg1", arg1)
+                    p1ispos = False
+                    #print(formula[1], "formula 1 fast")
+                    if is_letter(arg1):
+                        p1val = arg1
                     else:
-                        # the messy case: different alphabets
-                        for a in p1_alph:
-                            for b in p2_alph:
-                                if a == b:
-                                    # force equivalence of these symbols
-                                    args.append(IFF(p1_alph.node_eq_sym(p1_vars, a),
-                                                    p2_alph.node_eq_sym(p2_vars, b)))
-                                    break
-                                else:
-                                    # a is not in p2's alphabet => forbid
-                                    args.append(NOT(p1_alph.node_eq_sym(p1_vars, a)))
-                        # also forbid p2's symbols not in p1's alphabet
-                        for b in p2_alph:
-                            if b not in p1_alph:
-                                args.append(NOT(p2_alph.node_eq_sym(p2_vars, a)))
-                    ret = AND(*args)
-        else:
-            if not p1ispos and p2ispos:
-                p1, p2val = p2, p1val
-            #print("here p1", p1, "p2val", p2val)
-            # now p1 is a position and p2 a symbol
-            local_alph = alphabet[p1[1]]
-            if p2val not in local_alph:
-                ret = F
-            else:
-                p1_vars = [V(p1+(l,)) for l in local_alph.node_vars]
-                ret = local_alph.node_eq_sym(p1_vars, p2val)
+                        raise Exception("Could not handle argument {} for =".format(arg1))
+
+                p2ispos = True
+                try: # horrible hack #2
+                    p2 = eval_to_position(graph, topology, nodes, arg2, variables)
+                    #print("evaltopos arg2", p2)
+                    if p2 == None:
+                        # return None and not a circuit at all; soft error handling to simulate lazy evaluation
+                        return None
+                    if is_cell(p2):
+                        raise Exception("Cannot compare value of cell, only node.")
+                    # if the node has been substituted, use the substituted value instead
+                    if p2 in subst:
+                        p2ispos = False
+                        p2val = subst[p2]
+
+                except KeyError:
+                    #print("eval to pos failed for arg2", arg2)
+                    #print("eval to pos failed, alphabet", alphabet)
+                    p2ispos = False
+                    if is_letter(arg2):
+                        p2val = arg2
+                    else:
+                        raise Exception("Could not handle argument {} for =".format(arg2))
+
+                #print("arg1", arg1, "p1ispos", p1ispos, "arg2", arg2, "p2ispos", p2ispos, "subst", subst)
+
+                if not p1ispos and not p2ispos:
+                    if p1val == p2val:
+                        local_ret = T
+                    else:
+                        local_ret = F
+
+                elif p1ispos and p2ispos:
+                    if ret == None:
+                        # the case of equality of cells (with nontrivial node set)
+                        if len(nodes) > 1 and p1[1] == ():
+                            # if other is not cell, then not equal, but should perhaps raise error
+                            if p2[1] != ():
+                                local_ret = F
+                            else:
+                                for n in nodes:
+                                    eq_formulas = []
+                                    formu = ("VALEQ", (p1[0], n), (p2[0], n))
+                                    eq_formulas.append(formula_to_circuit_(graph, topology, nodes,
+                                                                           alphabet, formu, variables,
+                                                                           subst, externals, global_restr))
+                                local_ret = AND(*eq_formulas)
+                        else:
+                            # the case of equality of nodes
+                            args = []
+                            p1_alph = alphabet[p1[1]]
+                            p1_vars = [V(p1+(l,)) for l in p1_alph.node_vars]
+                            p2_alph = alphabet[p2[1]]
+                            p2_vars = [V(p2+(l,)) for l in p2_alph.node_vars]
+                            if p1_alph == p2_alph:
+                                # the nice case: equal alphabets
+                                args.append(p1_alph.node_eq_node(p1_vars, p2_vars))
+                            else:
+                                # the messy case: different alphabets
+                                for a in p1_alph:
+                                    for b in p2_alph:
+                                        if a == b:
+                                            # force equivalence of these symbols
+                                            args.append(IFF(p1_alph.node_eq_sym(p1_vars, a),
+                                                            p2_alph.node_eq_sym(p2_vars, b)))
+                                            break
+                                        else:
+                                            # a is not in p2's alphabet => forbid
+                                            args.append(NOT(p1_alph.node_eq_sym(p1_vars, a)))
+                                # also forbid p2's symbols not in p1's alphabet
+                                for b in p2_alph:
+                                    if b not in p1_alph:
+                                        args.append(NOT(p2_alph.node_eq_sym(p2_vars, a)))
+                            local_ret = AND(*args)
+                else:
+                    if not p1ispos and p2ispos:
+                        p1, p2val = p2, p1val
+                    #print("here p1", p1, "p2val", p2val)
+                    # now p1 is a position and p2 a symbol
+                    local_alph = alphabet[p1[1]]
+                    if p2val not in local_alph:
+                        local_ret = F
+                    else:
+                        p1_vars = [V(p1+(l,)) for l in local_alph.node_vars]
+                        local_ret = local_alph.node_eq_sym(p1_vars, p2val)
+                andeds.append(IMP(AND(circ1, circ2), local_ret))
+        ret = AND(*andeds)
             
     elif op == "ISNEIGHBOR" or op == "ISPROPERNEIGHBOR":
         #print("test nbr")
@@ -507,7 +532,7 @@ def formula_to_circuit(nodes, dim, topology, alphabet, formula, externals, simpl
 # actual C|(!V(0, 0, (), 1), !V(0, 0, (), 1))
 
 # this will perhaps be used later directly
-def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, simplify=True):
+def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, simplify=True, variables=None):
 
     # if there is no topology, we make a default topology that's just graph moves between any two nodes
     if topology == [] or topology == None:
@@ -520,8 +545,9 @@ def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, si
                     counter += 1
                     topology.append([str(counter), (m, -1), n1, n2])
                     counter += 1
-            
-    variables = {}
+
+    if variables is None:
+        variables = {}
     global_restr = []
     subst = {}
     form = formula_to_circuit_(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr)
@@ -530,6 +556,17 @@ def formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, si
         _, form = ass.simplify_circ_eqrel(form)
     return form
 
+def disjointify(pairs):
+    "Given a list of pairs (circuit, value), return a list of pairs (circuit, value) with disjoint circuits."
+    disjoints = []
+    for (circ, val) in pairs:
+        overlapping = []
+        for (circ2, val2) in disjoints:
+            if val != val2:
+                if SAT(AND(circ, circ2, NOT(OR(*overlapping)))):
+                    overlapping.append(circ2)
+        disjoints.append((AND(circ, NOT(OR(*overlapping))), val))
+    return disjoints
 
     
 def sum_circuit(summands, global_restr):
@@ -637,7 +674,7 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
         # check that the variable is numeric
         val = variables[formula[1]]
         #print("val", val)
-        if isinstance(val, moc.MOCircuit) or (type(val) == tuple and val[0] is None and type(val[1]) == int):
+        if type(val) == tuple and (isinstance(val[0], moc.MOCircuit) or (val[0] is None and type(val[1]) == int)):
             return val
         else:
             var = formula[1]

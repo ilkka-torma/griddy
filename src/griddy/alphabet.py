@@ -16,7 +16,9 @@ def node_constraints(alphabets):
     def func(circuits):
         if type(circuits) == Circuit:
             circuits = [circuits]
-        nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables())
+        # only consider variables that look like nodes
+        nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables()
+                    if type(var) == tuple and len(var) >= 2 and var[1] in alphabets)
         anded = []
         for node in nodes:
             alph = alphabets[node[1]]

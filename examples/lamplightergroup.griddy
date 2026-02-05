@@ -7,17 +7,17 @@ rt (0; bot) (1; bot);
 lt (0; top) (-1; top);
 lt (0; bot) (-1; bot)
 %CA R -- partial right shift on the top track
-top 1 ACo o.rt.top=1;
-bot 1 ACo o.bot=1
+top o o.rt.top;
+bot o o.bot
 %CA L -- partial left shift on the top track
-top 1 ACo o.lt.top=1;
-bot 1 ACo o.bot=1
+top o o.lt.top;
+bot o o.bot
 %CA A -- add top track to bottom track
-top 1 ACo o.top=1;
-bot 1 ACo (o.bot=1 | o.top=1) & (o.bot=0 | o.top=0)
+top o o.top;
+bot o if o.bot=o.top then 0 else 1
 %CA id -- identity
-top 1 ACo o.top=1;
-bot 1 ACo o.bot=1
+top o o.top;
+bot o o.bot
 %compose ARRRALLLLLARR A R R R A L L L L L A R R
 %compose LLARRRRRALLLA L L A R R R R R A L L L A
 %equal ARRRALLLLLARR LLARRRRRALLLA expect=T -- A A^{L^3} A^{R^2} = A^{R^2} A^{L^3} A

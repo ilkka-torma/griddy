@@ -39,82 +39,16 @@ class BlockMap:
             print("constructing CA of dim", dimension, "from nodes", from_nodes, "and alphabet", from_alphabet, "to", to_nodes, to_alphabet)
             
 
-        #  dict is only used internally, assume disjointness and full specification
-        if isinstance(circuits, dict):
+        # (node, label) : circ dict is only used internally, assume disjointness and full specification
+        if any(type(x) == Circuit for x in circuits.values()):
             self.circuits = circuits #[(n,a,circuits[(n,a)]) for (n,a) in circuits]
 
-        # inputs can be messier, and we remove intersections and add defaults
-        # default is first missing symbol, if one is missing.
-        # but if all appear, we use the first letter of the alphabet.
-        elif type(circuits) == list:
-            
-            circuits, is_partial = self.circuits_from_list(circuits, overlaps)
-            self.partial = is_partial
-
-            # check that there are no additional circuits, just to catch bugs
-            for (node, sym) in circuits:
-                if node not in to_nodes:
-                    raise Exception(node, "is not a node in range of CA")
-                if sym not in to_alphabet[node]:
-                    raise Exception(sym, "is not in alphabet of node", n, "in range of CA")
-            
-            #print("here", circuits)
-
-            # Add default cases
-            if not self.partial:
-                for node in to_nodes:
-                    circs = {}
-                    for sym in to_alphabet[node]:
-                        if (node, sym) in circuits:
-                            circs[sym] = circuits[node, sym]
-                    # check if we should add default case because one is explicitly missing
-                    if len(circs) < len(to_alphabet[node]):
-                        default_needed = True
-                        for sym in to_alphabet[node]:
-                            if sym not in circs:
-                                if default_needed:
-                                    if verbose:
-                                        print("Using {} as explicit default symbol for node {} in block map".format(sym, node))
-                                    circuits[node, sym] = AND(*(NOT(circ) for circ in circs.values()))
-                                    default_needed = False
-                                else:
-                                    circuits[node, sym] = F
-                    # all formulas are there, but we should possibly still add a default case
-                    # if it's possible that no formula triggers; default is first letter then
-                    else:
-                        #ldac = LDAC2(lambda a:self.from_alphabet[a[1]])
-                        first_sym = from_alphabet[node][0]
-                        no_circ = AND(*(NOT(circ) for circ in circs.values()))
-                        if SAT_under(no_circ, node_constraints(self.from_alphabet)):
-                            if verbose:
-                                print("Using {} as implicit default symbol for node {} in block map".format(first_sym, node))
-                            circuits[node, first_sym] = AND(circuits[first_sym],
-                                                            *(NOT(circ) for (sym, circ) in circs.items()
-                                                              if sym != first_sym))
-
-            # transform into dict : node, label -> circ
-            self.circuits = dict()
-            for node in to_nodes:
-                # pick a model for each output symbol
-                local_alph = to_alphabet[node]
-                nvars = [V(l) for l in local_alph.node_vars]
-                models = {sym : SAT(AND(local_alph.node_eq_sym(nvars, sym),
-                                        local_alph.node_constraint(nvars)),
-                                    return_model=True)
-                          for sym in local_alph}
-                # define the variable circuits in terms of these:
-                # a variable is true iff there is a symbol such that
-                # the variable is true in its model and its formula is true
-                for l in local_alph.node_vars:
-                    self.circuits[node, l] = OR(*(circuits.get((node, sym), F)
-                                                  for sym in local_alph
-                                                  if models[sym][l]))
-            # add partial circuit
-            if self.partial:
-                self.partial_circuits = dict()
-                for node in to_nodes:
-                    self.partial_circuits[node] = AND(*(NOT(circuits.get((node, sym), F))
-                                                        for sym in self.to_alphabet[node]))
+        # node : [(circ, val)] dict
+        else:
+            new_circuits, partial_circuits = self.circuits_from_rules(circuits)
+            self.partial = partial_circuits is not None
+            self.circuits = new_circuits
+            self.partial_circuits = partial_circuits
         
         if verbose:
             for node in to_nodes:
@@ -154,42 +88,73 @@ class BlockMap:
                 s.append("Circuit for node %s letter %s: %s" % (n, a, self.circuits[n, a]))
         return "\n".join(s)
 
-    # we get a list of (node, sym, formula)
-    # if overlaps is "remove", we should refine to disjoints:
-    # if (n, a, C) appears, and (n, b) already has formula,
-    # then, remove simultaneous solutions from C
-    # return a dict : (node, sym) -> circuit and a boolean for existence of extra symbols (partial BM)
-    # if overlaps is "check", we should raise an exception if the rules are not disjoint
-    # if overlaps if "ignore", assume the rules are disjoint
-    def circuits_from_list(self, circuits, overlaps):
-        if overlaps == "ignore":
-            disjoints = circuits
-        else:
-            disjoints = []
-            for (node, sym, formula) in circuits:
-                form = formula
-                # go over all previous
-                overlapping = []
-                for (node_, sym_, formula_) in disjoints:
-                    if node_ == node and sym_ != sym:
-                        if SAT_under(AND(formula, NOT(OR(*overlapping)), formula_), node_constraints(self.from_alphabet)):
-                            if overlaps == "check":
-                                raise Exception("Overlapping rules for node {}, symbols {} and {}".format(node, sym_, sym))
-                            overlapping.append(formula_)
-                form = AND(form, NOT(OR(*overlapping)))
-                disjoints.append((node, sym, form))
+    # we get a dict of node : [(circ, sym or pos)], the circs in each list are disjoint
+    # we return a dict of (node, sym) : circuit and possibly a partiality dict node : circuit
+    def circuits_from_rules(self, rules):
 
         partial = False
         ret_circuits = dict()
-        for (node, sym, formula) in disjoints:
-            if sym in self.to_alphabet[node]:
-                try:
-                    ret_circuits[node, sym] = OR(ret_circuits[node, sym], formula)
-                except KeyError:
-                    ret_circuits[node, sym] = formula
+        partial_circuits = dict()
+        for node in self.to_nodes:
+            if node in rules:
+                local_alph = self.to_alphabet[node]
+                oreds = {label : [] for label in local_alph.node_vars}
+                pairs = rules[node]
+                has_img_oreds = []
+                for (circ, val) in pairs:
+                    if val in local_alph:
+                        # a symbol -> make a model and enforce it
+                        has_img_oreds.append(circ)
+                        nvars = [V(l) for l in local_alph.node_vars]
+                        model = SAT(AND(local_alph.node_eq_sym(nvars, val),
+                                        local_alph.node_constraint(nvars)),
+                                    return_model=True)
+                        for label in local_alph.node_vars:
+                            if model[label]:
+                                oreds[label].append(circ)
+                    else:
+                        # we have a position
+                        cell, dom_node = val
+                        dom_alph = self.from_alphabet[dom_node]
+                        if dom_alph == local_alph:
+                            # alphabets agree -> copy
+                            has_img_oreds.append(circ)
+                            for label in local_alph.node_vars:
+                                oreds[label].append(AND(circ, V((cell, dom_node, label))))
+                        else:
+                            # alphabets disagree -> make models and enforce them
+                            for sym in dom_alph:
+                                if sym in local_alph:
+                                    dom_vars = [V((cell, dom_node, l)) for l in dom_alph.node_vars]
+                                    nvars = [V(l) for l in local_alph.node_vars]
+                                    model = SAT(AND(local_alph.node_eq_sym(nvars, sym),
+                                                    local_alph.node_constraint(nvars)),
+                                                return_model=True)
+                                    for label in local_alph.node_vars:
+                                        if model[label]:
+                                            oreds[label].append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
+                                    has_img_oreds.append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
+                                            
+                for label in local_alph.node_vars:
+                    ret_circuits[node, label] = OR(*oreds[label])
+
+                # check partiality
+                #print("has img oreds", has_img_oreds)
+                if SAT_under(NOT(OR(*has_img_oreds)), node_constraints(self.from_alphabet)):
+                    partial = True
+                    partial_circuits[node] = NOT(OR(*has_img_oreds))
             else:
+                for label in self.alphabet[node].val_label:
+                    ret_circuits[node, label] = F
                 partial = True
-        return ret_circuits, partial
+                partial_circuits[node] = T
+        if partial:
+            for node in self.to_nodes:
+                if node not in partial_circuits:
+                    partial_circuits[node] = F
+            return ret_circuits, partial_circuits
+        else:
+            return ret_circuits, None
 
     def tomocircuit(self):
         return MOCircuit(self.circuits)
@@ -390,8 +355,10 @@ class BlockMap:
                 
         # all images must be the same, and some central node has diff preimage, and all images have to be specified
         #def lda(a): return self.from_alphabet[a[1]]
+        circ = AND(AND(*eq_circuits), OR(*differents), AND(*some_image))
+        #varses = circ.get_variables()
         if verbose:print("Circuit constructed in time {}".format(time.time() - t))
-        ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents), AND(*some_image)), node_constraints(self.from_alphabet))
+        ret = UNSAT_under(circ, node_constraints(self.from_alphabet))
         #ret = UNSAT_under(AND(AND(*eq_circuits), OR(*differents)), node_constraints(self.from_alphabet))
         if verbose:print("Solved in time {}".format(time.time() - t))
 

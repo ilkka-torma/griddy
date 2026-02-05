@@ -1069,38 +1069,33 @@ class Griddy:
                     raise Exception("Dimension mismatch: {} is not {}".format(dom_dim, cod_dim))
                 if dom_graph != cod_graph:
                     raise Exception("Graph mismatch: {} is not {}".format(dom_graph, cod_graph))
-                circuits = [] #dict()
+                circuits = dict()
                 for rule in rules:
                     if rule:
-                        if self.has_nodes() and len(rule) != 3:
+                        if len(rule) != 3:
                             if len(rule) > 3:
                                 raise Exception("Bad block map rule: {}\nMaybe you forgot a semicolon?".format(rule))
                             else:
                                 raise Exception("Bad block map rule: {}".format(rule))
-                        elif not self.has_nodes() and len(rule) != 2:
-                            if len(rule) > 2:
-                                raise Exception("Bad block map rule: {}\nMaybe you forgot a semicolon?".format(rule))
+                        node, var, pos_expr = rule
+                        #print("rule", rule)
+                        local_alph = cod_alph[node]
+                        variables = {var : (self.graph.origin(), ())}
+                        if type(pos_expr) != tuple or pos_expr[0] != "SWITCH":
+                            pos_expr = ("SWITCH", ("T", pos_expr))
+                        pairs = []
+                        for (cond, val) in pos_expr[1:]:
+                            circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, cond, self.externals, simplify="simplify" in flags, variables=variables)
+                            if val in local_alph:
+                                pairs.append((circ, val))
                             else:
-                                raise Exception("Bad block map rule: {}".format(rule))
-                        if self.has_nodes():
-                            node, sym, formula = rule
-                        else:
-                            sym, formula = rule
-                            node = ()
-                        #print("CA rule", node, sym, formula)
-                        try:
-                            circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
-                                                               self.externals, simplify="simplify" in flags, graph=self.graph)
-                        except GriddyCompileError as e:
-                            if mode != "silent":
-                                print("Compile error: {}".format(e))
-                            if mode == "assert" or mode == "silent":
-                                raise Exception("Compile error")
-                            return None
-                        #print(circ)
-                        #graph, topology, nodes, alphabet, formula, externals, simplify=True
-                        #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
-                        circuits.append((node, sym, circ))
+                                pos = compiler.eval_to_position(self.graph, dom_top, dom_nodes, val, variables)
+                                pairs.append((circ, pos))
+                        pairs = compiler.disjointify(pairs)
+                        if node in circuits:
+                            raise GriddyCompileError("Multiply defined block map rule: {}".format(rule))
+                        circuits[node] = pairs
+                        
                 #print(circuits)
                 """
                 the problem is we should see "up", (0, 1), (), () in compiler, but
