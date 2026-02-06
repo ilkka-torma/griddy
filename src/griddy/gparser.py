@@ -105,6 +105,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "keep_tiling" cmd_opts STRICT_LABEL cmd_opts -> cmd_keep_tiling
        | "start_cache" NAT NAT -> cmd_start_cache
        | "end_cache" -> cmd_end_cache
+       | "destroy_circuit_store" cmd_opts -> cmd_destroy_circuit_store
 
 top_edge: LABEL vector~1..3
 
@@ -929,6 +930,9 @@ class GriddyTransformer(Transformer_NonRecursive):
     def cmd_end_cache(self, args):
         return self.cmd_default("end_cache", args)
 
+    def cmd_destroy_circuit_store(self, args):
+        return self.cmd_default("destroy_circuit_store", args)
+
     def start(self, cmds):
         return list(cmds)
 
@@ -948,3 +952,4 @@ def test():
 
 if __name__ == "__main__":
     test()
+

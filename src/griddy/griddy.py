@@ -31,6 +31,15 @@ import density_linear_program
 import automatic_conf
 import automatic_learn
 import time
+import json
+import hashlib
+import pickle
+from datetime import datetime
+import os
+
+import sqlite3
+import platformdirs
+from pathlib import Path
 
 import argparse
 import fractions
@@ -69,6 +78,8 @@ class Griddy:
         self.formulae = []
         self.weights = None
         self.externals = {}
+
+        self.db = None
         
     def has_nodes(self):
         return self.nodes != sft.Nodes()
@@ -93,8 +104,8 @@ class Griddy:
             code = f.read()
         self.run(code)
 
+    # modes = "report", "silent", "assert"
     def run(self, code, mode="report", print_parsed=False):
-        #print("mode", mode)
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
@@ -321,6 +332,7 @@ class Griddy:
                     self.graph = the_sft.graph
                     
             elif cmd == "sft" or cmd == "clopen":
+                t = time.time()
                 name = args[0]
                 defn = args[1]
                 onesided = kwds.get("onesided", [])
@@ -328,50 +340,48 @@ class Griddy:
                     constructor = sft.SFT
                 else:
                     constructor = sft.Clopen
+                save = "save" in flags
                 if "verbose" in flags:
                     if cmd == "sft":
                         if mode != "silent": print("Defining SFT named", name)
                     else:
                         if mode != "silent": print("Defining clopen set named", name)
                 # Definition is either a list of forbidden patterns or a formula
+                # NB. there should be no need to save a list of forbidden patterns
                 if type(defn) == list:
                     forbs = [{self.process_nvec(nvec) : sym for (nvec, sym) in forb.items()} for forb in defn]
-                    #print("defn", defn, "forbs", forbs)
                     self.SFTs[name] = constructor(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
                 elif type(defn) == tuple:
-                    #print("defn", defn)
-                    #circ = compiler.formula_to_circuit(self.nodes, self.dim, self.topology, self.alphabet,
-                    #                                   defn, self.externals, simplify="simplify" in flags)
-                    
-                    #graph, topology, nodes, alphabet, formula, externals, simplify
-                    #print(self.topology, "filippo")
-                    try:
-                        circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
-                    except GriddyCompileError as e:
-                        if mode != "silent":
-                            print("Compile error: {}".format(e))
-                        if mode == "assert" or mode == "silent":
-                            raise Exception("Compile error")
-                        return None
-                    #vardict = dict()
-                    #inst = circuit.circuit_to_sat_instance(circ, vardict)
-                    #import abstract_SAT_simplify
-                    if "simplify" in flags:
-                        _, simp = abstract_SAT_simplify.simplify_circ_eqrel(circ)
-                        simp.simplify()
-                        #print (inst[0])
-                        #s = set(abs(v) for c in inst[0] for v in c)
-                        s1 = sum(1 for _ in circ.internal_nodes(vars_too=True))
-                        s2 = sum(1 for _ in simp.internal_nodes(vars_too=True))
-                        if "verbose" in flags:
-                            if mode != "silent": print ("Circuit size", s1, "reduced to", s2)
-                        circ = simp
-                    
+                    circ = None
+                    if save: circ = self.read_store(defn)
+                    if circ == None:
+                        try:
+                            circ = compiler.formula_to_circuit2(self.graph, self.topology, self.nodes, self.alphabet, defn, self.externals, simplify="simplify" in flags)
+                        except GriddyCompileError as e:
+                            if mode != "silent":
+                                print("Compile error: {}".format(e))
+                            if mode == "assert" or mode == "silent":
+                                raise Exception("Compile error")
+                            return None
+                        if "simplify" in flags:
+                            _, simp = abstract_SAT_simplify.simplify_circ_eqrel(circ)
+                            simp.simplify()
+                            #print (inst[0])
+                            #s = set(abs(v) for c in inst[0] for v in c)
+                            s1 = sum(1 for _ in circ.internal_nodes(vars_too=True))
+                            s2 = sum(1 for _ in simp.internal_nodes(vars_too=True))
+                            if "verbose" in flags:
+                                if mode != "silent": print ("Circuit size", s1, "reduced to", s2)
+                            circ = simp
+                        if save: self.write_store(defn, circ)
+
                     self.SFTs[name] = constructor(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ, formula=defn, onesided=onesided)
                 else:
                     raise Exception("Unknown SFT definition: {}".format(defn))
                 #print("CIRCUIT", circ)
                 #print("CIRCUIT", self.SFTs[name].circuit)
+                if mode != "silent" and time.time() - t > 1:
+                    print ("Definition took %s seconds." % (time.time() - t))
                 
             elif cmd == "sofic1D":
                 sofic_name = args[0]
@@ -1336,16 +1346,89 @@ class Griddy:
                     if mode != "silent": print("Tiling %s-hypercube of SFT %s." % (rad, name))
                     self.SFTs[name].tile_box(rad, verbose=verbose)
                     rad += 1
+
+            elif cmd == "destroy_circuit_store":
+                if "imsure" in flags:
+                    print("Destroying the circuit store.")
+                    self.destroy_store()
+                else:
+                    print("Add the @imsure flag to actually destroy the circuit store.")
                                         
             elif mode == "report":
                 raise Exception("Unknown command %s." % cmd)
 
+        self.close_store()
         return results
 
     def add_external(self, name, obj):
         self.externals[name] = obj
 
-             
+    def read_store(self, key):
+        self.init_store()
+        keystr = json.dumps(key)
+        print(keystr, "... checking in db")
+        m = hashlib.sha256(keystr.encode('utf-8'))
+        keyhash = m.hexdigest()
+        print("hash", keyhash)
+        cur = self.db.cursor()
+        result = cur.execute("SELECT circuit FROM circuits WHERE keyhash = ? LIMIT 1;", (keyhash,))
+        result = result.fetchone()
+        if result == None:
+            cur.close()
+            print("Not found in cache.")
+            return None
+        print("Found in cache.")
+        #print(result)
+        cur.close()
+        return pickle.loads(result[0])
+    
+    def write_store(self, key, value):
+        self.init_store()
+        keystr = json.dumps(key)
+        print(keystr, "... writing in db")
+        m = hashlib.sha256(keystr.encode("utf-8"))
+        keyhash = m.hexdigest()
+        print("hash", keyhash)
+        print(type(keystr))
+        cur = self.db.cursor()
+        now = datetime.now()
+        dt = now.strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("INSERT INTO circuits (keyhash, keyjson, circuit, version, date) VALUES (?, ?, ?, ?, ?)", (keyhash, keystr, pickle.dumps(value), "0", dt))
+        self.db.commit()
+        cur.close()
+
+    def init_store(self):
+        if self.db == None:
+            cache_dir = Path(platformdirs.user_cache_dir(appname="Griddy", appauthor="User"))
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            db_path = cache_dir / "circuit-cache.sqlite3"
+            #print(str(db_path))
+            if os.path.exists(db_path):
+                print("Database file exists.")
+            else:
+                print("Database file does not exist.")
+            self.db = sqlite3.connect(str(db_path))
+        cur = self.db.cursor()
+        table_cur = cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='circuits';")
+        tables = table_cur.fetchall()
+        if not tables:
+            cur.execute("CREATE TABLE circuits(keyhash, keyjson, circuit, version, date)")
+            self.db.commit()
+            cur.close()
+        else:
+            assert len(tables) == 1
+
+    def close_store(self):
+        if self.db:
+            self.db.close()
+            
+    def destroy_store(self):
+        self.init_store()
+        cur = self.db.cursor()
+        cur.execute("DROP TABLE circuits")
+        self.db.commit()
+        cur.close()
+        
 
 # for a dict with lists on the right, return all sections
 def get_sections(dicto):
