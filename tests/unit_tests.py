@@ -983,6 +983,19 @@ b o o.b
 """.format(enc)
     unit_tests.append(("Alphabet encoding {0}".format(enc), code))
 
+code = """
+%alphabet Z2
+%sft x Ao o=o.rt+o.up
+%sft x2 Ao (o.rt=o.up -> o=0) & (o.rt!=o.up -> o=1)
+%equals expect=T x x2
+%sft y Ao o*o.up = o*if o.dn=0 then o.rt else o.lt
+%sft y2 Ao o=0 |
+(o.dn=0 & (o.up = o.rt)) |
+(o.dn=1 & (o.up = o.lt))
+%equals expect=T y y2
+"""
+unit_tests.append(("Binary operations", code))
+
 if __name__ == "__main__":
 
     t = time.time()

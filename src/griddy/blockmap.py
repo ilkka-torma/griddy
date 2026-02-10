@@ -103,14 +103,10 @@ class BlockMap:
                 has_img_oreds = []
                 for (circ, val) in pairs:
                     if val in local_alph:
-                        # a symbol -> make a model and enforce it
+                        # a symbol -> enforce its model
                         has_img_oreds.append(circ)
-                        nvars = [V(l) for l in local_alph.node_vars]
-                        model = SAT(AND(local_alph.node_eq_sym(nvars, val),
-                                        local_alph.node_constraint(nvars)),
-                                    return_model=True)
                         for label in local_alph.node_vars:
-                            if model[label]:
+                            if local_alph.models[val][label]:
                                 oreds[label].append(circ)
                     else:
                         # we have a position
@@ -122,16 +118,12 @@ class BlockMap:
                             for label in local_alph.node_vars:
                                 oreds[label].append(AND(circ, V((cell, dom_node, label))))
                         else:
-                            # alphabets disagree -> make models and enforce them
+                            # alphabets disagree -> enforce their models
                             for sym in dom_alph:
                                 if sym in local_alph:
                                     dom_vars = [V((cell, dom_node, l)) for l in dom_alph.node_vars]
-                                    nvars = [V(l) for l in local_alph.node_vars]
-                                    model = SAT(AND(local_alph.node_eq_sym(nvars, sym),
-                                                    local_alph.node_constraint(nvars)),
-                                                return_model=True)
                                     for label in local_alph.node_vars:
-                                        if model[label]:
+                                        if local_alph.models[sym][label]:
                                             oreds[label].append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
                                     has_img_oreds.append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
                                             

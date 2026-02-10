@@ -149,10 +149,6 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 ?neg_formula: NEG* (rightmost_formula | atomic_formula)
 ?left_neg_formula: NEG* atomic_formula
 
-?sym_or_node: LABEL | pos_expr
-            | "if" formula "then" (LABEL | pos_expr) "else" (LABEL | pos_expr) -> sym_or_node_ite
-            | "switch" formula ":" (LABEL | pos_expr) (";" formula ":" (LABEL | pos_expr))* ";"? -> sym_or_node_switch
-
 ?atomic_formula: "(" formula ")"
                | STRICT_LABEL (LABEL | pos_expr | "(" formula ")")*            -> bool_or_call
                | (sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
@@ -183,6 +179,17 @@ rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula  -> restr_
 
 nat_set: nat_range ("," nat_range)*
 !nat_range: NAT ("-" NAT?)?
+
+?sym_or_node: sum_sym_or_node
+?sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? prod_sym_or_node
+?left_sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? left_prod_sym_or_node
+?prod_sym_or_node: (left_prod_sym_or_node "*")? (rightmost_sym_or_node | atomic_sym_or_node)
+?left_prod_sym_or_node: (left_prod_sym_or_node "*")? atomic_sym_or_node
+
+?atomic_sym_or_node: LABEL | pos_expr
+
+rightmost_sym_or_node: "if" formula "then" sym_or_node "else" sym_or_node -> sym_or_node_ite
+                     | "switch" formula ":" sym_or_node (";" formula ":" sym_or_node)* ";"? -> sym_or_node_switch
 
 ?pos_expr: STRICT_LABEL ("." (LABEL | vector))*
 
@@ -386,6 +393,22 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def pos_expr(self, address):
         return ("ADDR", *address)
+
+    def sum_sym_or_node(self, args):
+        val1, op, val2 = args
+        return ("VAL_OP", op, val1, val2)
+
+    def left_sum_sym_or_node(self, args):
+        val1, op, val2 = args
+        return ("VAL_OP", op, val1, val2)
+
+    def prod_sym_or_node(self, args):
+        val1, val2 = args
+        return ("VAL_OP", '*', val1, val2)
+
+    def left_prod_sym_or_node(self, args):
+        val1, val2 = args
+        return ("VAL_OP", '*', val1, val2)
 
     def sym_or_node_ite(self, args):
         cond, trueval, falseval = args
