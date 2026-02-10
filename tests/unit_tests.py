@@ -993,6 +993,11 @@ code = """
 (o.dn=0 & (o.up = o.rt)) |
 (o.dn=1 & (o.up = o.lt))
 %equals expect=T y y2
+%alphabet Z4
+%sft z Ao o*o.rt*o.up=0
+%sft z2 Ao o=0 | o.rt=0 | o.up=0
+| o=o.rt=2 | o=o.up=2 | o.rt=o.up=2
+%equals expect=T z z2
 """
 unit_tests.append(("Binary operations", code))
 

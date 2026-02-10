@@ -231,8 +231,8 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             ret = F
 
     elif op == "VALEQ":
-        res1, typ1 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, formula[1])
-        res2, typ2 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, formula[2])
+        res1, typ1 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, formula[1])
+        res2, typ2 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, formula[2])
         
         if res1 is None or res2 is None:
             return None
@@ -872,7 +872,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
         assert pos[1] == () or pos[1] in nodes
     return pos
 
-def eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, expr):
+def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, expr):
     "Given a position or value expression, evaluate to a value, a circuit list over an alphabet, or a list of disjoint switch cases or such, or None. Also return its type (val, circs, list, None) for convenience."
     #print("ep2c", expr)
     orig_expr = expr
@@ -894,19 +894,19 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, exp
 
         res = []
         for (circ, inner_expr) in disjoints:
-            inner_res, inner_typ = eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, inner_expr)
+            inner_res, inner_typ = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, inner_expr)
             if inner_typ == "list":
                 # The inner expression is a list of cases -> splat them into res
                 res.extend(*((AND(circ, inner_circ), inner_inner_res)
                              for (inner_circ, inner_inner_res) in inner_res))
             else:
-                res.append((circ, inner_res))
+                res.append((circ, (inner_res, inner_typ)))
 
     elif expr[0] == "VAL_OP":
         # An arithmetic operation -> compile both arguments, combine results if either is a list
         op, arg1, arg2 = expr[1:]
-        val1 = (res1, typ1) = eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, arg1)
-        val2 = (res2, typ2) = eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, arg2)
+        val1 = (res1, typ1) = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, arg1)
+        val2 = (res2, typ2) = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, arg2)
         if typ1 == "list":
             res = []
             typ = "list"
@@ -962,7 +962,9 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, variables, subst, exp
 
 def op_of_circs(op, val1, val2):
     "Evaluate an operation on two values, which are either symbols or (circs, alph) pairs."
-    print("op of circs", op, val1, val2)
+    #print("op of circs", op)
+    #print("val1", val1)
+    #print("val2", val2)
     val1, typ1 = val1
     val2, typ2 = val2
     if typ1 == "pos":
@@ -971,13 +973,13 @@ def op_of_circs(op, val1, val2):
             circs2, alph2 = val2
             if alph1 == alph2:
                 # Both are ciruits over the same alphabet
-                print("ops", alph1.operations)
+                #print("ops", alph1.operations)
                 ret = ((alph1.operations[op][1](circs1, circs2), alph1), "pos")
             else:
                 raise GriddyCompileError("Alphabet mismatch for operation {}".format(op))
         else:
             # Circuit list and symbol
-            circs2 = [T if alph2.models[val2][label] else F for label in alph1.node_vars]
+            circs2 = [T if alph1.models[val2][label] else F for label in alph1.node_vars]
             ret = ((alph1.operations[op][1](circs1, circs2), alph1), "pos")
     elif typ2 == "pos":
         circs2, alph2 = val2
@@ -985,38 +987,9 @@ def op_of_circs(op, val1, val2):
         ret = ((alph2.operations[op][1](circs1, circs2), alph2), "pos")
     else:
         raise GriddyCompileError("Could not deduce alphabet of operation {}".format(op))
-    print("ret", ret)
+    #print("ret", ret)
     return ret
 
-
-def eval_operation(op_expr, local_alph):
-    "Evaluate an operation expression, returning either a symbol and 'val' or a list of circuits and 'circ'."
-    op, (arg1, typ1), (arg2, typ2) = op_expr[1:]
-    # preprocess into list of variables or symbol
-    if typ1 == "op":
-        res1, typ1 = eval_operation(arg1, local_alph)
-    elif typ1 == "pos":
-        res1 = [V((arg1 + (l,))) for l in local_alph.node_vars]
-    elif typ1 == "val":
-        res1 = arg1
-    if typ2 == "op":
-        res2, typ2 = eval_operation(arg2, local_alph)
-    elif typ2 == "pos":
-        res2 = [V((arg2 + (l,))) for l in local_alph.node_vars]
-    elif typ2 == "val":
-        res2 = arg2
-
-    if typ1 == "val":
-        if typ2 == "val":
-            return local_alph.operations[op][0](res1, res2), "val"
-        else:
-            model = [T if x else F for x in local_alph.models[res2]]
-            return local_alph.operations[op][1](res1, model), "circ"
-    elif typ2 == "val":
-        model = [T if x else F for x in local_alph.models[res1]]
-        return local_alph.operations[op][1](model, res2), "circ"
-    else:
-        return local_alph.operations[op][1](res1, res2)
 
 # given topology, positions of variables and bound dict
 # list positions
