@@ -44,8 +44,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | ("nodes" | "vertices") node_name* -> cmd_nodes_open
        | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
        | ("alphabet" | "alph") cmd_alph_opts (LABEL cmd_alph_opts)+ -> cmd_alph_open
-       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts LABEL cmd_opts quantified cmd_opts)* -> cmd_blockmap_sym
-       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts (";" cmd_opts node_name cmd_opts LABEL cmd_opts quantified cmd_opts)* ";"? -> cmd_blockmap_node_sym
+       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts sym_or_node cmd_opts -> cmd_blockmap
+       | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts STRICT_LABEL cmd_opts sym_or_node cmd_opts (";"  node_name STRICT_LABEL cmd_opts sym_or_node cmd_opts)* (";" cmd_opts)? -> cmd_blockmap_nodes
        | "compose" cmd_opts STRICT_LABEL cmd_opts list_of{STRICT_LABEL} -> cmd_compose_default
        | "compose" cmd_opts STRICT_LABEL cmd_opts (STRICT_LABEL cmd_opts)+ -> cmd_compose_open
        | ("dim" | "dimension") cmd_opts NAT cmd_opts -> cmd_dimension
@@ -150,8 +150,6 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 ?neg_formula: NEG* (rightmost_formula | atomic_formula)
 ?left_neg_formula: NEG* atomic_formula
 
-?sym_or_node: LABEL | pos_expr
-
 ?atomic_formula: "(" formula ")"
                | STRICT_LABEL (LABEL | pos_expr | "(" formula ")")*            -> bool_or_call
                | (sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
@@ -163,6 +161,7 @@ rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula  -> restr_
                  | "subst" (pos_expr ":=" LABEL)+ "in" formula         -> subst_formula
                  | "let" STRICT_LABEL+ ":=" formula "in" formula       -> let_formula
                  | "letnum" STRICT_LABEL ":=" num_formula "in" formula -> letnum_formula
+                 | "if" formula "then" formula "else" formula          -> ite_formula
 
 ?num_formula: sum_num_formula
 ?sum_num_formula: prod_num_formula ("+" prod_num_formula)*
@@ -181,6 +180,17 @@ rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula  -> restr_
 
 nat_set: nat_range ("," nat_range)*
 !nat_range: NAT ("-" NAT?)?
+
+?sym_or_node: sum_sym_or_node
+?sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? prod_sym_or_node
+?left_sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? left_prod_sym_or_node
+?prod_sym_or_node: (left_prod_sym_or_node "*")? (rightmost_sym_or_node | atomic_sym_or_node)
+?left_prod_sym_or_node: (left_prod_sym_or_node "*")? atomic_sym_or_node
+
+?atomic_sym_or_node: LABEL | pos_expr
+
+rightmost_sym_or_node: "if" formula "then" sym_or_node "else" sym_or_node -> sym_or_node_ite
+                     | "switch" formula ":" sym_or_node (";" formula ":" sym_or_node)* ";"? -> sym_or_node_switch
 
 ?pos_expr: STRICT_LABEL ("." (LABEL | vector))*
 
@@ -385,6 +395,29 @@ class GriddyTransformer(Transformer_NonRecursive):
     def pos_expr(self, address):
         return ("ADDR", *address)
 
+    def sum_sym_or_node(self, args):
+        val1, op, val2 = args
+        return ("VAL_OP", op, val1, val2)
+
+    def left_sum_sym_or_node(self, args):
+        val1, op, val2 = args
+        return ("VAL_OP", op, val1, val2)
+
+    def prod_sym_or_node(self, args):
+        val1, val2 = args
+        return ("VAL_OP", '*', val1, val2)
+
+    def left_prod_sym_or_node(self, args):
+        val1, val2 = args
+        return ("VAL_OP", '*', val1, val2)
+
+    def sym_or_node_ite(self, args):
+        cond, trueval, falseval = args
+        return ("SWITCH", (cond, trueval), (("NOT", cond), falseval))
+
+    def sym_or_node_switch(self, args):
+        return ("SWITCH", *((args[2*i],  args[2*i+1]) for i in range(len(args)//2)))
+
     def nat_range(self, items):
         if len(items) == 1:
             return (items[0], items[0])
@@ -482,6 +515,10 @@ class GriddyTransformer(Transformer_NonRecursive):
                  for i in range(len(substexpr)//2)}
         rest = substexpr[-1]
         return ("SUBSTITUTE", subst, rest)
+
+    def ite_formula(self, ifexpr):
+        cond, trueval, falseval = ifexpr
+        return ("AND", ("IMP", cond, trueval), ("IMP", ("NOT", cond), falseval))
 
     def bool_or_call(self, call):
         if len(call) == 1:
@@ -686,12 +723,12 @@ class GriddyTransformer(Transformer_NonRecursive):
             items = items[2:]
         return Opts(opts)
 
-    def cmd_blockmap_sym(self, args):
+    def cmd_blockmap(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
-        label, *rules = pos_args 
-        return (name, [label, [rules[2*i:2*i+2] for i in range(len(rules)//2)]], opts, flags)
+        label, var, rule = pos_args 
+        return (name, [label, [((), var, rule)]], opts, flags)
 
-    def cmd_blockmap_node_sym(self, args):
+    def cmd_blockmap_nodes(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("block_map", args)
         label, *rules = pos_args 
         return (name, [label, [rules[3*i:3*i+3] for i in range(len(rules)//3)]], opts, flags)

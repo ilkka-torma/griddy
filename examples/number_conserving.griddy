@@ -10,7 +10,7 @@
 
 -- The new state is a1 iff the formula is true.
 %block_map domain=nums traffic
-a1 Ao (o=0 -> o.rt=1 | [o.rt o.up o.up.lt] = [0 1 1]) & (o=1 -> o.lt=1 & (o.dn=1 | (o.dn=0 & o.dn.rt=1)))
+o if (o=0 -> o.rt=1 | [o.rt o.up o.up.lt] = [0 1 1]) & (o=1 -> o.lt=1 & (o.dn=1 | (o.dn=0 & o.dn.rt=1))) then a1 else a0
 
 -- Compute the SFT containing the relation of the CA, i.e. pairs (x, traffic(x)).
 %relation tracks=[D C] traffic_rel traffic

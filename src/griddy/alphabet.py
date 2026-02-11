@@ -1,5 +1,5 @@
 import math
-from circuit import Circuit, AND, OR, NOT, T, F, IFF, V
+from circuit import Circuit, AND, OR, NOT, T, F, IFF, V, SAT
 
 # Does this string represent a number?
 def is_nat(string):
@@ -16,7 +16,9 @@ def node_constraints(alphabets):
     def func(circuits):
         if type(circuits) == Circuit:
             circuits = [circuits]
-        nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables())
+        # only consider variables that look like nodes
+        nodes = set(var[:-1] for circuit in circuits for var in circuit.get_variables()
+                    if type(var) == tuple and len(var) >= 2 and var[1] in alphabets)
         anded = []
         for node in nodes:
             alph = alphabets[node[1]]
@@ -28,7 +30,7 @@ def node_constraints(alphabets):
 class Alphabet:
     "A finite alphabet plus a method of encoding it into circuits."
 
-    def __init__(self, symbols, node_vars, model_to_sym, node_constraint, node_eq_sym, node_eq_node, sym_to_num, encoding = None):
+    def __init__(self, symbols, node_vars, model_to_sym, node_constraint, node_eq_sym, node_eq_node, sym_to_num, operations=None, encoding = None):
         """
         A finite alphabet.
         * symbols is a list of its elements (they have a default order).
@@ -43,6 +45,10 @@ class Alphabet:
         * node_eq_node is a function that takes two lists of circuits and returns a circuit
           constraining them to represent the same variable.
         * sym_to_num takes a symbol and returns a number or None
+        * operations is a dict of supported binary operations, given as
+          string : (func(sym, sym -> sym), None or func([circ], [circ] -> [circ])).
+          If not given, no operations are supported.
+          Compiler currently uses only '+', '-' and '*'.
         """
         self.symbols = symbols
         self.node_vars = node_vars
@@ -53,8 +59,44 @@ class Alphabet:
         self.sym_to_num = sym_to_num
         self.encoding = encoding
 
+        # Compute a model of type node_var : bool for each symbol
+        nvars = [V(l) for l in self.node_vars]
+        self.models = dict()
+        for sym in symbols:
+            model = SAT(AND(self.node_eq_sym(nvars, sym),
+                            self.node_constraint(nvars)),
+                        return_model=True)
+            self.models[sym] = model
+
+        if operations is None:
+            self.operations = dict()
+        else:
+            # Complete missing operation implementations
+            ops = dict()
+            for (op_name, (sym_func, circ_func)) in operations.items():
+                if circ_func is None:
+                    def f(circs1, circs2, sym_func=sym_func):
+                        oreds = {label : [] for label in self.node_vars}
+                        #print("sym func", sym_func)
+                        for sym1 in self.symbols:
+                            for sym2 in self.symbols:
+                                sym3 = sym_func(sym1, sym2)
+                                #print("sym_func", op_name, sym1, sym2, sym3)
+                                for label in self.node_vars:
+                                    if self.models[sym3][label]:
+                                        oreds[label].append(AND(self.node_eq_sym(circs1, sym1),
+                                                                self.node_eq_sym(circs2, sym2)))
+                        return [OR(*oreds[label]) for label in self.node_vars]
+                    ops[op_name] = (sym_func, f)
+                else:
+                    ops[op_name] = (sym_func, circ_func)
+            self.operations = ops
+
     def __repr__(self):
-        return "Alphabet({}, encoding={})".format(self.symbols, self.encoding)
+        if self.operations:
+            return "Alphabet({}, operations={}, encoding={})".format(self.symbols, list(self.operations), self.encoding)
+        else:
+            return "Alphabet({}, encoding={})".format(self.symbols, self.encoding)
 
     def __iter__(self):
         return iter(self.symbols)
@@ -74,7 +116,7 @@ class Alphabet:
         return self.encoding == other.encoding and self.symbols == other.symbols
 
     @classmethod
-    def test_alph(self, syms):
+    def test_alph(self, syms, **kwds):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true. Used for testing."
 
         labels = [(sym, "TEST!") for sym in syms]
@@ -102,10 +144,10 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, labels, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="test")
+        return self(syms, labels, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="test", **kwds)
 
     @classmethod
-    def unary(self, syms):
+    def unary(self, syms, **kwds):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true."
 
         def m_to_s(bools):
@@ -131,10 +173,10 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="unary")
+        return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="unary", **kwds)
 
     @classmethod
-    def unary_minus_one(self, syms):
+    def unary_minus_one(self, syms, **kwds):
         "An alphabet encoded in unary minus one: one variable per symbol except the first one, at most one is true."
 
         def m_to_s(bools):
@@ -168,10 +210,10 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one")
+        return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one", **kwds)
 
     @classmethod
-    def tally(self, syms):
+    def tally(self, syms, **kwds):
         "An alphabet encoded in unary: one variable per symbol s, and first s many are true."
 
         def m_to_s(bools):
@@ -207,10 +249,10 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, syms[1:], m_to_s, contiguous, n_eq_s, n_eq_n, s_to_num, encoding="tally")
+        return self(syms, syms[1:], m_to_s, contiguous, n_eq_s, n_eq_n, s_to_num, encoding="tally", **kwds)
 
     @classmethod
-    def binary(self, syms):
+    def binary(self, syms, **kwds):
         """
         An alphabet encoded in binary: ceil(log_2(n)) bits used for n variables.
         First variable is coded 000, then 001, etc..
@@ -264,7 +306,7 @@ class Alphabet:
             else:
                 return None
                           
-        return self(syms, vrs, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="binary")
+        return self(syms, vrs, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="binary", **kwds)
 
 
 

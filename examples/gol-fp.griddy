@@ -4,8 +4,9 @@
 -- Define the Game of Life rule
 %topology king
 %CA gol
-1 Av letnum lives := #n[v:1] n!@v & n=1 in
-  lives == 3 | (v=1 & lives == 2)
+v if letnum lives := #n[v:1] n!@v & n=1 in
+     lives == 3 | (v=1 & lives == 2)
+  then 1 else 0
 -- Define the SFT of its fixed points
 %fixed_points gol_fp gol
 

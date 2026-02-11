@@ -243,7 +243,7 @@ unit_tests.append(("loc dom rad 2", code_locdomrad2))
 code = """
 %topology grid
 %CA @verbose a
-1 Ao o!=o.rt
+o if o!=o.rt then 1 else 0
 %equal expect=T a a
 %compose @verbose aa a a
 %compose aa_a aa a
@@ -263,12 +263,12 @@ lt (0; top) (-1; top);
 lt (0; bot) (-1; bot)
 
 %CA identity
-top 1 ACo o.top=1;
-bot 1 ACo o.bot=1
+top o o.top;
+bot o o.bot
 
 %CA flip
-top 1 ACo o.top=0;
-bot 1 ACo o.bot=0
+top o if o.top=0 then 1 else 0;
+bot o if o.bot=0 then 1 else 0
 
 %equal expect=F identity flip
 """
@@ -288,17 +288,17 @@ rt (0; bot) (1; bot);
 lt (0; top) (-1; top);
 lt (0; bot) (-1; bot)
 %CA R -- partial right shift on the top track
-top 1 ACo o.rt.top=1;
-bot 1 ACo o.bot=1
+top o o.rt.top;
+bot o o.bot
 %CA L -- partial left shift on the top track
-top 1 ACo o.lt.top=1;
-bot 1 ACo o.bot=1
+top o o.lt.top;
+bot o o.bot
 %CA A -- add top track to bottom track
-top 1 ACo o.top=1;
-bot 1 ACo (o.bot=1 | o.top=1) & (o.bot=0 | o.top=0)
+top o o.top;
+bot o if o.bot!=o.top then 1 else 0
 %CA id -- identity
-top 1 ACo o.top=1;
-bot 1 ACo o.bot=1
+top o o.top;
+bot o o.bot
 %compose ARRRALLLLLARR A R R R A L L L L L A R R
 %compose LLARRRRRALLLA L L A R R R R R A L L L A
 %equal expect=T ARRRALLLLLARR LLARRRRRALLLA
@@ -368,7 +368,7 @@ code = """
 %dim 1
 %topology succ (0) (1)
 %CA xor
-1 Ao o!=o.succ
+o if o!=o.succ then 1 else 0
 %spacetime_diagram diagram xor
 --%show_environment
 --%show_environment sft=diagram
@@ -458,9 +458,9 @@ unit_tests.append(("emptiness", code))
 
 code = """
 %CA a
-0 Ao o=o.rt=0
+o if o=o.rt=0 then 0 else 1
 %CA b
-0 Ao o=o.up=0
+o if o=o.up=0 then 0 else 1
 %calculate_CA_ball 3 a b
 """
 unit_tests.append(("CA ball", code))
@@ -475,16 +475,16 @@ sw (0,0;b) (0,0;a)
 %topology grid
 %alphabet 0 1
 %block_map domain=env b1
-0 Ao o=o.sw
+o if o.a=o.a.sw then 0 else 1
 %block_map domain=env b2
-0 ACo o.a=o.b
+o if o.a=o.b then 0 else 1
 %equal expect=T b1 b2
 """
 unit_tests.append(("environments and block maps", code))
 
 code = """
 %CA f
-0 Ao o=o.up=0
+o if o=o.up=0 then 0 else 1
 %SFT domino Ao o!=o.rt
 %preimage preim f domino
 %SFT alternative Ao o=o.up=0 <-> (o.rt=1 | o.rt.up=1)
@@ -505,7 +505,7 @@ unit_tests.append(("node lists", code))
 
 code = """
 %CA xor
-0 Ao o=o.up=o.rt=0 | o=o.up!=o.rt=0 | 0=o!=o.up=o.rt | o=o.rt!=o.up=0
+o if o=o.up=o.rt=0 | o=o.up!=o.rt=0 | 0=o!=o.up=o.rt | o=o.rt!=o.up=0 then 0 else 1
 %fixed_points fps xor
 %SFT diag Ao o.up=o.rt
 %equal expect=T fps diag
@@ -529,7 +529,7 @@ code = """
 %save_environment bin
 %alphabet a b c
 %block_map codomain=bin f
-1 Ao o=o.rt=a | o=o.up=b
+o if o=o.rt=a | o=o.up=b then 1 else 0
 %relation tracks=[D C] rel f
 %nodes D C
 %alphabet {D:[a b c] C:[0 1]}
@@ -540,9 +540,9 @@ unit_tests.append(("relation", code))
 
 code = """
 %CA f
-1 Ao o=1 | o.rt=1
+o if o=1 | o.rt=1 then 1 else 0
 %CA g
-1 Ao o=1 | o.up=1
+o if o=1 | o.up=1 then 1 else 0
 %compose fg f g
 %compose gf g f
 %equal expect=T fg gf
@@ -783,7 +783,7 @@ code = """
 %compute_forbidden_patterns inc
 %sofic1d inc_s inc
 %blockmap xor
-1 Ao o!=o.rt
+o if o!=o.rt then 1 else 0
 %sofic_image img xor inc_s
 %language aut2 img
 %regexp aut3 (1|())(0|0 1)*
@@ -807,7 +807,7 @@ code = """
 %compute_forbidden_patterns step
 %sofic1d step_s step
 %CA xor
-1 Ao o!=o.rt
+o if o!=o.rt then 1 else 0
 %sofic_image s3 xor step_s
 %equal expect=T s s2
 %equal expect=T s2 s3
@@ -892,11 +892,11 @@ lt (0, 0; b) (-1, 0; b);
 rt (0, 0; a) (1, 0; a);
 rt (0, 0; b) (1, 0; b);
 %CA test
-a 0 Ao o.a=0;
-a 1 Ao (o.a=2 & o.up.rt.b=1) | (o.a=1 & o.rt.up.b=0);
-a 2 Ao (o.a=1 & o.rt.up.b=1) | (o.a=2 & o.up.rt.b=0);
-b 0 Ao o.b=0;
-b 1 Ao o.b=1;
+a o switch
+  o.a=0 : 0;
+  (o.a=2 & o.up.rt.b=1) | (o.a=1 & o.rt.up.b=0) : 1;
+  (o.a=1 & o.rt.up.b=1) | (o.a=2 & o.up.rt.b=0) : 2;
+b o o.b
 %has_post_inverse test radius=0 expect=F
 %has_post_inverse test radius=1 expect=F
 %has_post_inverse test radius=2 expect=T
@@ -907,12 +907,11 @@ code = """
 %topology line
 %alphabet 0 1 2
 %CA full
-0 Ao o=0&o.rt=1 | o=1&o.rt=2;
-1 Ao o@o
+o if o=0&o.rt=1 | o=1&o.rt=2 then 0 else 1
 %has_post_inverse full radius=4 expect=F
 %CA partial
-0 Ao o=0&o.rt=1 | o=1&o.rt=2;
-nil Ao o@o
+o switch
+  o=0&o.rt=1 | o=1&o.rt=2 : 0
 %has_post_inverse partial radius=4 expect=T
 """
 unit_tests.append(("Post-inverses of partial CA", code))
@@ -971,22 +970,50 @@ for enc in encodings:
 %intersection i2 p2 d2
 
 %CA id1 codomain=e
-a 0 ACo o.a=0;
-a 1 ACo o.a=1;
-b 0 ACo o.b=0;
-b 1 ACo o.b=1
+a o if o.a=3 then 2 else o.a;
+b o o.b
 
 %has_post_inverse expect=F id1 radius=1
 
 %CA id2 domain=e
-a 0 ACo o.a=0;
-a 1 ACo o.a=1;
-b 0 ACo o.b=0;
-b 1 ACo o.b=1
+a o o.a;
+b o o.b
 
 %has_post_inverse expect=T id2 radius=1
 """.format(enc)
     unit_tests.append(("Alphabet encoding {0}".format(enc), code))
+
+code = """
+%alphabet Z2
+%sft x Ao o=o.rt+o.up
+%sft x2 Ao (o.rt=o.up -> o=0) & (o.rt!=o.up -> o=1)
+%equals expect=T x x2
+%sft y Ao o*o.up = o*if o.dn=0 then o.rt else o.lt
+%sft y2 Ao o=0 |
+(o.dn=0 & (o.up = o.rt)) |
+(o.dn=1 & (o.up = o.lt))
+%equals expect=T y y2
+%alphabet Z4
+%sft z Ao o*o.rt*o.up=0
+%sft z2 Ao o=0 | o.rt=0 | o.up=0
+| o=o.rt=2 | o=o.up=2 | o.rt=o.up=2
+%equals expect=T z z2
+%sft v Ao o*2=o.up*2
+%sft v2 Ao (o=1|o=3) <-> (o.up=1|o.up=3)
+%equals expect=T v v2
+%sft w Ao 2*o+o.rt=o.up+o.lt
+%sft w2 Ao o.rt-o.up-o.lt+2*o=0
+%equals expect=T w w2
+%blockmap f o if o.up=0 then 0 else o+o.rt
+%blockmap g o switch
+o.up=0 : 0;
+o=0 : o.rt;
+o=1 : o.rt+1;
+o=2 : o.rt+2;
+o=3 : o.rt+3
+%equals expect=T f g
+"""
+unit_tests.append(("Binary operations", code))
 
 if __name__ == "__main__":
 
