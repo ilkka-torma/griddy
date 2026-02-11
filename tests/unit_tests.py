@@ -1001,6 +1001,17 @@ code = """
 %sft v Ao o*2=o.up*2
 %sft v2 Ao (o=1|o=3) <-> (o.up=1|o.up=3)
 %equals expect=T v v2
+%sft w Ao 2*o+o.rt=o.up+o.lt
+%sft w2 Ao o.rt-o.up-o.lt+2*o=0
+%equals expect=T w w2
+%blockmap f o if o.up=0 then 0 else o+o.rt
+%blockmap g o switch
+o.up=0 : 0;
+o=0 : o.rt;
+o=1 : o.rt+1;
+o=2 : o.rt+2;
+o=3 : o.rt+3
+%equals expect=T f g
 """
 unit_tests.append(("Binary operations", code))
 

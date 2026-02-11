@@ -1100,8 +1100,13 @@ class Griddy:
                             if val in local_alph:
                                 pairs.append((circ, val))
                             else:
-                                pos = compiler.eval_to_position(self.graph, dom_top, dom_nodes, val, variables)
-                                pairs.append((circ, pos))
+                                val, typ = compiler.eval_posexpr_to_circ(self.graph, dom_top, dom_nodes, dom_alph, self.externals, variables, {}, [], val)
+                                if typ == "list":
+                                    for (circ2, (val2, typ2)) in val:
+                                        pairs.append((AND(circ, circ2), val2))
+                                else:
+                                    # circuits
+                                    pairs.append((circ, val))
                         pairs = compiler.disjointify(pairs)
                         if node in circuits:
                             raise GriddyCompileError("Multiply defined block map rule: {}".format(rule))

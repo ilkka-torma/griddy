@@ -89,8 +89,9 @@ class BlockMap:
         return "\n".join(s)
 
     # we get a dict of node : [(circ, sym or pos)], the circs in each list are disjoint
-    # we return a dict of (node, sym) : circuit and possibly a partiality dict node : circuit
+    # we return a dict of (node, label) : circuit and possibly a partiality dict node : circuit
     def circuits_from_rules(self, rules):
+        #print("cfr", rules)
 
         partial = False
         ret_circuits = dict()
@@ -102,6 +103,7 @@ class BlockMap:
                 pairs = rules[node]
                 has_img_oreds = []
                 for (circ, val) in pairs:
+                    #print("node", node, "local alph", local_alph, "circ", circ, "val", val)
                     if val in local_alph:
                         # a symbol -> enforce its model
                         has_img_oreds.append(circ)
@@ -109,24 +111,22 @@ class BlockMap:
                             if local_alph.models[val][label]:
                                 oreds[label].append(circ)
                     else:
-                        # we have a position
-                        cell, dom_node = val
-                        dom_alph = self.from_alphabet[dom_node]
-                        if dom_alph == local_alph:
+                        # we have a list of circuits representing a symbol on the domain side
+                        circs, val_alph = val
+                        if val_alph == local_alph:
                             # alphabets agree -> copy
                             has_img_oreds.append(circ)
-                            for label in local_alph.node_vars:
-                                oreds[label].append(AND(circ, V((cell, dom_node, label))))
+                            for var, label in zip(circs, local_alph.node_vars):
+                                oreds[label].append(AND(circ, var))
                         else:
-                            # alphabets disagree -> enforce their models
-                            for sym in dom_alph:
+                            # alphabets disagree -> enforce their models one by one
+                            for sym in val_alph:
                                 if sym in local_alph:
-                                    dom_vars = [V((cell, dom_node, l)) for l in dom_alph.node_vars]
                                     for label in local_alph.node_vars:
                                         if local_alph.models[sym][label]:
-                                            oreds[label].append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
-                                    has_img_oreds.append(AND(circ, dom_alph.node_eq_sym(dom_vars, sym)))
-                                            
+                                            oreds[label].append(AND(circ, val_alph.node_eq_sym(circs, sym)))
+                                    has_img_oreds.append(AND(circ, val_alph.node_eq_sym(circs, sym)))
+                                    
                 for label in local_alph.node_vars:
                     ret_circuits[node, label] = OR(*oreds[label])
 

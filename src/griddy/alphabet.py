@@ -27,19 +27,6 @@ def node_constraints(alphabets):
         return AND(*anded)
     return func
 
-def circ_op(sym_func, symbols, node_vars, node_eq_sym, models, circs1, circs2):
-    oreds = {label : [] for label in node_vars}
-    #print("sym func", sym_func)
-    for sym1 in symbols:
-        for sym2 in symbols:
-            sym3 = sym_func(sym1, sym2)
-            #print("sym_func", op_name, sym1, sym2, sym3)
-            for label in node_vars:
-                if models[sym3][label]:
-                    oreds[label].append(AND(node_eq_sym(circs1, sym1),
-                                            node_eq_sym(circs2, sym2)))
-    return [OR(*oreds[label]) for label in node_vars]
-
 class Alphabet:
     "A finite alphabet plus a method of encoding it into circuits."
 
@@ -88,7 +75,19 @@ class Alphabet:
             ops = dict()
             for (op_name, (sym_func, circ_func)) in operations.items():
                 if circ_func is None:
-                    ops[op_name] = (sym_func, lambda c1, c2, sym_func=sym_func: circ_op(sym_func, symbols, node_vars, node_eq_sym, self.models, c1, c2))
+                    def f(circs1, circs2, sym_func=sym_func):
+                        oreds = {label : [] for label in self.node_vars}
+                        #print("sym func", sym_func)
+                        for sym1 in self.symbols:
+                            for sym2 in self.symbols:
+                                sym3 = sym_func(sym1, sym2)
+                                #print("sym_func", op_name, sym1, sym2, sym3)
+                                for label in self.node_vars:
+                                    if self.models[sym3][label]:
+                                        oreds[label].append(AND(self.node_eq_sym(circs1, sym1),
+                                                                self.node_eq_sym(circs2, sym2)))
+                        return [OR(*oreds[label]) for label in self.node_vars]
+                    ops[op_name] = (sym_func, f)
                 else:
                     ops[op_name] = (sym_func, circ_func)
             self.operations = ops
