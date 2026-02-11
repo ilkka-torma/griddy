@@ -1027,6 +1027,15 @@ o=0|o.rt=0 : o.dn=1
 """
 unit_tests.append(("If and switch statements", code))
 
+code = """
+%blockmap f o if o=o.rt=1 then 1 else 0
+%clopen c1 Ao o=o.rt.rt=0 & o.rt=1
+%clopen c2 Ao o=o.rt.rt=1 & o.rt=0
+%image_intersects f c1 expect=T
+%image_intersects f c2 expect=F
+"""
+unit_tests.append(("Image intersection", code))
+
 if __name__ == "__main__":
 
     t = time.time()

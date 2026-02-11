@@ -1232,6 +1232,10 @@ class Griddy:
                     if mode != "silent": print("Does intersect.")
                 else:
                     if mode != "silent": print("Does not intersect.")
+                expect = kwds.get("expect", None)
+                if expect is not None and mode == "assert":
+                    if mode != "silent": print(result, "=", expect)
+                    assert result == (expect == "T")
                 results.append(result)
 
             # restrict alphabets of codomain
