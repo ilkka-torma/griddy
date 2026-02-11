@@ -157,11 +157,12 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 
 !num_comp_op: "==" | "/=" | "<=" | "<" | ">=" | ">"
 
-rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula  -> restr_quantified
-                 | "subst" (pos_expr ":=" LABEL)+ "in" formula         -> subst_formula
-                 | "let" STRICT_LABEL+ ":=" formula "in" formula       -> let_formula
-                 | "letnum" STRICT_LABEL ":=" num_formula "in" formula -> letnum_formula
-                 | "if" formula "then" formula "else" formula          -> ite_formula
+rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula           -> restr_quantified
+                 | "subst" (pos_expr ":=" LABEL)+ "in" formula                  -> subst_formula
+                 | "let" STRICT_LABEL+ ":=" formula "in" formula                -> let_formula
+                 | "letnum" STRICT_LABEL ":=" num_formula "in" formula          -> letnum_formula
+                 | "if" formula "then" formula "else" formula                   -> ite_formula
+                 | "switch" formula ":" formula (";" formula ":" formula)* ";"? -> switch_formula
 
 ?num_formula: sum_num_formula
 ?sum_num_formula: prod_num_formula ("+" prod_num_formula)*
@@ -519,6 +520,9 @@ class GriddyTransformer(Transformer_NonRecursive):
     def ite_formula(self, ifexpr):
         cond, trueval, falseval = ifexpr
         return ("AND", ("IMP", cond, trueval), ("IMP", ("NOT", cond), falseval))
+
+    def switch_formula(self, args):
+        return ("SWITCH", *(tuple(args[2*i:2*i+2]) for i in range(len(args)//2)))
 
     def bool_or_call(self, call):
         if len(call) == 1:

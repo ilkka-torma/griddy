@@ -1015,6 +1015,18 @@ o=3 : o.rt+3
 """
 unit_tests.append(("Binary operations", code))
 
+code = """
+%sft x Ao if o=0 then o.rt=o.up else o.lt=o.dn
+%sft x2 Ao (o=0 -> o.rt=o.up) & (o=1 -> o.lt=o.dn)
+%equals expect=T x x2
+%sft y Ao switch
+o=o.rt=0 : o.up=1;
+o=0|o.rt=0 : o.dn=1
+%sft y2 Ao (o=0|o.rt=0) & (o=o.rt=0 -> o.up=1) & ((o=1|o.rt=1) -> o.dn=1)
+%equals expect=T y y2
+"""
+unit_tests.append(("If and switch statements", code))
+
 if __name__ == "__main__":
 
     t = time.time()

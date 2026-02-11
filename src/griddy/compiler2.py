@@ -179,6 +179,21 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             ret = IMP(*arg_formulas)
         if op == "IFF":
             ret = IFF(*arg_formulas)
+
+    elif op == "SWITCH":
+        pairs = []
+        for (cond, res) in formula[1:]:
+            cond_circ = formula_to_circuit_(graph, topology, nodes, alphabet, cond,
+                                            variables, subst, externals, global_restr)
+            res_circ = formula_to_circuit_(graph, topology, nodes, alphabet, res,
+                                           variables, subst, externals, global_restr)
+            pairs.append((cond_circ, res_circ))
+
+        pairs = disjointify(pairs)
+
+        ret = OR(*(AND(cond_circ, res_circ) for (cond_circ, res_circ) in pairs))
+        
+        
     # bool behaves like a circuit variable without variables; more efficient maybe since we just calculate a circuit
     elif op == "SETBOOL":
         var = formula[1]
