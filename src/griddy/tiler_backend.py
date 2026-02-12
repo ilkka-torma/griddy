@@ -83,6 +83,9 @@ class TilerState:
         if selection is None:
             selection = set()
         self.selection = selection
+        #self.origin_pos = origin
+        #if origin == None:
+        #    self.origin_pos = (0,)*dim
 
 def decorate_default(conf):
     "Add default (False) decorations."
@@ -131,16 +134,20 @@ class TilerBackend:
     It contains the ambient SFT and settings, the current state, and a history of states.
     """
     
-    def __init__(self, sft, init_conf=None, sizes=None, periodic=None, project_to=None):
-        self.sft = sft
+    def __init__(self, sftt, init_conf=None, sizes=None, periodic=None, project_to=None):
+        if isinstance(sftt, sft.SFT):
+            sftt = sft.CSIntersectify(sftt)
+        elif isinstance(sftt, sft.Clopen):
+            sftt = sft.CSIntersectify(sftt)
+        self.sft = sftt
         if init_conf is not None:
             init_conf = decorate_default(init_conf)
-        self.history = [TilerState(conf=init_conf, dim=sft.dim, nodes=sft.nodes, alph=sft.alph, sizes=sizes, periodic=periodic)]
+        self.history = [TilerState(conf=init_conf, dim=sftt.dim, nodes=sftt.nodes, alph=sftt.alph, sizes=sizes, periodic=periodic)]
         self.history_index = 0
-        self.axis_states = [AxisState.FIXED]*sft.dim
+        self.axis_states = [AxisState.FIXED]*sftt.dim
         self.clipboard = None
         if project_to is None:
-            project_to = list(range(sft.dim))
+            project_to = list(range(sftt.dim))
         self.project_to = project_to
             
     def project(self, nvec):
@@ -196,12 +203,9 @@ class TilerBackend:
         Unfixed non-list nodes are set to unknown before deduction.
         Return a Boolean for success.
         """
-        
 
         #if self.conf().empty(): <- maybe smth like this is a good idea, since this fails with periodic right now.
         #    return
-        
-        
         
         fixed_axes = [i for (i,st) in enumerate(self.axis_states) if st == AxisState.FIXED and i in self.project_to]
         periodics = [i for (i,st) in enumerate(self.axis_states) if st == AxisState.PERIODIC and i in self.project_to]

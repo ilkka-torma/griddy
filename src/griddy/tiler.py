@@ -58,6 +58,7 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 GRAY = (120, 120, 120)
+PURPLE = (240, 0, 200)
 
 # UNKNOWN means we deduce the color
 # EMPTY
@@ -66,6 +67,7 @@ EMPTY = "EMPTY" # cell is not used -- actually we just erase these from grid but
 DEDUCED = "DEDUCED" # not set by user, some value has been deduced
 SET = "SET" # set by user
 FIXITY = "FIXITY" # fixity of node
+ORIGIN = "ORIGIN" # for putting down origin -- actually, not in use right now!
 
 TILING_OK_GRID_COLOR = (30,30,30)
 TILING_BAD_GRID_COLOR = (100, 50, 50)
@@ -261,7 +263,8 @@ def Noneish(a):
 
 def run(the_SFT, topology, gridmoves, nodeoffsets,
         x_size=10, y_size=10, x_periodic=False, y_periodic=False,
-        pictures=None, the_colors=None, initial=None, hidden_nodes=[]):
+        pictures=None, the_colors=None, initial=None, hidden_nodes=[],
+        origin_matters=False):
     #print(topology)
 
     # check dimension in the first command of topology
@@ -282,7 +285,6 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
 
     if initial is not None and dimension != initial.dim:
         raise Exception("Dimension mismatch between tiler and initial configuration: {} vs {}".format(dimension, initial.dim))
-        
 
     print("hidden nodes", hidden_nodes)
 
@@ -293,7 +295,6 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
 
     #print(pictures)
 
-    
     
     #print(gridmoves)
     #print(nodeoffsets)
@@ -351,6 +352,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     print("colors", colors)
 
     origin = ((0,)*dimension), nodes[0]
+    #backend.origin_pos = origin[0]
 
     #que = Queue()
 
@@ -590,6 +592,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     moving_camera = False
     
     paint_fixity = True
+    
 
     
     #for nvec in backend.conf().pat:
@@ -709,6 +712,11 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 if event.key == pygame.K_u:
                     drawcolor = UNKNOWN # means unused
                     drawcolor_set = True
+                # not currently in use, would require some work on the backend
+                #if event.key == pygame.K_o and origin_matters: 
+                #    drawcolor = ORIGIN
+                #    backend.origin_pos = origin[0]
+                #    drawcolor_set = True
                 if event.key == pygame.K_BACKSPACE:
                     if shift_modifier:
                         backend.remove_all()
@@ -971,6 +979,9 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         paint_fixity = not val[1]
                 if paint_fixity is not None and conf[node] is not None:
                     backend.replace_patch({node : (conf[node][0], paint_fixity)})
+            elif drawcolor == ORIGIN:
+                origin = node
+                
             elif drawcolor[0] == SET and drawcolor[1] < len(alphabets[node[-1]]):
                 
                 patch = {node : (alphabets[node[-1]][drawcolor[1]], True)}
@@ -985,6 +996,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     thred.terminate()
                     thred = None
                     print ("deduction cancelled")
+            
                    
         if not cancel_non_UI:
             if mouserisdown:
@@ -1083,6 +1095,8 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     if nodes[n] in hidden_nodes:
                         continue
                     p = vadd(to_screen(x, y), vmul(zoom, nodeoffsets[nodes[n]]))
+                    if ((x, y), nodes[n]) == origin:
+                        pygame.draw.circle(screen, PURPLE, cp_to_screen(p), nodesize+8)
                     # highlight selected nodes and nodes currently being selected
                     if ((x,y),nodes[n]) in selection:
                         if ((x,y),nodes[n]) in backend.selection():

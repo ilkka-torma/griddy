@@ -1,0 +1,16 @@
+%alphabet 0 1
+
+%clopen origin_one Ao o=1
+%clopen up_one Ao o.up=1
+%SFT goldenmean Ao o=1 -> (o.rt=0=o.up)
+
+%intersection int2 goldenmean origin_one
+
+-- try to put (0,1)=1; it will fail
+%tiler int2
+
+%intersection int3 goldenmean origin_one up_one
+
+-- this is empty, space fails immediately
+%tiler int3
+

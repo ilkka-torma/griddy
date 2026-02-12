@@ -425,6 +425,7 @@ class Griddy:
             elif cmd == "intersection":
                 isect_name = args[0]
                 names = args[1]
+                #print("intersection", names)
                 if not names:
                     raise Exception("Empty intersection")
                 sfts = []
@@ -1265,13 +1266,15 @@ class Griddy:
                 if mode != "silent": print(gridmoves)
                 if mode != "silent": print(self.tiler_gridmoves)
                 SFT = self.SFTs[name]
+                origin_matters = isinstance(SFT, sft.Clopen) or isinstance(SFT, sft.CSIntersection)
                 topo_name = kwds.get("topology", None)
                 if topo_name is None:
                     topology = SFT.topology
                 else:
                     topology = self.environments[topo_name][2]
                 colors = kwds.get("colors", None)
-                tiler.run(SFT, topology, gridmoves, node_offsets, x_size, y_size, x_periodic, y_periodic, pictures, colors, initial=conf, hidden_nodes=hidden_nodes)
+                tiler.run(SFT, topology, gridmoves, node_offsets, x_size, y_size, x_periodic, y_periodic, pictures,
+                          colors, initial=conf, hidden_nodes=hidden_nodes, origin_matters=origin_matters)
                 #tiler.run(SFT, self.topology, gridmoves, node_offsets, self.tiler_skew, x_size, y_size, x_periodic, y_periodic, pictures)
             
             elif cmd == "entropy_upper_bound":

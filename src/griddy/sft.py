@@ -226,9 +226,7 @@ class CSIntersection:
     "intersection of clopen and SFT"
     
     def __init__(self, sft, clopen):
-        # basically inheritance, but we prefer to duck it
-
-    
+        # basically inheritance, but we prefer to duck it    
         self.sft = sft
         self.clopen = clopen
         #print("made inter", self.sft, self.clopen, hash(self))
@@ -448,16 +446,144 @@ class CSIntersection:
         return c21, max(rad, rad2)
     """
 
+    def deduce_global(self, conf, periodics=None, fixed_axes=None, bound=None):
+        # Deduce a configuration with variable structure.
+        
+        # conf is a recognizable configuration
+        # periodics is a list of directions we want to be periodic
+        # fixed_axes is a list of directions where we have fixed the markers
+        
+        if periodics is None:
+            periodics = []
+        if fixed_axes is None:
+            fixed_axes = []
+        
+        #print("deducing with", periodics, fixed_axes)
+        
+        markers = conf.minimized_markers(fixed_axes = fixed_axes)
+        #print("markers minimized to", markers)
+        
+        marker_gens = []
+        for (i, marker) in enumerate(markers):
+            if i in fixed_axes:
+                marker_gens.append(iter([marker]))
+            else:
+                marker_gens.append(gen_markers_from_minimal(marker, periodic=i in periodics))
+                
+        #print("marker gens", marker_gens)
+        
+        for (i, new_markers) in enumerate(iter_prod(*marker_gens)):
+            print("deducing", i, "with markers", new_markers)
+            if i == bound:
+                print("bound reached")
+                break
+            
+            # try to find a configuration with given structure
+            ret_conf = self.deduce(conf.remark(list(new_markers)))
+            if ret_conf is not None:
+                #print("found", ret_conf.display_str())
+                return ret_conf
+            
+            # try to find a finite patch
+            filled = dict()
+            for vec in hyperrect([(-i,i+1) for _ in range(self.dim)]):
+                for node in self.nodes:
+                    nvec = (vec, node)
+                    filled[nvec] = conf[nvec]
+            finite_conf = RecognizableConf(None, filled, self.nodes)
+            #print("finite_conf", finite_conf.display_str())
+            if self.deduce(finite_conf) is None:
+                print("failed")
+                break
+                
+        return None
 
+    def deduce(self, conf):
+        # Deduce a recognizable configuration with a fixed marker structure.
+        
+        print("deduce(", conf.display_str(), ")")
+        print(self.sft, self.sft.circuit)
+        print(self.clopen)
+                
+        diff_vecs = set(var[0] for var in self.sft.circuit.get_variables())
+        print(diff_vecs)
+        # this is the set of positions where we need to put the SFT check
+        vec_domain = set(vsub(nvec[0], dvec)
+                         for nvec in conf.pat
+                         for dvec in diff_vecs)
+                         
+        #print("diff_vecs", list(sorted(diff_vecs)))
+        #print("vec_domain", list(sorted(vec_domain)))
+        #print("deducing from", conf.display_str())
+        unknowns = set(nvec for (nvec, sym) in conf.pat.items())
+        
+        #print("vec_domain", vec_domain)
+        #print("unknowns", unknowns)
+        
+        # circuits will only contain the circuits that refer only to nodes in the domain
+        circuits = []
+        #vecs = set(nvec[:-1] for nvec in conf.pat)
+    
+        for vec in vec_domain:
+            circ = self.sft.circuit.copy()
+            transform(circ, lambda var: nvwraps(conf.markers, nvadd(var[:-1], vec)) + var[-1:])
+            if all(conf[var[:-1]] is not None for var in circ.get_variables()):
+                circuits.append(circ)
+
+        circ2 = self.clopen.circuit.copy()
+        transform(circ2, lambda var: nvwraps(conf.markers, var[:-1]) + var[-1:])
+        circuits.append(circ2)
+
+
+        seen_nvecs = set(var[:2] for circ in circuits for var in circ.get_variables())
+        #print("circuits", list(sorted(circuits.keys())))
+        for nvec in conf.pat:
+            if nvec not in seen_nvecs:
+                node_alph = self.alph[nvec[1]]
+                nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+                circuits.append(node_alph.node_constraint(nvars))
+        
+        forceds = set()
+        for (nvec, syms) in conf.pat.items():
+            node = nvec[-1]
+            if syms is None or (type(syms) == list and set(syms) == set(self.alph[node])):
+                continue
+            if type(syms) != list:
+                syms = [syms]
+            node_alph = self.alph[nvec[1]]
+            nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+            forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
+
+        #circuits = list(circuits.values())
+        #print("circuits", circuits)
+
+        # Make SAT instance, solve and extract model
+        instance = AND(*(list(circuits) + list(forceds)))
+        #print("instance", instance)
+        model = SAT_under(instance, node_constraints(self.alph), True)
+        if model == False:
+            return None
+
+        # Produce pattern from model
+        #print("model", model)
+        pat = {}
+        for nvec in conf.pat:
+            node = nvec[-1]
+            if conf[nvec] is None:
+                pat[nvec] = None
+            else:
+                node_alph = self.alph[nvec[1]]
+                nvals = [model[nvec+(l,)] for l in node_alph.node_vars]
+                pat[nvec] = node_alph.model_to_sym(nvals)
+        #print("final pat", pat)
+        return RecognizableConf(conf.markers, pat, self.nodes, onesided=conf.onesided)
 
     
 
 def CSIntersectify(some):
     if isinstance(some, SFT):
-        #print("from sft to", some.circuit)
         some = CSIntersection(some, Clopen(some.dim, some.nodes, some.alph, some.topology, some.graph, circuit = T))
     elif isinstance(some, Clopen):
-        #print("from clopen to", some.circuit)
         some = CSIntersection(SFT(some.dim, some.nodes, some.alph, some.topology, some.graph, circuit = T), some)
     #print(some.sft.circuit, some.clopen.circuit)
     return some

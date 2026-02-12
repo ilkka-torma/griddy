@@ -239,8 +239,8 @@ class SquareComplex(Graph):
 
 
 """
-Like SquareComplex, but allows involutions.
-"""
+Like SquareComplex, but allows involutions. Actually, there is a mistake,
+better just use more general f.p. groups.
 class SquareComplex2(Graph):
     # tiles are ENWS-quadruples, which should be
     # 4-way deterministic complete Wang tile set
@@ -273,7 +273,7 @@ class SquareComplex2(Graph):
     def moves(self):
         return set(self.V_colors) | set(self.H_colors)
     def move(self, cell, generator):
-        #print("cell", cell, generator)
+        print("cell", cell, generator, "doing move")
         generator, power = generator
         if power == -1:
             generator = inverse2(generator, self.involutions)
@@ -281,10 +281,14 @@ class SquareComplex2(Graph):
             return cell[0], free_simplify2(cell[1] + generator, self.involutions)
         #print("here", generator)
         newh = ""
+        print(self.involutions)
         for c in reversed(cell[1]): # go over horizontals of cell
+            print("horizontal of cell", c)
             nextgenerator = None
             for t in self.tiles: # should be look-up, but this shouldn't be time-critical
-                #print(cell, generator, t)
+                print(cell, generator, t)
+                # this is printed, but no luck: ('b', 'zy') c bycy
+                # clearly cy should be rewritten to by
                 # if a tile actually has these as SE, take corresponding WN
                 if t[3] == c and t[0] == generator:
                     newh = t[1] + newh
@@ -321,6 +325,85 @@ class SquareComplex2(Graph):
             cell = self.move(cell, (s, 1))
             print("to", cell)
         return cell
+"""
+
+"""
+Finitely presented group, where normal form is just lexicographic order.
+Elements are lists of pairs (generators, direction).
+"""
+class FPGroup(Graph):
+    def __init__(self, generators, relators, order):
+        self.generators = generators
+        self.relators = relators
+        self.order = order
+    def origin(self):
+        return ()
+    def has_move(self, cell, m):
+        return m.lower() in self.moves() or m.upper() in self.moves()
+    def has_cell(self, cell):
+        return type(cell) == tuple and len(cell) == 2 and \
+               all(a in self.V_colors for a in cell[0]) and all(a in self.H_colors for a in cell[1])
+    # seems this is just the type check
+    def is_cell(self, cell):
+        return isinstance(cell, tuple) and len(cell) == 2 and \
+            isinstance(cell[0], str) and isinstance(cell[1], str)
+    def moves(self):
+        return set(self.V_colors) | set(self.H_colors)
+    def move(self, cell, generator):
+        print("cell", cell, generator, "doing move")
+        generator, power = generator
+        if power == -1:
+            generator = inverse2(generator, self.involutions)
+        if generator.lower() in self.H_colors:
+            return cell[0], free_simplify2(cell[1] + generator, self.involutions)
+        #print("here", generator)
+        newh = ""
+        print(self.involutions)
+        for c in reversed(cell[1]): # go over horizontals of cell
+            print("horizontal of cell", c)
+            nextgenerator = None
+            for t in self.tiles: # should be look-up, but this shouldn't be time-critical
+                print(cell, generator, t)
+                # this is printed, but no luck: ('b', 'zy') c bycy
+                # clearly cy should be rewritten to by
+                # if a tile actually has these as SE, take corresponding WN
+                if t[3] == c and t[0] == generator:
+                    newh = t[1] + newh
+                    assert nextgenerator == None
+                    nextgenerator = t[2]
+                    #break
+                elif t[1] == c and inverses2(t[0], generator, self.involutions):
+                    newh = t[3] + newh
+                    assert nextgenerator == None
+                    nextgenerator = inverse2(t[2], self.involutions)
+                    #break
+                elif inverses(t[3], c) and t[2] == generator:
+                    newh = inverse2(t[1], self.involutions) + newh
+                    assert nextgenerator == None
+                    nextgenerator = t[0]
+                    #break
+                elif inverses(t[1], c) and inverses(t[2], generator, self.involutions):
+                    newh = inverse2(t[3], self.involutions) + newh
+                    assert nextgenerator == None
+                    nextgenerator = inverse2(t[0], self.involutions)
+                    #break
+                #print(newh, nextgenerator
+            if nextgenerator == None:
+                print("derp")
+            #else:
+            #    raise Exception("Move by %s failed in square complex at %s." % (generator, cell))
+            generator = nextgenerator
+        print("mm")
+        return free_simplify2(cell[0] + generator, self.involutions), newh
+    def move_rel(self, cell, offset):
+        #print("move_rel", cell, offset)
+        for s in offset[0] + offset[1]:
+            print("from",cell, s)
+            cell = self.move(cell, (s, 1))
+            print("to", cell)
+        return cell
+
+
 
 # IMPLEMENTATION IS BROKEN SINCE NEGATIVES GO FORWARD,
 # THESE ARE GOING TO BE REMOVED LATER, HOWEVER, SO WE DON'T CARE
@@ -359,7 +442,10 @@ class Subgroup:
     def move_rel(self, cell, offset):
         print(cell, offset,"moverel")
         return self.supergroup.move_rel(cell, offset)
-        
+
+
+
+
 
 # taken from Laurent's paper;
 # byay are the list in ENWS order of the colors, oriented northeast!
@@ -370,21 +456,26 @@ class Subgroup:
 Aleshin = SquareComplex(["byay", "axby", "cxcy", "bxax", "cybx", "aycx"])
 
 # from paper of Radu, a_1a_2a_3 = abc, b_1b_2b_3 = xyz
+# TODO: CHECK THIS ONE
 SC_F661 = SquareComplex([# the ones same for all
                          "axbX", "ayBy", "aYbx", "aXbY",
                          # specific to 661
                          "azAZ", "aZAz", "bzBZ", "bZCz", 
                          "cxcx", "cyCZ", "cYCy"])
 
-invs = ["a","b","c","d","x","y","z","p","q"]
+"""
+invs = ["a","b","c","d",  "x","y","z","p","q"]
 # no flips, since everything here is involution
 SC_G451 = SquareComplex2(["axax", "ayay", "azbz", "bxbx", "bycy", "cxcz",
                           "apap", "aqaq", "bpbq", "cpcp", "cqdq", "dxdy", "dzdp"],
                          involutions = invs)
 
-"""
 
 print(SC_G451.move_rel(('', 'zy'), ('ac', '')))
+
+
+a = bbb
+
 
 # the simple subgroup
 newgens = []
@@ -400,12 +491,14 @@ for x in "xyzpq":
 SC_G451_smp = Subgroup(SC_G451, newgens)
 
 o = SC_G451_smp.origin()
+print("kell", o)
 #('', 'zy') ('ac', 1) ('ac', '')
 o = SC_G451_smp.move(o, ("zy", 1))
+print("kell", o)
 o = SC_G451_smp.move(o, ("ac", 1))
-print(o)
-"""
+print("kell", o)
 
+"""
 
 """
 elem = SC_G451_smp.origin()
