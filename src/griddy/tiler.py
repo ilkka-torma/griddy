@@ -359,7 +359,6 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
     currentstate = TILING_UNKNOWN
     
     cursor_state = CursorState.PAINT
-
     # This sets the positions of nodes in grid cells.
     # This is done after transformation.
     #nodeoffsets = {0 : (0,0)} #{0 : (0.25, 0.75), 1: (0.75, 0.25)}
@@ -1095,7 +1094,7 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     if nodes[n] in hidden_nodes:
                         continue
                     p = vadd(to_screen(x, y), vmul(zoom, nodeoffsets[nodes[n]]))
-                    if ((x, y), nodes[n]) == origin:
+                    if ((x, y), nodes[n]) == origin and origin_matters:
                         pygame.draw.circle(screen, PURPLE, cp_to_screen(p), nodesize+8)
                     # highlight selected nodes and nodes currently being selected
                     if ((x,y),nodes[n]) in selection:
