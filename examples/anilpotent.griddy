@@ -5,33 +5,32 @@
 rt (0) (1);
 lt (0) (-1);
 %CA K
-1 -- the rule for writing symbol 1 is...
-Ao let x a b c d e f g := o=a & o.rt=b & o.rt.rt=c & o.rt.rt.rt=d & o.rt.rt.rt.rt=e & o.rt.rt.rt.rt.rt=f & o.rt.rt.rt.rt.rt.rt=g in
-x 0 1 1 1 0 0 0 |
-x 1 0 0 0 1 0 0 |
-x 0 1 1 1 1 0 0 |
-x 1 0 1 0 1 1 0 |
-x 1 1 1 1 1 1 0 |
-x 0 0 1 0 0 0 1 |
-x 0 1 0 1 0 0 1 |
-x 1 1 0 1 0 0 1 |
-x 0 0 0 0 1 0 1 |
-x 0 0 1 0 1 0 1 |
-x 0 0 1 1 1 0 1 |
-x 0 0 0 0 0 1 1 |
-x 1 1 1 0 0 1 1 |
-x 0 0 1 1 0 1 1 |
-x 1 0 1 1 0 1 1 |
-x 0 1 1 1 0 1 1 |
-x 1 1 1 1 0 1 1 |
-x 1 0 0 0 1 1 1 |
-x 1 1 0 0 1 1 1 |
-x 0 0 1 0 1 1 1 |
-x 1 1 1 0 1 1 1 |
-x 0 0 0 1 1 1 1 |
-x 0 1 1 1 1 1 1
+o if let x a b c d e f g := o=a & o.rt=b & o.rt.rt=c & o.rt.rt.rt=d & o.rt.rt.rt.rt=e & o.rt.rt.rt.rt.rt=f & o.rt.rt.rt.rt.rt.rt=g in
+  x 0 1 1 1 0 0 0 |
+  x 1 0 0 0 1 0 0 |
+  x 0 1 1 1 1 0 0 |
+  x 1 0 1 0 1 1 0 |
+  x 1 1 1 1 1 1 0 |
+  x 0 0 1 0 0 0 1 |
+  x 0 1 0 1 0 0 1 |
+  x 1 1 0 1 0 0 1 |
+  x 0 0 0 0 1 0 1 |
+  x 0 0 1 0 1 0 1 |
+  x 0 0 1 1 1 0 1 |
+  x 0 0 0 0 0 1 1 |
+  x 1 1 1 0 0 1 1 |
+  x 0 0 1 1 0 1 1 |
+  x 1 0 1 1 0 1 1 |
+  x 0 1 1 1 0 1 1 |
+  x 1 1 1 1 0 1 1 |
+  x 1 0 0 0 1 1 1 |
+  x 1 1 0 0 1 1 1 |
+  x 0 0 1 0 1 1 1 |
+  x 1 1 1 0 1 1 1 |
+  x 0 0 0 1 1 1 1 |
+  x 0 1 1 1 1 1 1
+then 1 else 0
 --%calculate_CA_ball 10 K
 %compose K7 K K K K K K K
-%CA trivial
-0 Ao o=o
+%CA trivial o 0
 %equal trivial K7

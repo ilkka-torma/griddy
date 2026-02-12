@@ -16,7 +16,7 @@ import sys
 from general import *
 
 import compiler2 as compiler
-from alphabet import Alphabet
+from alphabet import Alphabet, is_nat
 import regexp_compiler
 import sft
 import sofic1d
@@ -188,7 +188,18 @@ class Griddy:
                 if default is not None:
                     default = mk_alph(default)
                 if type(alph) == list and default is None:
-                    default = mk_alph(alph)
+                    if len(alph) == 1 and alph[0][0] == 'Z' and is_nat(alph[0][1:]):
+                        # alphabet keyword Zm
+                        m = int(alph[0][1:])
+                        elems = [str(k) for k in range(m)]
+                        ops = {
+                            '+' : (lambda a, b: str((int(a)+int(b))%m), None),
+                            '-' : (lambda a, b: str((int(a)-int(b))%m), None),
+                            '*' : (lambda a, b: str((int(a)*int(b))%m), None)
+                        }
+                        default = mk_alph(elems, operations=ops)
+                    else:
+                        default = mk_alph(alph)
                 self.alphabet = {node:default for node in self.nodes}
                 if type(alph) == dict:
                     for (labels, local_alph) in alph.items():
@@ -1080,38 +1091,38 @@ class Griddy:
                     raise Exception("Dimension mismatch: {} is not {}".format(dom_dim, cod_dim))
                 if dom_graph != cod_graph:
                     raise Exception("Graph mismatch: {} is not {}".format(dom_graph, cod_graph))
-                circuits = [] #dict()
+                circuits = dict()
                 for rule in rules:
                     if rule:
-                        if self.has_nodes() and len(rule) != 3:
+                        if len(rule) != 3:
                             if len(rule) > 3:
                                 raise Exception("Bad block map rule: {}\nMaybe you forgot a semicolon?".format(rule))
                             else:
                                 raise Exception("Bad block map rule: {}".format(rule))
-                        elif not self.has_nodes() and len(rule) != 2:
-                            if len(rule) > 2:
-                                raise Exception("Bad block map rule: {}\nMaybe you forgot a semicolon?".format(rule))
+                        node, var, pos_expr = rule
+                        #print("rule", rule)
+                        local_alph = cod_alph[node]
+                        variables = {var : (self.graph.origin(), ())}
+                        if type(pos_expr) != tuple or pos_expr[0] != "SWITCH":
+                            pos_expr = ("SWITCH", ("T", pos_expr))
+                        pairs = []
+                        for (cond, val) in pos_expr[1:]:
+                            circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, cond, self.externals, simplify="simplify" in flags, variables=variables)
+                            if val in local_alph:
+                                pairs.append((circ, val))
                             else:
-                                raise Exception("Bad block map rule: {}".format(rule))
-                        if self.has_nodes():
-                            node, sym, formula = rule
-                        else:
-                            sym, formula = rule
-                            node = ()
-                        #print("CA rule", node, sym, formula)
-                        try:
-                            circ = compiler.formula_to_circuit(dom_nodes, dom_dim, dom_top, dom_alph, formula,
-                                                               self.externals, simplify="simplify" in flags, graph=self.graph)
-                        except GriddyCompileError as e:
-                            if mode != "silent":
-                                print("Compile error: {}".format(e))
-                            if mode == "assert" or mode == "silent":
-                                raise Exception("Compile error")
-                            return None
-                        #print(circ)
-                        #graph, topology, nodes, alphabet, formula, externals, simplify=True
-                        #circ = compiler.formula_to_circuit2(self.graph, dom_top, dom_nodes, dom_alph, formula, self.externals, simplify="simplify" in flags)
-                        circuits.append((node, sym, circ))
+                                val, typ = compiler.eval_posexpr_to_circ(self.graph, dom_top, dom_nodes, dom_alph, self.externals, variables, {}, [], val)
+                                if typ == "list":
+                                    for (circ2, (val2, typ2)) in val:
+                                        pairs.append((AND(circ, circ2), val2))
+                                else:
+                                    # circuits
+                                    pairs.append((circ, val))
+                        pairs = compiler.disjointify(pairs)
+                        if node in circuits:
+                            raise GriddyCompileError("Multiply defined block map rule: {}".format(rule))
+                        circuits[node] = pairs
+                        
                 #print(circuits)
                 """
                 the problem is we should see "up", (0, 1), (), () in compiler, but
@@ -1222,6 +1233,10 @@ class Griddy:
                     if mode != "silent": print("Does intersect.")
                 else:
                     if mode != "silent": print("Does not intersect.")
+                expect = kwds.get("expect", None)
+                if expect is not None and mode == "assert":
+                    if mode != "silent": print(result, "=", expect)
+                    assert result == (expect == "T")
                 results.append(result)
 
             # restrict alphabets of codomain

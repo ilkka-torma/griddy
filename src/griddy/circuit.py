@@ -1061,7 +1061,7 @@ def OR(*inputs):
             oreds.append(inp)
     if len(oreds) == 1:
         return oreds[0]
-    return circuit("|", *inputs)
+    return circuit("|", *oreds)
 def NOT(*inputs):
     #print(inputs)
     assert len(inputs) == 1
