@@ -246,8 +246,12 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
             ret = F
 
     elif op == "VALEQ":
+        #print ("derp", formula)
         res1, typ1 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, formula[1])
         res2, typ2 = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, formula[2])
+
+        #print(res1, typ1, "aha")
+        #print(res2, typ2)
         
         if res1 is None or res2 is None:
             return None
@@ -433,7 +437,6 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
 # wrap to graph, use the new compiler, go back
 def formula_to_circuit(nodes, dim, topology, alphabet, formula, externals, simplify=True, graph=None):
     #print(nodes, dim, topology, alphabet, formula, externals)
-
     # Actual graph being used, so compile to modern format.
     if graph!=None:
         return formula_to_circuit2(graph, topology, nodes, alphabet, formula, externals, simplify)
@@ -772,9 +775,6 @@ def var_of_pos_expr(f):
 def eval_to_position(graph, topology, nodes, expr, pos_variables, top=True):
     #print("Evaluating to pos", graph, topology, nodes, expr, pos_variables, top)
     ret = eval_to_position_(graph, topology, nodes, expr, pos_variables, top)
-    if ret == (((1, 0), ('W',)), ('N',)):
-        print("moi")
-    #print("Result", ret)
     return ret
 
 def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
@@ -807,6 +807,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
             pos = (pos[0], ())
             continue
 
+        # we want to primarily move to nodes, or 
         for t in topology:
             #print(t, i)
             # all should have length 4 now: label, offset, fromnode, tonode
@@ -823,6 +824,8 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                         pos = graph.move_rel(pos[0], offset), tonode #vadd(vsub(pos[0], a[0]), b[0]) + (b[1],)
                         #print(",a")
                     break
+            else:
+                raise Exception("Internal error: topology is broken")
                 
         else:
             # nothing applicable found in topology, try moving in graph
@@ -893,6 +896,7 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables,
     orig_expr = expr
     while expr in variables:
         expr = variables[expr]
+    #print(expr, "after")
 
     # Check if the result is numeric
     if type(expr) == tuple and isinstance(expr[0], moc.MOCircuit):
@@ -935,13 +939,16 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables,
             res = [(cond2, op_of_circs(op, val1, val2)) for (cond2, val2) in res2]
             typ = "list"
         else:
+            #print("mos")
             res, typ = op_of_circs(op, val1, val2)
 
     else:
         # Check if we have a position
         # horrible hack
+        #print("r here")
         try:
             pos = eval_to_position(graph, topology, nodes, expr, variables)
+            #print("after eval", pos)
             if pos is None:
                 # return None; soft error handling to simulate lazy evaluation
                 res = typ = None

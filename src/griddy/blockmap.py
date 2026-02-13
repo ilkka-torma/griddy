@@ -528,6 +528,9 @@ class BlockMap:
 
     On the other hand, it is not injective if we can find two periodic
     points with the same image.
+
+    Commented out because likely doesn't currently work.
+    """
     """
     def injective(self):
         r = 1
@@ -537,6 +540,7 @@ class BlockMap:
             if not self.injective_on_periodics(r):
                 return False
             r += 1
+    """
 
     # assume the environments match
     def preimage(self, the_sft):
@@ -699,7 +703,91 @@ class BlockMap:
             result = self.evaluate_on(ptrn)
     """
 
-    #def local rule(self):
+    # from a pattern that's a dict from positions and nodes to values,
+    # construct the corresponding pattern (position, node, value) -> True/false
+    def make_explicit(self, pattern, alphabet):
+        explicit_pattern = {}
+        for (v, node) in pattern:
+            value = pattern[v, node]
+            for alph in alphabet[node]:
+                explicit_pattern[v, node, alph] = pattern[v, node] == alph
+        return explicit_pattern
+
+    """
+    def saturate_cells(self, pattern, nodes, alphabet):
+        saturated = {}
+        for v in set(p[0] for p in pattern):
+            for n in nodes:
+                if (v, n) in pattern:
+                    saturated[v, n] = pattern[v, n]
+                else:
+                    saturated[v, n] = alphabet[n][0]
+                
+        return saturated
+    """
+
+    def increase_and_saturate_domain(self, pattern, nodes, alphabet, dom):
+        saturated = {}
+        for v in set(p[0] for p in pattern) | set(dom):
+            for n in nodes:
+                if (v, n) in pattern:
+                    saturated[v, n] = pattern[v, n]
+                else:
+                    saturated[v, n] = alphabet[n][0]
+                
+        return saturated
+
+    """
+    Apply block map to pattern; domain of output is maximal so nbhd fits -- requires for now a group.
+    You can also supply an out_domain. This is because separating patterns are for nodes, and it could
+    be that some node has smaller nbhd than other. We just fill the pattern with minimal symbols when
+    values are unknown.
+    """
+    def apply_to_pattern(self, pattern, out_domain = None):
+        
+        # preprocess the pattern so that
+        #print("NOW i AM APPLYING")
+        # actually saturation might not be so great, instead we will saturate based on out_domain if it's supplied
+        #pattern = self.saturate_cells(pattern, self.to_nodes, self.to_alphabet)
+        #print("explicit pattern", pattern)
+        neighborhood = self.get_neighborhood(True)
+        #print("neighborhood", neighborhood)
+        some_nbr = list(neighborhood)[0]
+        #print("some neighbor", some_nbr)
+        pattern_cells = set(d[0] for d in pattern)
+        #print("pattern cells", pattern_cells)
+        # image has those cells whose nbhd fits inside pattern; requires inversion in the graph
+        # although would generalize easily to other situations
+        if out_domain == None:
+            image_cells_upper_bound = set(self.graph.move_rel(d, self.graph.invert(some_nbr)) for d in pattern_cells)
+            image_cells = set()
+            for d in image_cells_upper_bound:
+                for n in neighborhood:
+                    if self.graph.move_rel(d, n) not in pattern_cells:
+                        break
+                else:
+                    image_cells.add(d)
+        else:
+            image_cells = set(out_domain)
+        #print("before", pattern)
+        pattern = self.increase_and_saturate_domain(pattern, self.to_nodes, self.to_alphabet, set(self.graph.move_rel(c, nbr) for c in image_cells for nbr in neighborhood))
+        #print(pattern)
+        pattern = self.make_explicit(pattern, self.to_alphabet)
+        #print("image cells", image_cells)
+        # now just feed in the pattern to circuits
+        evals = {}
+        for d in image_cells:
+            for ((node, var), circ) in self.circuits.items():
+                #print((node, var))
+                circ = circ.copy()
+                transform(circ, lambda v: (self.graph.move_rel(d, v[0]),) + v[1:])
+                circ2 = circ.copy()
+                transform(circ2, lambda v: (T if pattern[v] else F))
+                #for p in pattern:
+                #    print(p, pattern[p])
+                if circ2.op == "T":
+                    evals[d, node] = var
+        return evals
 
 # given a list of cellular automata, compute relations
 # among them up to radius rad as semigroup

@@ -926,7 +926,8 @@ class Griddy:
                 elif name1 in self.blockmaps and name2 in self.blockmaps:
                     CA1 = self.blockmaps[name1]
                     CA2 = self.blockmaps[name2]
-                    report_blockmap_equal((name1, CA1), (name2, CA2), mode=mode, truth=expect, verbose=verb)
+                    diff = report_blockmap_equal((name1, CA1), (name2, CA2), mode=mode, truth=expect, verbose=verb)
+                    results.append(diff)
 
                 elif name1 in self.automata and name2 in self.automata:
                     aut1 = self.automata[name1]
@@ -1722,18 +1723,19 @@ def report_blockmap_equal(a, b, mode="report", truth=True, verbose=False): # ver
     tim = time.time()
     diff = amap.separating(bmap)
     tim = time.time() - tim
-    if mode != "silent":
-        if diff is None:
-            print("They are EQUAL (time %s)." % (tim))
-        else:
-            print("They are DIFFERENT (time %s)." % (tim))
-            (node, value), pattern = diff
-            print("Separated by pattern with return value {} on node {}:".format(value, node))
-            print(pattern)
-        print()
+    pattern = None
+    if diff is None:
+        if mode != "silent": print("They are EQUAL (time %s)." % (tim))
+    else:
+        if mode != "silent": print("They are DIFFERENT (time %s)." % (tim))
+        (node, value), pattern = diff
+        if mode != "silent": print("Separated by pattern with return value {} on node {}:".format(value, node))
+        if mode != "silent": print(pattern)
+    print()
     if mode == "assert":
         print(diff is None, "=", (truth == "T"))
         assert (diff is None) == (truth == "T")
+    return pattern
 
 def report_aut_contains(a, b, mode="report", truth=True, method=None, verbose=False):
     aname, aaut = a
