@@ -191,13 +191,16 @@ class Griddy:
                     if len(alph) == 1 and alph[0][0] == 'Z' and is_nat(alph[0][1:]):
                         # alphabet keyword Zm
                         m = int(alph[0][1:])
-                        elems = [str(k) for k in range(m)]
-                        ops = {
-                            '+' : (lambda a, b: str((int(a)+int(b))%m), None),
-                            '-' : (lambda a, b: str((int(a)-int(b))%m), None),
-                            '*' : (lambda a, b: str((int(a)*int(b))%m), None)
-                        }
-                        default = mk_alph(elems, operations=ops)
+                        if encoding in [None, "unary"]:
+                            default = Alphabet.unary_Z(m)
+                        else:
+                            elems = [str(k) for k in range(m)]
+                            ops = {
+                                '+' : (lambda a, b: str((int(a)+int(b))%m), None),
+                                '-' : (lambda a, b: str((int(a)-int(b))%m), None),
+                                '*' : (lambda a, b: str((int(a)*int(b))%m), None)
+                            }
+                            default = mk_alph(elems, operations=ops)
                     else:
                         default = mk_alph(alph)
                 self.alphabet = {node:default for node in self.nodes}

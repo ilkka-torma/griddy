@@ -176,6 +176,45 @@ class Alphabet:
         return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="unary", **kwds)
 
     @classmethod
+    def unary_Z(self, m, **kwds):
+        "The alphabet Zm encoded in unary."
+
+        syms = [str(i) for i in range(m)]
+
+        def add_circs(circs1, circs2):
+            return [OR(*(AND(circs1[j], circs2[(i-j)%m])
+                         for j in range(m)))
+                    for i in range(m)]
+
+        def sub_circs(circs1, circs2):
+            return [OR(*(AND(circs1[j], circs2[(j-i)%m])
+                         for j in range(m)))
+                    for i in range(m)]
+
+        def mul_circs(circs1, circs2):
+            zero = OR(circs1[0], circs2[0],
+                      *(AND(circs1[i],
+                            OR(*(circs2[j]
+                                 for j in range(1,m)
+                                 if (i*j)%m == 0)))
+                        for i in range(1,m)))
+            rest = [OR(*(AND(circs1[i],
+                             OR(*(circs2[j]
+                                  for j in range(1,m)
+                                  if (i*j)%m == a)))
+                         for i in range(1,m)))
+                    for a in range(1,m)]
+            return [zero] + rest
+
+        ops = {
+            '+' : (lambda a, b: str((int(a)+int(b))%m), add_circs),
+            '-' : (lambda a, b: str((int(a)-int(b))%m), sub_circs),
+            '*' : (lambda a, b: str((int(a)*int(b))%m), mul_circs)
+        }
+
+        return self.unary(syms, operations=ops)
+
+    @classmethod
     def unary_minus_one(self, syms, **kwds):
         "An alphabet encoded in unary minus one: one variable per symbol except the first one, at most one is true."
 
