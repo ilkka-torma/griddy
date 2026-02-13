@@ -1036,6 +1036,41 @@ code = """
 """
 unit_tests.append(("Image intersection", code))
 
+code = """
+%alphabet Z2
+%dim 1
+%nodes 0 1
+%topology
+rt (0;0) (1;0)
+lt (0;0) (-1;0)
+rt (0;1) (1;1)
+lt (0;1) (-1;1)
+
+%CA Clifford
+0 o o.1;
+1 o o.0+o.1+o.1.lt+o.1.rt
+
+%has_post_inverse Clifford radius=0 expect=F
+%has_post_inverse Clifford radius=1 expect=T
+
+%CA Clifford_inv
+0 o o.1+o.0+o.0.lt+o.0.rt;
+1 o o.0;
+
+%compose comp1 Clifford Clifford_inv
+
+%CA id 
+0 o o.0;
+1 o o.1
+
+%equal Clifford id expect=F
+%equal Clifford_inv id expect=F
+%equal comp1 id expect=T
+"""
+unit_tests.append(("Linear CA test", code))
+
+
+
 if __name__ == "__main__":
 
     t = time.time()

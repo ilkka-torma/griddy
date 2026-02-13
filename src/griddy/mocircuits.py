@@ -35,7 +35,7 @@ class MOCircuitSet:
         hashy = {}
         # p is a dict : bit name -> pattern
         for (a, p) in self.patterns:
-            hashy[(a, p)] = cc.evaluate(new.circuits[a], p)
+            hashy[(a, p)] = cc.evaluate(new.circuits[a], p, default_false=True)
         hashy = fd(hashy)
         #print(hashy, "he")
         if hashy in self.circuits:
@@ -69,7 +69,7 @@ class MOCircuitSet:
         newcircuits = {}
         for h in self.circuits:
             (circ, ix) = self.circuits[h]
-            v = cc.evaluate(circ.circuits[a], p)
+            v = cc.evaluate(circ.circuits[a], p, default_false=True)
             hcopy = dict(h)
             hcopy[sep] = v
             #print(hcopy, "gimA")
@@ -79,7 +79,7 @@ class MOCircuitSet:
         # assumes circ is in the set
         hashy = {}
         for a,p in self.patterns:
-            hashy[a,p] = cc.evaluate(circ.circuits[a], p)
+            hashy[a,p] = cc.evaluate(circ.circuits[a], p, default_false=True)
         return self.circuits[fd(hashy)][1]
     def __contains__(self, item):
         #print("kiliman")

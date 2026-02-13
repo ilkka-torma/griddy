@@ -11,6 +11,7 @@ can have
  * move_rel that takes cell c and an offset cell c'. If c' = o.m,
  this is supposed to return c.m. This makes sense for Cayley graphs of monoids.
  * moves_to that takes cell c and gives moves from origin to c
+ * in a group, we should have invert also... currently not implemented mostly
 """
 class Graph:
     #def origin(self): raise NotImplemented("origin not implemented.")
@@ -56,6 +57,8 @@ class AbelianGroup(Graph):
         self.dim = len(generators)
     def origin(self):
         return (0,)*self.dim
+    def invert(self, v):
+        return tuple(-a for a in v)
     def from_vector(self, v):
         assert len(v) == self.dim
         return tuple(v)

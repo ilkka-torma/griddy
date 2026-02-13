@@ -278,13 +278,16 @@ def tostr_(c, appears_multiply, alreadys = None, running = None):
 
 #kiliman = False
 
-def evaluate(c, values):
+def evaluate(c, values, default_false=False):
     eve = c
     values = dict(values)
     c = Circuit.copy(c)
     for v in c.get_variables():
-        if v not in values:
-            values[v] = F
+        if default_false:
+            if v not in values:
+                values[v] = F
+        else:
+            assert v in values
     values[None] = None
     for a in values:
         val = values[a]
