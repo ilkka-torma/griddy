@@ -646,8 +646,8 @@ class Griddy:
                 if sym_bound is not None and any(n%2 for n in periods[0]):
                     if mode != "silent": print("First period vector must be even for symmetry breaking")
                     break
-                print_freq_pop = kwds.get("print_freq_pop", 5000) and (mode != "silent")
-                print_freq_cyc = kwds.get("print_freq_cyc", 1000) and (mode != "silent")
+                print_freq_pop = kwds.get("print_freq_pop", 5000) if (mode != "silent") else 0
+                print_freq_cyc = kwds.get("print_freq_cyc", 1000) if (mode != "silent") else 0
                 verb = "verbose" in flags
                 rot = "rotate" in flags
                 if rot and (the_sft.dim != 2 or periods[0][0] != 0):
@@ -731,8 +731,12 @@ class Griddy:
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
                 rad = kwds.get("radius", 0)
+                max_split = kwds.get("max_split", None)
+                num_split = kwds.get("num_split", None)
                 save_constr = kwds.get("save_constr", None)
                 load_constr = kwds.get("load_constr", None)
+                simplify = "simplify" in flags
+                rationalize = "rationalize" in flags
                 specs = args[1]
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
@@ -746,24 +750,71 @@ class Griddy:
                 show_rules = "show_rules" in flags
                 if mode != "silent":
                     print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
-                # TODO: display nhoods properly
-                #patterns = list(the_sft.all_patterns(nhood))
-                data = density_linear_program.optimal_density(the_sft, specs, rad, weights=self.weights, verbose=verb, print_freq=print_freq, ret_shares=show_rules, load_constr=load_constr, save_constr=save_constr)
+
+                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights)
+                disc_arg.compute_bound(verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
+                #disc_arg.rationalize(10000)
+                #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
+                if mode != "silent":
+                    print("Found lower bound {}".format(disc_arg.bound))
+                    if disc_arg.is_valid():
+                        print("Solution seems to be valid")
+                    else:
+                        print("Solution is invalid, consider restarting")
+                if simplify:
+                    if mode != "silent" and not verb:
+                        print("Optimizing number of rules")
+                    if max_split is None:
+                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0)
+                    max_len = max(len(p) for p in disc_arg.trans_rules)
+                    num_rules = [0]*(max_len+1)
+                    for (pat, vecs) in disc_arg.trans_rules.items():
+                        num_rules[len(pat)] += len(vecs)
+                    num_rules.reverse()
+                    while True:
+                        if verb:
+                            print("Optimizing number of rules (now {})".format(num_rules))
+                        disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, max_larges=max_split, num_split=num_split)
+                        if max_split is None:
+                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0)
+                        if verb:
+                            if disc_arg.is_valid():
+                                print("Recomputed solution seems to be valid")
+                            else:
+                                print("Recomputed solution is invalid (but may correct itself later)")
+                        #disc_arg.rationalize(10000)
+                        #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
+                        new_num_rules = [0]*(max_len+1)
+                        for (pat, vecs) in disc_arg.trans_rules.items():
+                            new_num_rules[len(pat)] += len(vecs)
+                        new_num_rules.reverse()
+                        if new_num_rules >= num_rules:
+                            break
+                        num_rules = new_num_rules
+                if rationalize:
+                    for n in [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]:
+                        rat_ok = disc_arg.rationalize(n)
+                        if rat_ok:
+                            if mode != "silent":
+                                print("Succesfully rationalized solution, it is valid")
+                                if not show_rules:
+                                    print("Final bound: {}".format(disc_arg.bound))
+                            break
+                    else:
+                        if mode != "silent":
+                            print("Could not rationalize solution, it might not be valid")
+                            
                 if show_rules:
-                    dens, rules = data
-                    if mode != "silent": print("Discharging rules")
-                    for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
+                    if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
+                    for (fr_pat, amounts) in sorted(disc_arg.trans_rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
                         if amounts:
                             if mode != "silent": print("on {}:".format(dict(fr_pat)))
                             for (vec, amount) in sorted(amounts.items()):
-                                if mode != "silent": print("send {} to {}".format(amount, vec))
-                else:
-                    dens = data
-                if mode != "silent": print("Lower bound", dens)
+                                if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
-                    if mode != "silent": print(dens, "=", expect)
-                    assert dens == expect
+                    if mode != "silent": print(disc_arg.bound, "=", expect)
+                    assert disc_arg.bound == expect
                 if mode != "silent": print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "find_automatic_conf":
