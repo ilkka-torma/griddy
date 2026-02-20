@@ -175,22 +175,20 @@ class DischargingArgument:
 
         if load_constr is not None:
             # load bigpats from a file
-            bigdomain = []
-            bigpats = []
+            self.bigdomain = []
+            self.bigpats = []
             with open(load_constr + '.output', 'r') as f:
                 strs = f.readline().split()
                 nvec_len = self.sft.dim+1
                 for coords in [strs[i*nvec_len:(i+1)*nvec_len] for i in range(len(strs)//nvec_len)]:
-                    #print("got coords", coords, coords[-1][1:].split('.'))
-                    bigdomain.append((tuple(int(c) for c in coords[:-1]),
-                                      tuple(coords[-1][1:].split('.')[1:])))
-                #print("bigdomain", bigdomain)
+                    #print("got coords", coords, coords[-1].split('.'))
+                    self.bigdomain.append((tuple(int(c) for c in coords[:-1]),
+                                           tuple(s for s in coords[-1].split('.') if s)))
+                #print("bigdomain", self.bigdomain)
                 for line in f.readlines():
                     if line:
-                        bigpats.append({nvec : sym for (nvec, sym) in zip(bigdomain, line.split())})
-            self.bigdomain = bigdomain
-            self.bigpats = bigpats
-                    
+                        self.bigpats.append({nvec : sym
+                                             for (nvec, sym) in zip(self.bigdomain, line.split())})
 
         for (k, (vectors, domain)) in enumerate(self.specs):
             if verbose:
