@@ -14,12 +14,13 @@ import random
 SOLVER_OPTS_INITIAL = ["--primal", "--xcheck"]
 SOLVER_OPTS_RECOMPUTE = ["--dual", "--xcheck"]
 
-# TODO: re-allow saving and loading bigpats
+# TODO: allow saving and loading charge transfer rules
 
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
     def __init__(self, sft, specs, radius, weights=None):
+        print("specs", specs)
         self.sft = sft
         self.weights = weights
         self.radius = radius
@@ -33,6 +34,65 @@ class DischargingArgument:
         self.trans_rules = None
         self.bigpats = None
         self.bigdomain = None
+
+    def save_transfer_rules(self, filename):
+        "Save transfer rules and bound to a file."
+        with open(filename+".output", 'w') as f:
+            if type(self.bound) == float:
+                f.write(str(self.bound)+'\n')
+            else:
+                # Fraction
+                num, den = self.bound.as_integer_ratio()
+                f.write(str(num) + '/' + str(den) + '\n')
+            for (fpat, vecs) in self.trans_rules.items():
+                for ((vec, node), sym) in fpat.items():
+                    f.write(" ".join(str(c) for c in vec) + " ." + ".".join(node) + " " + sym)
+                f.write(':')
+                for (vec, amount) in vecs:
+                    f.write(" " + " ".join(str(c) for c in vec))
+                    if type(amount) == float:
+                        f.write(str(amount)+'\n')
+                    else:
+                        # Fraction
+                        num, den = amount.as_integer_ratio()
+                        f.write(str(num) + '/' + str(den))
+                f.write('\n')
+
+    def load_transfer_rules(self, filename):
+        "Load transfer rules and bound from a file."
+        self.trans_rules = dict()
+        with open(filename+".output", 'r') as f:
+            boundln = f.readline()
+            if '/' in boundln:
+                self.bound = Fraction(*(int(x) for x in boundln.split('/')))
+            else:
+                self.bound = float(boundln)
+            for ln in f.readlines():
+                patstr, rest = ln.split(':')
+                pat = dict()
+                items = patstr.split()
+                dim = self.sft.dim
+                for i in range(len(items)//(dim+2)):
+                    vec = tuple(str(c) for c in items[(dim+2)*i : (dim+2)*(i+1)-3])
+                    nodestr = items[(dim+2)*(i+1)-2]
+                    if nodestr == '.':
+                        node = ()
+                    else:
+                        node = tuple(nodestr[1:].split('.'))
+                    pat[vec, node] = items[(dim+2)*(i+1)-1]
+                fpat = frozendict(pat)
+                if fpat not in self.trans_rules:
+                    self.trans_rules[fpat] = dict()
+                restitems = rest.split()
+                for i in range(len(restitems)//(dim+1)):
+                    vec = tuple(str(c) for c in items[(dim+1)*i : (dim+1)*(i+1)-2])
+                    numstr = items[(dim+1)*(i+1)-1]
+                    if '/' in numstr:
+                        num = Fraction(*(int(x) for x in numstr.split('/')))
+                    else:
+                        num = float(numstr)
+                    self.trans_rules[fpat][vec] = num
+
 
     # enumerate combined locally correct patterns that affect origin
     def surroundings(self, bigpat=None, ret_big=False):
@@ -190,20 +250,32 @@ class DischargingArgument:
                         self.bigpats.append({nvec : sym
                                              for (nvec, sym) in zip(self.bigdomain, line.split())})
 
-        for (k, (vectors, domain)) in enumerate(self.specs):
-            if verbose:
-                print("Computing pattern variables in spec {}/{}".format(k+1, len(self.specs)))
-            patterns = set()
-            for pat in self.sft.all_patterns(domain):
-                patterns.add(fd.frozendict(pat))
-                all_pats |= patterns
+        
+        if self.trans_rules is None:
+            for (k, (vectors, domain)) in enumerate(self.specs):
+                if verbose:
+                    print("Computing pattern variables in spec {}/{}".format(k+1, len(self.specs)))
+                patterns = set()
+                for pat in self.sft.all_patterns(domain):
+                    patterns.add(fd.frozendict(pat))
+                    all_pats |= patterns
 
-            # create variables for how much is discharged in each direction from each pattern
+                # create variables for how much is discharged in each direction from each pattern
+                i = 0
+                for vec in vectors:
+                    for fr_pat in patterns:
+                        # assert p[(0,0)] == 1
+                        # send at most everything away
+                        send[fr_pat, vec] = pulp.LpVariable("patvec{},{}".format(k,i)) #, 0, 1)
+                        send[fr_pat, vec].setInitialValue(0)
+                        i += 1
+                        total_vars += 1
+                        if verbose and total_vars%print_freq == 0:
+                            print("{} found so far".format(total_vars))
+        else:
             i = 0
-            for vec in vectors:
-                for fr_pat in patterns:
-                    # assert p[(0,0)] == 1
-                    # send at most everything away
+            for (fpat, vecs) in self.trans_rules:
+                for vec in vecs:
                     send[fr_pat, vec] = pulp.LpVariable("patvec{},{}".format(k,i)) #, 0, 1)
                     send[fr_pat, vec].setInitialValue(0)
                     i += 1
@@ -270,6 +342,7 @@ class DischargingArgument:
         total_vars = 0
         total_constr = 0
         all_pats = dict() # vecs plus True for large patterns, False for small
+        #print("num split", num_split)
 
         if verbose:
             print("Computing pattern variables")
@@ -282,19 +355,22 @@ class DischargingArgument:
                 if verbose and i%print_freq == 0:
                     print("{} found so far".format(i))
             if (max_larges is None) or (num_larges < max_larges):
-                if fpat in all_pats:
-                    all_pats[fpat] = (set(vecs) | set(all_pats[fpat][0]), True)
-                else:
-                    all_pats[fpat] = (vecs, True)
+                #print("n")
+                #if fpat in all_pats:
+                #    all_pats[fpat] = (set(vecs) | set(all_pats[fpat][0]), True)
+                #else:
+                #    all_pats[fpat] = (vecs, True)
                 num_larges += 1
                 if num_split is None:
                     split_nvecs = fpat
                 else:
                     split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
+                #print(split_nvecs)
                 for nvec in split_nvecs:
+                    #print("k")
                     new_fpat = fpat.delete(nvec)
                     if new_fpat in all_pats:
-                        all_pats[fpat] = (set(vecs) | set(all_pats[fpat][0]), all_pats[fpat][1])
+                        all_pats[fpat] = (set(vecs) | set(all_pats[new_fpat][0]), all_pats[new_fpat][1])
                     else:
                         all_pats[new_fpat] = (vecs, False)
                         i += 1
@@ -305,19 +381,19 @@ class DischargingArgument:
             else:
                 all_pats[fpat] = (vecs, False)
 
-        for (fpat, vecs) in self.trans_rules.items():
-            if fpat not in all_pats:
-                print("not in all_pats")
-                1/0
-            patvecs = all_pats[fpat][0]
-            for vec in vecs:
-                if vec not in patvecs:
-                    print("not in patvecs", fpat, vecs, vec, patvecs)
-                    1/0
+        #for (fpat, vecs) in self.trans_rules.items():
+        #    if fpat not in all_pats:
+        #        print("not in all_pats")
+        #        1/0
+        #    patvecs = all_pats[fpat][0]
+        #    for vec in vecs:
+        #        if vec not in patvecs:
+        #            print("not in patvecs", fpat, vecs, vec, patvecs)
+        #            1/0
 
-        assert all(fpat in all_pats
-                   and all(vec in all_pats[fpat][0] for vec in vecs)
-                   for (fpat, vecs) in self.trans_rules.items())
+        #assert all(fpat in all_pats
+        #           and all(vec in all_pats[fpat][0] for vec in vecs)
+        #           for (fpat, vecs) in self.trans_rules.items())
 
         self.update_specs({fpat : vecs for (fpat, (vecs, _)) in all_pats.items()})
 
@@ -334,11 +410,19 @@ class DischargingArgument:
                 if large:
                     for sign in [True, False]:
                         send[fr_pat, vec, sign] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large), lowBound=0)
+                        if vec in self.trans_rules[fr_pat]:
+                            send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
+                        else:
+                            send[fr_pat, vec, sign].setInitialValue(0)
                         sum_large += send[fr_pat, vec, sign]
                         i += 1
                         i_large += 1
                 else:
-                    send[fr_pat, vec, None] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large))
+                    send[fr_pat, vec, None] = pulp.LpVariable("patvec{},{},{}".format(i,None,large))
+                    if fr_pat in self.trans_rules and vec in self.trans_rules[fr_pat]:
+                        send[fr_pat, vec, None].setInitialValue(self.trans_rules[fr_pat][vec])
+                    else:
+                        send[fr_pat, vec, None].setInitialValue(0)
                     i += 1
                     i_small += 1
 
@@ -392,6 +476,7 @@ class DischargingArgument:
         #print("status before", prob.status)
         tim = time.time()
         pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
+        #pulp.PULP_CBC_CMD(msg=False, warmStart=True, threads=3).solve(prob)
         if prob.status != 1:
             raise GriddyRuntimeError("Unsolvable linear problem")
         if verbose:
