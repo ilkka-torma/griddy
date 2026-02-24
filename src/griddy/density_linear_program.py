@@ -20,7 +20,6 @@ class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
     def __init__(self, sft, specs, radius, weights=None):
-        print("specs", specs)
         self.sft = sft
         self.weights = weights
         self.radius = radius
@@ -46,12 +45,12 @@ class DischargingArgument:
                 f.write(str(num) + '/' + str(den) + '\n')
             for (fpat, vecs) in self.trans_rules.items():
                 for ((vec, node), sym) in fpat.items():
-                    f.write(" ".join(str(c) for c in vec) + " ." + ".".join(node) + " " + sym)
+                    f.write(" ".join(str(c) for c in vec) + " ." + ".".join(node) + " " + sym + " ")
                 f.write(':')
-                for (vec, amount) in vecs:
-                    f.write(" " + " ".join(str(c) for c in vec))
+                for (vec, amount) in vecs.items():
+                    f.write(" " + " ".join(str(c) for c in vec) + " ")
                     if type(amount) == float:
-                        f.write(str(amount)+'\n')
+                        f.write(str(amount))
                     else:
                         # Fraction
                         num, den = amount.as_integer_ratio()
@@ -60,6 +59,7 @@ class DischargingArgument:
 
     def load_transfer_rules(self, filename):
         "Load transfer rules and bound from a file."
+        # TODO: switch to saving and loading the entire state
         self.trans_rules = dict()
         with open(filename+".output", 'r') as f:
             boundln = f.readline()
@@ -68,31 +68,39 @@ class DischargingArgument:
             else:
                 self.bound = float(boundln)
             for ln in f.readlines():
+                if ':' not in ln:
+                    continue
+                #print("ln", repr(ln))
                 patstr, rest = ln.split(':')
                 pat = dict()
                 items = patstr.split()
                 dim = self.sft.dim
                 for i in range(len(items)//(dim+2)):
-                    vec = tuple(str(c) for c in items[(dim+2)*i : (dim+2)*(i+1)-3])
+                    vec = tuple(int(c) for c in items[(dim+2)*i : (dim+2)*(i+1)-2])
+                    #print("vec", vec)
                     nodestr = items[(dim+2)*(i+1)-2]
                     if nodestr == '.':
                         node = ()
                     else:
                         node = tuple(nodestr[1:].split('.'))
+                    #print("node", node)
                     pat[vec, node] = items[(dim+2)*(i+1)-1]
-                fpat = frozendict(pat)
+                    #print("sym", pat[vec, node])
+                fpat = fd.frozendict(pat)
                 if fpat not in self.trans_rules:
                     self.trans_rules[fpat] = dict()
                 restitems = rest.split()
+                #print("restitems", restitems)
                 for i in range(len(restitems)//(dim+1)):
-                    vec = tuple(str(c) for c in items[(dim+1)*i : (dim+1)*(i+1)-2])
-                    numstr = items[(dim+1)*(i+1)-1]
+                    vec = tuple(int(c) for c in restitems[(dim+1)*i : (dim+1)*(i+1)-1])
+                    #print("vec", vec)
+                    numstr = restitems[(dim+1)*(i+1)-1]
+                    #print("numstr", numstr)
                     if '/' in numstr:
                         num = Fraction(*(int(x) for x in numstr.split('/')))
                     else:
                         num = float(numstr)
                     self.trans_rules[fpat][vec] = num
-
 
     # enumerate combined locally correct patterns that affect origin
     def surroundings(self, bigpat=None, ret_big=False):
@@ -209,8 +217,15 @@ class DischargingArgument:
                 domain_vecs[fset] = set()
             domain_vecs[fset] |= set(vecs)
         self.specs = [(list(v),list(d)) for (d,v) in domain_vecs.items()]
-        bigdomain = set(nvsub(nvec, vec) for (vecs, domain) in self.specs for nvec in domain for vec in vecs+[(0,)*self.sft.dim]) | {((0,)*self.sft.dim, node) for node in self.sft.nodes}
+        #print("new specs", self.specs)
+        bigdomain = set(nvsub(nvec, vec)
+                        for (vecs, domain) in self.specs
+                        for nvec in domain
+                        for vec in vecs+[(0,)*self.sft.dim]) \
+                            | {((0,)*self.sft.dim, node)
+                               for node in self.sft.nodes}
         if bigdomain != self.bigdomain:
+            #print("old bigdomain", self.bigdomain, "new", bigdomain)
             self.bigdomain = bigdomain
             self.bigpats = set(fd.frozendict({nvec : bigpat[nvec]
                                               for nvec in bigdomain})
@@ -274,9 +289,9 @@ class DischargingArgument:
                             print("{} found so far".format(total_vars))
         else:
             i = 0
-            for (fpat, vecs) in self.trans_rules:
+            for (fr_pat, vecs) in self.trans_rules.items():
                 for vec in vecs:
-                    send[fr_pat, vec] = pulp.LpVariable("patvec{},{}".format(k,i)) #, 0, 1)
+                    send[fr_pat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
                     send[fr_pat, vec].setInitialValue(0)
                     i += 1
                     total_vars += 1
@@ -296,10 +311,13 @@ class DischargingArgument:
             for node in self.sft.nodes:
                 summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
             for (pat, vec, away) in surr:
-                if away:
-                    summa -= send[pat, vec]
-                else:
-                    summa += send[pat, vec]
+                try:
+                    if away:
+                        summa -= send[pat, vec]
+                    else:
+                        summa += send[pat, vec]
+                except KeyError:
+                    pass
 
             prob += summa >= density
             i += 1
@@ -324,9 +342,11 @@ class DischargingArgument:
         if verbose:
             print("Solved in {} seconds".format(time.time()-tim))
 
-        self.trans_rules = {fr_pat : dict() for fr_pat in all_pats}
+        self.trans_rules = dict()
         for ((fr_pat, vec), var) in send.items():
             if var.varValue:
+                if fr_pat not in self.trans_rules:
+                    self.trans_rules[fr_pat] = dict()
                 self.trans_rules[fr_pat][vec] = var.varValue
 
         self.bound = density.varValue
@@ -341,7 +361,7 @@ class DischargingArgument:
         
         total_vars = 0
         total_constr = 0
-        all_pats = dict() # vecs plus True for large patterns, False for small
+        all_pairs = dict() # (fpat, vec) : True for large patterns, False for small
         #print("num split", num_split)
 
         if verbose:
@@ -349,37 +369,31 @@ class DischargingArgument:
         i = 0
         num_larges = 0
         for (fpat, vecs) in sorted(self.trans_rules.items(), key=lambda p:-len(p[0])):
-            #fpat = fd.frozendict(pat)
-            if fpat not in all_pats:
-                i += 1
-                if verbose and i%print_freq == 0:
-                    print("{} found so far".format(i))
-            if (max_larges is None) or (num_larges < max_larges):
-                #print("n")
-                #if fpat in all_pats:
-                #    all_pats[fpat] = (set(vecs) | set(all_pats[fpat][0]), True)
-                #else:
-                #    all_pats[fpat] = (vecs, True)
-                num_larges += 1
-                if num_split is None:
-                    split_nvecs = fpat
-                else:
-                    split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
-                #print(split_nvecs)
-                for nvec in split_nvecs:
-                    #print("k")
-                    new_fpat = fpat.delete(nvec)
-                    if new_fpat in all_pats:
-                        all_pats[fpat] = (set(vecs) | set(all_pats[new_fpat][0]), all_pats[new_fpat][1])
+            for vec in vecs:
+                #fpat = fd.frozendict(pat)
+                if (fpat, vec) not in all_pairs:
+                    i += 1
+                    if verbose and i%print_freq == 0:
+                        print("{} found so far".format(i))
+                if (max_larges is None) or (num_larges < max_larges):
+                    #print("n")
+                    all_pairs[fpat, vec] = True
+                    num_larges += 1
+                    if num_split is None:
+                        split_nvecs = fpat
                     else:
-                        all_pats[new_fpat] = (vecs, False)
-                        i += 1
-                        if verbose and i%print_freq == 0:
-                            print("{} found so far".format(i))
-            elif fpat in all_pats:
-                all_pats[fpat] = (set(vecs) | set(all_pats[fpat][0]), all_pats[fpat][1])
-            else:
-                all_pats[fpat] = (vecs, False)
+                        split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
+                    #print(split_nvecs)
+                    for nvec in split_nvecs:
+                        #print("k")
+                        new_fpat = fpat.delete(nvec)
+                        if (new_fpat, vec) not in all_pairs:
+                            all_pairs[new_fpat, vec] = False
+                            i += 1
+                            if verbose and i%print_freq == 0:
+                                print("{} found so far".format(i))
+                elif (fpat, vec) not in all_pairs:
+                    all_pairs[fpat, vec] = False
 
         #for (fpat, vecs) in self.trans_rules.items():
         #    if fpat not in all_pats:
@@ -395,7 +409,12 @@ class DischargingArgument:
         #           and all(vec in all_pats[fpat][0] for vec in vecs)
         #           for (fpat, vecs) in self.trans_rules.items())
 
-        self.update_specs({fpat : vecs for (fpat, (vecs, _)) in all_pats.items()})
+        specs = dict()
+        for (fpat, vec) in all_pairs:
+            if fpat not in specs:
+                specs[fpat] = []
+            specs[fpat].append(vec)
+        self.update_specs(specs)
 
         send = dict()
         sum_large = 0
@@ -403,28 +422,27 @@ class DischargingArgument:
         i = 0
         i_large = 0
         i_small = 0
-        for (fr_pat, (vecs, large)) in all_pats.items():
+        for ((fr_pat, vec), large) in all_pairs.items():
             # create variables for how much is discharged in each direction from each pattern
             # for large patterns we split into positive and negative parts
-            for vec in vecs:
-                if large:
-                    for sign in [True, False]:
-                        send[fr_pat, vec, sign] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large), lowBound=0)
-                        if vec in self.trans_rules[fr_pat]:
-                            send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
-                        else:
-                            send[fr_pat, vec, sign].setInitialValue(0)
-                        sum_large += send[fr_pat, vec, sign]
-                        i += 1
-                        i_large += 1
-                else:
-                    send[fr_pat, vec, None] = pulp.LpVariable("patvec{},{},{}".format(i,None,large))
-                    if fr_pat in self.trans_rules and vec in self.trans_rules[fr_pat]:
-                        send[fr_pat, vec, None].setInitialValue(self.trans_rules[fr_pat][vec])
+            if large:
+                for sign in [True, False]:
+                    send[fr_pat, vec, sign] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large), lowBound=0)
+                    if vec in self.trans_rules[fr_pat]:
+                        send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
                     else:
-                        send[fr_pat, vec, None].setInitialValue(0)
+                        send[fr_pat, vec, sign].setInitialValue(0)
+                    sum_large += send[fr_pat, vec, sign]
                     i += 1
-                    i_small += 1
+                    i_large += 1
+            else:
+                send[fr_pat, vec, None] = pulp.LpVariable("patvec{},{},{}".format(i,None,large))
+                if fr_pat in self.trans_rules and vec in self.trans_rules[fr_pat]:
+                    send[fr_pat, vec, None].setInitialValue(self.trans_rules[fr_pat][vec])
+                else:
+                    send[fr_pat, vec, None].setInitialValue(0)
+                i += 1
+                i_small += 1
 
         if verbose:
             print("Done with {} variables ({} to be minimized, {} free), now adding constraints".format(i, i_large, i_small))
@@ -442,10 +460,10 @@ class DischargingArgument:
             for node in self.sft.nodes:
                 summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
             for (pat, vec, away) in surr:
-                if pat not in all_pats or vec not in all_pats[pat][0]:
+                if (pat, vec) not in all_pairs:
                     continue
                 #print("summing", pat, vec, away)
-                if all_pats[pat][1]:
+                if all_pairs[pat, vec]:
                     # large pattern -> has sign
                     if away:
                         summa -= send[pat, vec, True]
