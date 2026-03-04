@@ -733,10 +733,29 @@ class Griddy:
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
                 num_split = kwds.get("num_split", None)
+                ordered_split = "ordered_split" in flags
                 save_constr = kwds.get("save_constr", None)
                 load_constr = kwds.get("load_constr", None)
+                save_rules = kwds.get("save_rules", None)
                 simplify = "simplify" in flags
+                simp_mode = kwds.get("simp_mode", None)
+                if simp_mode not in [None, "minimize", "recompute"]:
+                    raise GriddyRuntimeError("Unknown simp_mode: {}".format(simp_mode))
+                trim_mode = kwds.get("trim_mode", None)
+                if trim_mode not in [None, "minimize", "recompute"]:
+                    raise GriddyRuntimeError("Unknown trim_mode: {}".format(trim_mode))
+                if simp_mode is None:
+                    if trim_mode is None:
+                        simp_mode = trim_mode = "minimize"
+                    else:
+                        simp_mode = trim_mode
+                elif trim_mode is None:
+                    trim_mode = simp_mode
                 rationalize = "rationalize" in flags
+                add_singletons = "add_singletons" in flags
+                trim_rules= "trim_rules" in flags
+                trim_final= "trim_final_rules" in flags
+                check_intermediates = "check_intermediates" in flags
                 specs = args[1]
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
@@ -745,6 +764,14 @@ class Griddy:
                     specs = [specs]
                 specs = [(dirs, [self.process_nvec(nvec) for nvec in nhood])
                          for [dirs, nhood] in specs]
+                if add_singletons:
+                    # add all singletons to the specs
+                    spec_pairs = {(d, nvec)
+                                  for (dirs, nvecs) in specs
+                                  for d in dirs
+                                  for nvec in nvecs}
+                    for (d, nvec) in spec_pairs:
+                        specs.append(([d], [nvec]))
                 print_freq = kwds.get("print_freq", 5000)
                 verb = "verbose" in flags
                 show_rules = "show_rules" in flags
@@ -753,56 +780,78 @@ class Griddy:
 
                 disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights)
                 disc_arg.compute_bound(verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
-                #disc_arg.rationalize(10000)
-                #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
-                if mode != "silent":
+                if rationalize:
+                    rat_ok = disc_arg.try_rationalize()
+                    if rat_ok:
+                        if mode != "silent":
+                            print("Found lower bound {}".format(disc_arg.bound))
+                            print("Succesfully rationalized solution, it is valid")
+                    elif mode != "silent":
+                        print("Found lower bound {}".format(disc_arg.bound))
+                        if disc_arg.is_valid():
+                            print("Could not rationalize solution, but it seems to be valid")
+                        else:
+                            print("Could not rationalize solution and it seems to be invalid")
+                elif mode != "silent":
                     print("Found lower bound {}".format(disc_arg.bound))
                     if disc_arg.is_valid():
                         print("Solution seems to be valid")
                     else:
-                        print("Solution is invalid, consider restarting")
+                        print("Solution seems to be invalid")
+                #disc_arg.rationalize(10000)
+                #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
                 if simplify:
                     if mode != "silent" and not verb:
                         print("Optimizing number of rules")
-                    if max_split is None:
-                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0)
-                    max_len = max(len(p) for p in disc_arg.trans_rules)
-                    num_rules = [0]*(max_len+1)
-                    for (pat, vecs) in disc_arg.trans_rules.items():
-                        num_rules[len(pat)] += len(vecs)
-                    num_rules.reverse()
+                    if trim_rules:
+                        if trim_mode == "minimize":
+                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split, ordered_split=ordered_split)
+                        elif trim_mode == "recompute":
+                            disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split)
+                    old_score = disc_arg.score
                     while True:
                         if verb:
-                            print("Optimizing number of rules (now {})".format(num_rules))
-                        disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, max_larges=max_split, num_split=num_split)
-                        if max_split is None:
-                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0)
-                        if verb:
+                            print("Optimizing number of rules (now {})".format(old_score))
+                        old_rules = disc_arg.trans_rules
+                        if simp_mode == "minimize":
+                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, max_larges=max_split, num_split=num_split, ordered_split=ordered_split)
+                        elif simp_mode == "recompute":
+                            res = disc_arg.compute_bound(verbose=verb, print_freq=print_freq, split=True, num_split=num_split, max_split=max_split, ordered_split=ordered_split)
+                            if not res:
+                                simp_mode = "minimize"
+                                continue
+                        if trim_rules:
+                            if trim_mode == "minimize":
+                                disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split, ordered_split=ordered_split)
+                            elif trim_mode == "recompute":
+                                disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split)
+                        if check_intermediates and verb:
                             if disc_arg.is_valid():
                                 print("Recomputed solution seems to be valid")
                             else:
                                 print("Recomputed solution is invalid (but may correct itself later)")
                         #disc_arg.rationalize(10000)
                         #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
-                        new_num_rules = [0]*(max_len+1)
-                        for (pat, vecs) in disc_arg.trans_rules.items():
-                            new_num_rules[len(pat)] += len(vecs)
-                        new_num_rules.reverse()
-                        if new_num_rules >= num_rules:
+                        if disc_arg.score >= old_score:
+                            disc_arg.trans_rules = old_rules
+                            disc_arg.update_specs()
                             break
-                        num_rules = new_num_rules
-                if rationalize:
-                    for n in [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]:
-                        rat_ok = disc_arg.rationalize(n)
+                        else:
+                            old_score = disc_arg.score
+                    if trim_rules or trim_final:
+                        disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq)
+                    if rationalize:
+                        rat_ok = disc_arg.try_rationalize()
                         if rat_ok:
                             if mode != "silent":
                                 print("Succesfully rationalized solution, it is valid")
                                 if not show_rules:
                                     print("Final bound: {}".format(disc_arg.bound))
-                            break
-                    else:
-                        if mode != "silent":
+                        elif mode != "silent":
                             print("Could not rationalize solution, it might not be valid")
+                            valid, reason = disc_arg.is_valid(give_reason=True)
+                            print(valid)
+                            print(reason)
                             
                 if show_rules:
                     if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
@@ -811,6 +860,8 @@ class Griddy:
                             if mode != "silent": print("on {}:".format(dict(fr_pat)))
                             for (vec, amount) in sorted(amounts.items()):
                                 if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
+                if save_rules is not None:
+                    disc_arg.save_transfer_rules(save_rules)
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)

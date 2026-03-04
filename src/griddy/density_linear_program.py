@@ -11,8 +11,9 @@ import time
 from fractions import Fraction
 import random
 
-SOLVER_OPTS_INITIAL = ["--primal", "--xcheck"]
-SOLVER_OPTS_RECOMPUTE = ["--dual", "--xcheck"]
+TOLERANCE = 1e-6
+SOLVER_OPTS_INITIAL = ["--primal", "--cbg",  "--xcheck"]
+SOLVER_OPTS_RECOMPUTE = ["--dual", "--cbg", "--xcheck"]
 
 # TODO: allow saving and loading charge transfer rules
 
@@ -33,6 +34,7 @@ class DischargingArgument:
         self.trans_rules = None
         self.bigpats = None
         self.bigdomain = None
+        self.score = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
@@ -104,7 +106,7 @@ class DischargingArgument:
 
     # enumerate combined locally correct patterns that affect origin
     def surroundings(self, bigpat=None, ret_big=False):
-        #print(specs, "speculature")
+        #print("Spec len", len(self.specs))
         compute_bigpats = False
         if bigpat is not None:
            bigpats = [bigpat] 
@@ -148,7 +150,7 @@ class DischargingArgument:
             if isinstance(self.bound, Fraction):
                 summa = Fraction(0)
                 for node in self.sft.nodes:
-                    summa += Fraction(self.weights[orig_nodes[node]], len(self.sft.nodes))
+                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.sft.nodes))
             else:
                 summa = 0
                 for node in self.sft.nodes:
@@ -163,10 +165,11 @@ class DischargingArgument:
                     # missing rules are treated as 0
                     pass
             if type(summa) == float:
-                summa += 0.00001
+                # reduce floating point inaccuracies but possibly introduce false positives
+                summa += TOLERANCE
             if summa < self.bound:
                 if give_reason:
-                    return False, (bigpat,
+                    return False, (bigpat, orig_nodes,
                                    [(pat, vec, away,
                                      self.trans_rules[pat][vec]
                                      if pat in self.trans_rules and vec in self.trans_rules[pat]
@@ -178,7 +181,7 @@ class DischargingArgument:
                     return False
         if give_reason:
             if bigpat_given:
-                return True, (bigpat,
+                return True, (bigpat, orig_nodes,
                               [(pat, vec, away,
                                 self.trans_rules[pat][vec]
                                 if pat in self.trans_rules and vec in self.trans_rules[pat]
@@ -191,23 +194,52 @@ class DischargingArgument:
         else:
             return True
 
-    def rationalize(self, denom_bound):
+    def try_rationalize(self):
         "Attempt to convert into rational numbers. Return whether it was succesful."
+        for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]:
+            rat_ok = self.rationalize(n)
+            if rat_ok:
+                return True
+        return False
+    
+    def rationalize(self, denom_bound, verbose=False):
+        "Attempt to convert into rational numbers using given denominator bound. Return whether it was succesful."
         old_bound = self.bound
         self.bound = Fraction(self.bound).limit_denominator(denom_bound)
         old_rules = self.trans_rules
         self.trans_rules = {fpat : {vec : Fraction(num).limit_denominator(denom_bound)
                                     for (vec, num) in vecs.items()}
                             for (fpat, vecs) in self.trans_rules.items()}
-        if self.is_valid():
+        valid, reason = self.is_valid(give_reason=True)
+        if valid:
             return True
         else:
+            if verbose:
+                print("Could not rationalize with denominator <= {}, reason:".format(denom_bound))
+                bigpat, orig_nodes, rules, summa, bound = reason
+                old_summa = 0
+                for node in self.sft.nodes:
+                    old_summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+                for (pat, vec, away, _) in rules:
+                    if pat in old_rules and vec in old_rules[pat]:
+                        if away:
+                            old_summa -= old_rules[pat][vec]
+                        else:
+                            old_summa += old_rules[pat][vec]
+                print(bigpat,
+                      [(pat, vec, away, amount,
+                        old_rules[pat][vec]
+                        if pat in old_rules and vec in old_rules[pat]
+                        else None)
+                       for (pat, vec, away, amount) in rules],
+                      summa, bound,
+                      old_summa, old_bound)
             self.bound = old_bound
             self.trans_rules = old_rules
             return False
 
-    def update_specs(self, trans_rules=None):
-        "Update specs to match the current or given transition rules."
+    def update_specs(self, trans_rules=None, rules_only=False):
+        "Update specs, bigdomain and score to match the current or given transition rules."
         if trans_rules is None:
             trans_rules = self.trans_rules
         domain_vecs = dict()
@@ -217,6 +249,8 @@ class DischargingArgument:
                 domain_vecs[fset] = set()
             domain_vecs[fset] |= set(vecs)
         self.specs = [(list(v),list(d)) for (d,v) in domain_vecs.items()]
+        if rules_only or self.bigpats is None:
+            return
         #print("new specs", self.specs)
         bigdomain = set(nvsub(nvec, vec)
                         for (vecs, domain) in self.specs
@@ -230,8 +264,73 @@ class DischargingArgument:
             self.bigpats = set(fd.frozendict({nvec : bigpat[nvec]
                                               for nvec in bigdomain})
                                for bigpat in self.bigpats)
+        if self.score is None:
+            self.score = [0]*max(len(fpat) for fpat in trans_rules)
+        else:
+            self.score = [0]*len(self.score)
+        for (fpat, vecs) in trans_rules.items():
+            self.score[-len(fpat)] += len(vecs)
 
-    def compute_bound(self, verbose=False, print_freq=5000, save_constr=None, load_constr=None):
+    def minimize_rule_count(self, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False):
+        "Iteratively remove rules until each is essential, starting from the largest."
+        rule_pairs = [(fpat, vec)
+                      for (fpat, vecs) in self.trans_rules.items()
+                      for vec in vecs]
+        random.shuffle(rule_pairs)
+        rule_pairs.sort(key=lambda p: -len(p[0]))
+        #valid, reason = self.is_valid(give_reason=True)
+        #if not valid:
+        #    print("Invalid")
+        #    print(reason)
+        #    1/0
+        #old_rules = {fpat : vecs.copy() for (fpat, vecs) in  self.trans_rules.items()}
+        if verbose:
+            print("Minimizing rule count")
+        num_removed = len(rule_pairs)//10
+        i = 0
+        while rule_pairs and (max_rounds in [None, "until_fail"] or i < max_rounds):
+            i += 1
+            # pick rules, remove them and check whether we can reach the same bound as before
+            removed_pairs = rule_pairs[:num_removed]
+            old_rules = {fpat : vecs.copy()
+                         for (fpat, vecs) in self.trans_rules.items()}
+            for (fpat, vec) in removed_pairs:
+                del self.trans_rules[fpat][vec]
+                if not self.trans_rules[fpat]:
+                    del self.trans_rules[fpat]
+            print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(vecs) for vecs in old_rules.values()), sum(len(vecs) for vecs in self.trans_rules.values()), len(rule_pairs)))
+            same_bound = self.compute_bound(verbose=verbose, print_freq=print_freq, ordered_split=ordered_split)
+            #print("Changed:", same_bound)
+            if same_bound:
+                # rule was not needed
+                rule_pairs = [(fpat, vec) for (fpat, vec) in rule_pairs[num_removed:]
+                              if fpat in self.trans_rules
+                              if vec in self.trans_rules[fpat]]
+            else:
+                # rule was needed -> put it back
+                self.trans_rules = old_rules
+                self.update_specs(rules_only=True)
+                if num_removed == 1:
+                    if max_rounds == "until_fail":
+                        break
+                    rule_pairs.pop(0)
+                else:
+                    num_removed = max(1, num_removed//2)
+                    random.shuffle(rule_pairs)
+                    rule_pairs.sort(key=lambda p: -len(p[0]))
+            #if valid:
+            #    #self.try_rationalize()
+            #    still_valid, reason = self.is_valid(give_reason=True)
+            #    if not still_valid:
+            #        print("From valid to invalid")
+            #        print(reason)
+            #        bigpat = reason[0]
+            #        print(self.trans_rules == old_rules)
+            #        print(self.is_valid(bigpat=bigpat, give_reason=True))
+            #        1/0
+                
+
+    def compute_bound(self, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
@@ -245,7 +344,6 @@ class DischargingArgument:
 
         total_vars = 1
         total_constr = 0
-        all_pats = set()
         send = {}
 
         if load_constr is not None:
@@ -265,15 +363,13 @@ class DischargingArgument:
                         self.bigpats.append({nvec : sym
                                              for (nvec, sym) in zip(self.bigdomain, line.split())})
 
-        
+        if verbose:
+            print("Computing pattern variables")
         if self.trans_rules is None:
             for (k, (vectors, domain)) in enumerate(self.specs):
-                if verbose:
-                    print("Computing pattern variables in spec {}/{}".format(k+1, len(self.specs)))
                 patterns = set()
-                for pat in self.sft.all_patterns(domain):
+                for pat in self.sft.all_patterns(domain, extra_rad=self.radius):
                     patterns.add(fd.frozendict(pat))
-                    all_pats |= patterns
 
                 # create variables for how much is discharged in each direction from each pattern
                 i = 0
@@ -289,15 +385,47 @@ class DischargingArgument:
                             print("{} found so far".format(total_vars))
         else:
             i = 0
-            for (fr_pat, vecs) in self.trans_rules.items():
+            splits = 0
+            for (fr_pat, vecs) in sorted(random.sample(self.trans_rules.items(),
+                                                       k=len(self.trans_rules)),
+                                         key=lambda p:-len(p[0])):
                 for vec in vecs:
-                    send[fr_pat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
-                    send[fr_pat, vec].setInitialValue(0)
-                    i += 1
-                    total_vars += 1
-                    if verbose and total_vars%print_freq == 0:
-                        print("{} found so far".format(total_vars))
-                    
+                    if split and len(fr_pat) > 1 and (max_split is None or splits < max_split):
+                        # replace pattern with smaller subpatterns
+                        splits += 1
+                        if num_split is None:
+                            split_nvecs = fr_pat
+                        elif ordered_split:
+                            split_nvecs = list(sorted(fr_pat))[:num_split]
+                        else:
+                            split_nvecs = random.sample(sorted(fr_pat), min(num_split, len(fr_pat)))
+                        for nvec in split_nvecs:
+                            new_fpat = fr_pat.delete(nvec)
+                            if (new_fpat, vec) not in send:
+                                send[new_fpat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                                send[new_fpat, vec].setInitialValue(0)
+                                i += 1
+                                total_vars += 1
+                                if verbose and total_vars%print_freq == 0:
+                                    print("{} found so far".format(total_vars))
+                    elif (not split) or all(any(fr_pat.get(nvec, None) != sym
+                                                for (nvec, sym) in fr_pat2.items())
+                                            for (fr_pat2, vec2) in send
+                                            if vec2 == vec):
+                        # keep original pattern
+                        send[fr_pat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                        send[fr_pat, vec].setInitialValue(0)
+                        i += 1
+                        total_vars += 1
+                        if verbose and total_vars%print_freq == 0:
+                            print("{} found so far".format(total_vars))
+                        
+        specs = dict()
+        for (fpat, vec) in send:
+            if fpat not in specs:
+                specs[fpat] = []
+            specs[fpat].append(vec)
+        self.update_specs(specs, rules_only=True)
 
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
@@ -338,9 +466,16 @@ class DischargingArgument:
         if verbose:
             print("Done with {} constraints, now solving".format(i))
         tim = time.time()
-        pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_INITIAL).solve(prob)
+        pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
+        #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_INITIAL).solve(prob)
         if verbose:
-            print("Solved in {} seconds".format(time.time()-tim))
+            print("Solved in {} seconds, bound {}".format(time.time()-tim, density.varValue))
+
+        
+
+        if self.bound is not None and density.varValue + TOLERANCE < self.bound:
+            self.update_specs(rules_only=True)
+            return False
 
         self.trans_rules = dict()
         for ((fr_pat, vec), var) in send.items():
@@ -349,11 +484,13 @@ class DischargingArgument:
                     self.trans_rules[fr_pat] = dict()
                 self.trans_rules[fr_pat][vec] = var.varValue
 
-        self.bound = density.varValue
+        if self.bound is None:
+            self.bound = density.varValue
         self.update_specs()
+        return True
 
     
-    def recompute_with_holes(self, verbose=False, print_freq=5000, max_larges=None, num_split=None):
+    def recompute_with_holes(self, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
         # an upper bound on the total share send by large patterns, which we minimize
         if self.bound is None:
@@ -368,19 +505,23 @@ class DischargingArgument:
             print("Computing pattern variables")
         i = 0
         num_larges = 0
-        for (fpat, vecs) in sorted(self.trans_rules.items(), key=lambda p:-len(p[0])):
+        for (fpat, vecs) in sorted(random.sample(self.trans_rules.items(),
+                                                 k=len(self.trans_rules)),
+                                   key=lambda p:-len(p[0])):
             for vec in vecs:
                 #fpat = fd.frozendict(pat)
                 if (fpat, vec) not in all_pairs:
                     i += 1
                     if verbose and i%print_freq == 0:
                         print("{} found so far".format(i))
-                if (max_larges is None) or (num_larges < max_larges):
+                if len(fpat) > 1 and (max_larges is None or num_larges < max_larges):
                     #print("n")
                     all_pairs[fpat, vec] = True
                     num_larges += 1
                     if num_split is None:
                         split_nvecs = fpat
+                    elif ordered_split:
+                        split_nvecs = list(sorted(fpat))[:num_split]
                     else:
                         split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
                     #print(split_nvecs)
@@ -414,7 +555,7 @@ class DischargingArgument:
             if fpat not in specs:
                 specs[fpat] = []
             specs[fpat].append(vec)
-        self.update_specs(specs)
+        self.update_specs(specs, rules_only=True)
 
         send = dict()
         sum_large = 0
@@ -432,7 +573,7 @@ class DischargingArgument:
                         send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
                     else:
                         send[fr_pat, vec, sign].setInitialValue(0)
-                    sum_large += send[fr_pat, vec, sign]
+                    sum_large += len(fr_pat) * send[fr_pat, vec, sign]
                     i += 1
                     i_large += 1
             else:
@@ -494,7 +635,7 @@ class DischargingArgument:
         #print("status before", prob.status)
         tim = time.time()
         pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
-        #pulp.PULP_CBC_CMD(msg=False, warmStart=True, threads=3).solve(prob)
+        #pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
         if prob.status != 1:
             raise GriddyRuntimeError("Unsolvable linear problem")
         if verbose:
