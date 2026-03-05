@@ -271,7 +271,7 @@ class DischargingArgument:
         for (fpat, vecs) in trans_rules.items():
             self.score[-len(fpat)] += len(vecs)
 
-    def minimize_rule_count(self, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False):
+    def minimize_rule_count(self, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None):
         "Iteratively remove rules until each is essential, starting from the largest."
         rule_pairs = [(fpat, vec)
                       for (fpat, vecs) in self.trans_rules.items()
@@ -298,7 +298,8 @@ class DischargingArgument:
                 del self.trans_rules[fpat][vec]
                 if not self.trans_rules[fpat]:
                     del self.trans_rules[fpat]
-            print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(vecs) for vecs in old_rules.values()), sum(len(vecs) for vecs in self.trans_rules.values()), len(rule_pairs)))
+            if verbose:
+                print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(vecs) for vecs in old_rules.values()), sum(len(vecs) for vecs in self.trans_rules.values()), len(rule_pairs)))
             same_bound = self.compute_bound(verbose=verbose, print_freq=print_freq, ordered_split=ordered_split)
             #print("Changed:", same_bound)
             if same_bound:
@@ -306,6 +307,12 @@ class DischargingArgument:
                 rule_pairs = [(fpat, vec) for (fpat, vec) in rule_pairs[num_removed:]
                               if fpat in self.trans_rules
                               if vec in self.trans_rules[fpat]]
+                if save_rules is not None:
+                    if verbose:
+                        print("Saving intermediate rules...", end='')
+                    self.save_transfer_rules(save_rules)
+                    if verbose:
+                        print(" done")
             else:
                 # rule was needed -> put it back
                 self.trans_rules = old_rules
