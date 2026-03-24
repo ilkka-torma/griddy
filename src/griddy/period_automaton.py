@@ -256,7 +256,7 @@ class PeriodAutomaton:
             for (state, weight, new_state) in res:
                 if new_state not in self.states:
                     self.states.add(new_state)
-                    if verbose and (len(self.states) - undone)%report == 0:
+                    if report and verbose and (len(self.states) - undone)%report == 0:
                         print("states processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
                     qq.append(new_state)
                     if len(qq) >= chunk_size:
@@ -434,7 +434,7 @@ class PeriodAutomaton:
         for proc in procs:
             proc.start()
         for k in range(1, m+1):
-            if verbose and k%report==0:
+            if report and verbose and k%report==0:
                 print("round", k, "/", m)
             for (_, _, task_q) in task_qs:
                 task_q.put(k)
@@ -547,7 +547,7 @@ class PeriodAutomaton:
 
         # phase 1: populate dense mins
         for k in range(0,m+1):
-            if verbose and k%report==0:
+            if report and verbose and k%report==0:
                 print("phase 1 round", k, "/", m)
             for (_, _, task_q) in task_qs:
                 task_q.put(k)
@@ -561,7 +561,7 @@ class PeriodAutomaton:
             dense_mins[n+p] = max_w
         min_things = math.inf, 0, 0
         for k in range(1, m):
-            if verbose and k%report==0:
+            if report and verbose and k%report==0:
                 print("phase 2 round", k, "/", m)
             for (_, _, task_q) in task_qs:
                 task_q.put(k)
@@ -582,7 +582,7 @@ class PeriodAutomaton:
         rnd = 1
         for (lo, hi) in reversed(list(zip(sparse_rows, sparse_rows[1:]))):
             for k in range(lo, hi+1):
-                if verbose and rnd%report==0:
+                if report and verbose and rnd%report==0:
                     print("phase 3 round", rnd, "/", m+len(sparse_rows)-2)
                 rnd += 1
                 for (_, _, task_q) in task_qs:
@@ -655,7 +655,7 @@ class PeriodAutomaton:
             proc.start()
         for p in [1,2]:
             for k in range(1, (m+1) if p == 1 else m):
-                if verbose and k%report==0:
+                if report and verbose and k%report==0:
                     print("phase", p, "round", k, "/", m if p == 1 else (m-1))
                 for (_, _, task_q) in task_qs:
                     task_q.put(k)
