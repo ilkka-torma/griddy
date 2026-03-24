@@ -13,6 +13,7 @@ from numpy.linalg import inv
 import os
 import re
 from enum import Enum
+import pickle
 
 """
 nodes = [0]
@@ -214,21 +215,30 @@ def scale_picture(pic, factor):
 def ok_file(s):
     return len(s) >= 1 # s[-5:] == ".ptrn" or len(p )
 
-def save(grid, filename):
+def save(conf, filename):
+    print(conf)
+    #print("saving", conf.info_string("dis", verbose=True))
     if filename[:-5] != ".ptrn":
         filename = filename + ".ptrn"
-    with open(filename, "w") as fil:
-        for (x, y, n) in grid:
+    with open(filename, "wb") as fil:
+        pickle.dump(conf, fil)
+        #for ((x, y), n) in conf:
             #print((x,y,n), "was", grid[(x,y,n)])
             # for ease-of-use, we print out an ASCII table
-            fil.write("%s: %s\n" % ((x, y, n), grid[(x, y, n)]))
+            #fil.write("%s: %s\n" % ((x, y, n), conf[(x, y), n]))
 
-def load(grid, filename):
+def load(filename):
     if filename[:-5] != ".ptrn":
         filename = filename + ".ptrn"
+    """
     for n in list(grid.keys()):
         del grid[n]
-    with open(filename, "r") as fil:
+    """
+    with open(filename, "rb") as fil:
+        conf = pickle.load(fil)
+    #print("loaded", conf.info_string("dis", verbose=True))
+    return conf
+    """
         for line in fil:
             a, b = line.split(": ")[:2]
             #print(a, b)
@@ -252,6 +262,7 @@ def load(grid, filename):
                 grid[a] = set_or_ded, int(idx)
             #print(b)                
             #print(a, "now", grid[a])
+    """
 
 # In a configuration, (None, ...) can also denote a None symbol, this is for that.
 def Noneish(a):
@@ -663,10 +674,10 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     print("Filename %s is not valid; for safety, we require length at least 1." % filename)
                 else:
                     if event.ui_element == save_button:
-                        save(grid, filename)
+                        save(backend.conf(), filename)
                         print('Configuration saved in %s.' % filename)
                     if event.ui_element == load_button:
-                        load(grid, filename)
+                        backend.replace_conf(load(filename))
                         print('Configuration loaded from %s.' % filename)
             
             if event.type == pygame.QUIT:  # If user clicked close

@@ -1,5 +1,6 @@
 import math
 from circuit import Circuit, AND, OR, NOT, T, F, IFF, V, SAT
+from functools import partial
 
 # Does this string represent a number?
 def is_nat(string):
@@ -39,7 +40,7 @@ class Alphabet:
         * node_constraint is a function that takes a list of circuits representing node variables and
           returns a circuit, a constraint that must hold for the encoding to be valid.
         * model_to_sym takes a truth assignment of the variables (list of booleans) and returns
-          the corresponding symbol.
+          the corresponding symbol. Note that a models dict is automatically computed that inverts this.
         * node_eq_sym is a function that takes a list of circuits representing node variables and
           a symbol of the alphabet, and returns a circuit constraining them to represent the symbol.
         * node_eq_node is a function that takes two lists of circuits and returns a circuit
@@ -49,10 +50,22 @@ class Alphabet:
           string : (func(sym, sym -> sym), None or func([circ], [circ] -> [circ])).
           If not given, no operations are supported.
           Compiler currently uses only '+', '-' and '*'.
+        Note that all IO between alphabet and others uses boolean lists rather than label dicts.
         """
         self.symbols = symbols
         self.node_vars = node_vars
-        self.model_to_sym = model_to_sym
+        # We wrap model_to_sym so we can also use it with a dictionary, since
+        # (for some reason) internally it works with Boolean lists.
+        def smart_model_to_sym(model, m2s, nvs):
+            if isinstance(model, list):
+                ret = m2s(model)
+            else:
+                aslist = []
+                for var in nvs:
+                    aslist.append(model[var])
+                ret = m2s(aslist)
+            return ret
+        self.model_to_sym = lambda mod, m2s=model_to_sym, nvs=node_vars:smart_model_to_sym(mod, m2s, nvs)
         self.node_constraint = node_constraint
         self.node_eq_sym = node_eq_sym
         self.node_eq_node = node_eq_node
@@ -66,6 +79,7 @@ class Alphabet:
             model = SAT(AND(self.node_eq_sym(nvars, sym),
                             self.node_constraint(nvars)),
                         return_model=True)
+            #print(sym, model)
             self.models[sym] = model
 
         if operations is None:

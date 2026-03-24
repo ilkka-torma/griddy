@@ -150,4 +150,19 @@ def words(n, alph):
     else:
         yield tuple()
 
+# return p as a pattern over alphabet; patterns are, for now, just dicts, but it does a type check.
+def pattern(p, graph, nodes, alph):
+    for d in p:
+        assert graph.has_cell(d[0])
+        assert d[1] in nodes
+        assert p[d] in alph[d[1]]
+    return p
+        
+
+
+
+
+
+
+
 
