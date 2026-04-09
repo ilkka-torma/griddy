@@ -1884,7 +1884,7 @@ def report_blockmap_equal(a, b, mode="report", truth=True, verbose=False): # ver
         (node, value), pattern = diff
         if mode != "silent": print("Separated by pattern with return value {} on node {}:".format(value, node))
         if mode != "silent": print(pattern)
-    print()
+    if mode != "silent": print()
     if mode == "assert":
         print(diff is None, "=", (truth == "T"))
         assert (diff is None) == (truth == "T")

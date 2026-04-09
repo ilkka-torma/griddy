@@ -19,19 +19,16 @@ From now on, all circuit variables are just (cell, node, symbol).
 
 ---
 
-# we construct a circuit whose input variables are of the form (u, n)->a --
-# or just (u, n) if alphabet is binary -- and which evaluates to true iff, well.
-# CURRENTLY, ACTUALLY WE NEVER USE (u, n, 0), I DON'T KNOW IF THAT'S A GOOD IDEA THOUGH
+# we construct a circuit whose input variables are of the form (u, n, v) where v is the bits
+needed to encode the alphabet.
 
 # pos_variables tells us which positions the variables point to... of course
 # those positions will correspond to roughly the variables of the actual formula.
 
 # we can also produce auxiliary variables called aux_0, ..., aux_n
-# which can be used for variables ranging over symbols <- outdated!!!!!!!!!!!!!
+# which can be used for variables ranging over symbols, but these are currently not used
 
-# all_vars is all the variables that we talk about <- IT IS NOT USED FOR ANYTHING
-
-circuit_variables are aa little tricky... they should be functions
+# circuit_variables seem to be broken currently
 
 global_restr are things that must be true even if formula is part of larger formula
 """
@@ -333,12 +330,10 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         if p1 == None:
             ret = F
         #print(formula[1], p1)
-        #all_vars.add(var_of_pos_expr(formula[1]))
         p2 = eval_to_position(graph, topology, nodes, formula[2], variables)
         if p2 == None:
             ret = F
         #print(formula[2], p2)
-        #all_vars.add(var_of_pos_expr(formula[2]))
         if ret == None:
             if op == "ISNEIGHBOR":
                 nbhd = get_closed_nbhd(graph, topology, nodes, p1)
@@ -358,11 +353,9 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         p1 = eval_to_position(graph, topology, nodes, formula[2], variables)
         if p1 == None:
             ret = F
-        #all_vars.add(var_of_pos_expr(formula[2]))
         p2 = eval_to_position(graph, topology, nodes, formula[3], variables)
         if p2 == None:
             ret = F
-        #all_vars.add(var_of_pos_expr(formula[3]))
         if ret is None:
             dist = get_distance(graph, topology, nodes, p1, p2)
             for (start, end) in dist_ranges:
@@ -772,10 +765,15 @@ def var_of_pos_expr(f):
         f = f[1]
     return f
 
+
+# this wraps eval_to_position_ for debug print purposes, but it's actually
+# unnecessary because there is also the "top" variable
 def eval_to_position(graph, topology, nodes, expr, pos_variables, top=True):
     #print("Evaluating to pos", graph, topology, nodes, expr, pos_variables, top)
     ret = eval_to_position_(graph, topology, nodes, expr, pos_variables, top)
     return ret
+
+debug = False
 
 def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
     #print("e2p context", graph, topology, nodes)
@@ -795,32 +793,34 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
         #print("expr is node:", expr)
         return expr
     pos = pos_variables[expr[1]]
-    #print(pos, "kos")
+    global debug
+    if debug: print(pos, "kos")
     if type(pos) != tuple:
+        if debug:print("is not tuple")
         pos = eval_to_position_(graph, topology, nodes, pos, pos_variables, nodes, top=False)
 
-    #print("pos", pos, expr,  "going through topo")
+    if debug:print("pos", pos, expr,  "going through topo")
     for i in expr[2:]:
-        #print("i", i)
+        if debug:print("i", i)
         # underscore means go to cell level
         if i == '_':
             pos = (pos[0], ())
             continue
 
-        # we want to primarily move to nodes, or 
+        # we want to primarily move to nodes, or along topology
         for t in topology:
-            #print(t, i)
+            if debug:print(t, i)
             # all should have length 4 now: label, offset, fromnode, tonode
             if len(t) == 4:
                 name, offset, fromnode, tonode = t
                 if name == i and (pos[1] == () or fromnode == pos[1]):
-                    #print("found edge", t)
-                    #print(pos, "kos")
+                    if debug:print("found edge", t)
+                    if debug:print(pos, "kos")
                     if pos[1] == ():
-                        #print("cell")
+                        if debug:print("cell")
                         pos = graph.move_rel(pos[0], offset), () #vadd(vsub(pos[0], a[0]), b[0]) + ((),)
                     else:
-                        #print("node")
+                        if debug:print("node")
                         pos = graph.move_rel(pos[0], offset), tonode #vadd(vsub(pos[0], a[0]), b[0]) + (b[1],)
                         #print(",a")
                     break
@@ -828,6 +828,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
                 raise Exception("Internal error: topology is broken")
                 
         else:
+            if debug:print("graph")
             # nothing applicable found in topology, try moving in graph
             # by generator, direction
             #print("kjerwf", graph, pos[0], i, graph.has_cell(i))

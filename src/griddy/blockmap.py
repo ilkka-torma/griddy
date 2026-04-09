@@ -704,13 +704,14 @@ class BlockMap:
     """
 
     # from a pattern that's a dict from positions and nodes to values,
-    # construct the corresponding pattern (position, node, value) -> True/false
+    # construct the corresponding pattern (position, node, val) -> True/false, where val goes over the bits representing
     def make_explicit(self, pattern, alphabet):
         explicit_pattern = {}
         for (v, node) in pattern:
             value = pattern[v, node]
-            for alph in alphabet[node]:
-                explicit_pattern[v, node, alph] = pattern[v, node] == alph
+            model = alphabet[node].models[value]
+            for var in alphabet[node].node_vars:
+                explicit_pattern[v, node, var] = model[var] #pattern[v, node] == alph
         return explicit_pattern
 
     """
@@ -730,6 +731,7 @@ class BlockMap:
         saturated = {}
         for v in set(p[0] for p in pattern) | set(dom):
             for n in nodes:
+                #print("test", v, n, "in", pattern.keys())
                 if (v, n) in pattern:
                     saturated[v, n] = pattern[v, n]
                 else:
@@ -744,12 +746,9 @@ class BlockMap:
     values are unknown.
     """
     def apply_to_pattern(self, pattern, out_domain = None):
-        
         # preprocess the pattern so that
         #print("NOW i AM APPLYING")
-        # actually saturation might not be so great, instead we will saturate based on out_domain if it's supplied
-        #pattern = self.saturate_cells(pattern, self.to_nodes, self.to_alphabet)
-        #print("explicit pattern", pattern)
+        #print("pattern", pattern)
         neighborhood = self.get_neighborhood(True)
         #print("neighborhood", neighborhood)
         some_nbr = list(neighborhood)[0]
@@ -757,7 +756,7 @@ class BlockMap:
         pattern_cells = set(d[0] for d in pattern)
         #print("pattern cells", pattern_cells)
         # image has those cells whose nbhd fits inside pattern; requires inversion in the graph
-        # although would generalize easily to other situations
+        # although would generalize to other situations
         if out_domain == None:
             image_cells_upper_bound = set(self.graph.move_rel(d, self.graph.invert(some_nbr)) for d in pattern_cells)
             image_cells = set()
@@ -770,24 +769,46 @@ class BlockMap:
         else:
             image_cells = set(out_domain)
         #print("before", pattern)
-        pattern = self.increase_and_saturate_domain(pattern, self.to_nodes, self.to_alphabet, set(self.graph.move_rel(c, nbr) for c in image_cells for nbr in neighborhood))
-        #print(pattern)
+        pattern = self.increase_and_saturate_domain(pattern, self.to_nodes, self.to_alphabet,
+                                set(self.graph.move_rel(c, nbr) for c in image_cells for nbr in neighborhood))
+        #print("after", len(pattern))
+        #for p in pattern:
+        #    if pattern[p] != "0":
+        #        print(p, pattern[p])
         pattern = self.make_explicit(pattern, self.to_alphabet)
+        #print(len(pattern))
         #print("image cells", image_cells)
         # now just feed in the pattern to circuits
         evals = {}
+        trues = 0
+        falses = 0
         for d in image_cells:
             for ((node, var), circ) in self.circuits.items():
-                #print((node, var))
+                if (d, node) not in evals:
+                    evals[d, node] = {}
+                #print(d, (node, var), "circuit item")
                 circ = circ.copy()
                 transform(circ, lambda v: (self.graph.move_rel(d, v[0]),) + v[1:])
+                #print("after trans", circ)
                 circ2 = circ.copy()
                 transform(circ2, lambda v: (T if pattern[v] else F))
+                #print("after trans 2", circ2)
                 #for p in pattern:
                 #    print(p, pattern[p])
                 if circ2.op == "T":
-                    evals[d, node] = var
-        return evals
+                    trues+=1
+                    evals[d, node][var] = True
+                else:
+                    falses+=1
+                    assert circ2.op == "F"
+                    evals[d, node][var] = False
+        #print(trues, falses)
+        ret = {}
+        for (d, node) in evals:
+            #print("an call")
+            ret[d, node] = self.to_alphabet[node].model_to_sym(evals[d, node])
+        #print("final", ret)
+        return ret
 
 # given a list of cellular automata, compute relations
 # among them up to radius rad as semigroup
