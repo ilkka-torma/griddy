@@ -10,32 +10,45 @@ import frozendict as fd
 import time
 from fractions import Fraction
 import random
+from enum import Enum
 
 TOLERANCE = 1e-6
 
+# A dict of solvers, type str -> ((solver, args), None | (solver, args))
+# The first component is used by default, the second when the first one fails
+# If the second is None, we just fail
 SOLVER_DICTS = {
-    "CBC" : (pulp.apis.PULP_CBC_CMD,
-             {"msg" : False,
-              "warmStart" : True,
-              "keepFiles" : True
-              }),
-    "GLPK" : (pulp.apis.GLPK_CMD,
+    "CBC" : ((pulp.apis.PULP_CBC_CMD,
               {"msg" : False,
-               "options" : ["--primal", "--cbg",  "--xcheck"]
+               "warmStart" : True,
+               "keepFiles" : True
                }),
-    "HiGHS_hipo" : (pulp.apis.HiGHS,
+             None),
+    "GLPK" : ((pulp.apis.GLPK_CMD,
+               {"msg" : False,
+                "options" : ["--primal", "--cbg",  "--xcheck"]
+                }),
+              None),
+    "HiGHS_ipx" : ((pulp.apis.HiGHS,
                     {"msg" : False,
-                     "solver" : "hipo"
+                     "solver" : "ipx"
                      }),
-    "HiGHS_ipx" : (pulp.apis.HiGHS,
-                   {"msg" : False,
-                    "solver" : "ipx"
-                    }),
-    "HiGHS_simplex" : (pulp.apis.HiGHS,
+                   None),
+    "HiGHS_simplex" : ((pulp.apis.HiGHS,
+                        {"msg" : False,
+                         "solver" : "simplex",
+                         "simplex_strategy" : "primal"
+                         }),
+                       None),
+    "HiGHS_hybrid" : ((pulp.apis.HiGHS,
+                       {"msg" : False,
+                        "solver" : "ipx"
+                        }),
+                      (pulp.apis.HiGHS,
                        {"msg" : False,
                         "solver" : "simplex",
                         "simplex_strategy" : "primal"
-                        })
+                        }))
 }
 
 def rules_to_tree(alph, bigdomain, rule_pairs):
@@ -102,6 +115,105 @@ def print_tree(tree, level=0):
             print_tree(item, level+1)
         else:
             print("{}use {}".format(" "*(level+1), item))
+
+class SimplifierState(Enum):
+    "States for the simplifier state machine."
+    SIMPLIFY_PHASE1 = 0
+    TRIM_PHASE1 = 1
+    SIMPLIFY_PHASE2 = 2
+    TRIM_PHASE2 = 3
+    TRIM_FINAL = 4
+    FINISHED = 5
+
+class DischargingSimplifier:
+    "A process for siplifying a discharging argument. Can be suspended, saved, loaded and restarted."
+
+    def __init__(self, disc_arg, solver_str, simp_mode="minimize", trim_mode=None, max_split=None, num_split=None, minimize_all=False, trim_initial=True):
+        self.disc_arg = disc_arg
+        self.orig_bigpats = disc_arg.bigpats
+        self.history = []
+        if trim_initial:
+            self.status = SimplifierState.TRIM_PHASE1
+        else:
+            self.status = SimplifierState.SIMPLIFY_PHASE1
+        self.trim_mode = trim_mode
+        self.simp_mode = simp_mode
+        self.solver_str = solver_str
+
+        self.max_split = max_split
+        self.num_split = num_split
+        self.minimize_all = minimize_all
+
+    def is_finished(self):
+        return self.status == SimplifierState.FINISHED
+
+    def step(self, verbose=False, print_freq=10000):
+        "Apply a single simplifier step/transition."
+        self.history.append((self.status, self.disc_arg.trans_rules, self.disc_arg.score))
+        if verbose:
+            print("Simplification step; number of rules now {} (total {})".format(self.disc_arg.score, sum(self.disc_arg.score)))
+
+        # Choose action based on internal state
+        if self.status == SimplifierState.SIMPLIFY_PHASE1:
+            if verbose:
+                print("Splitting rules")
+            if self.simp_mode == "minimize":
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=random.randint(0,1) or (self.max_split is not None and next((s for s in disc_arg.score if s), 0) <= self.max_split))
+                if self.trim_mode is not None:
+                    self.status = SimplifierState.TRIM_PHASE1
+                elif self.disc_arg.score >= self.history[-1][2]:
+                    self.status = SimplifierState.SIMPLIFY_PHASE2
+                    self.disc_arg.trans_rules = self.history[-1][1]
+                    self.disc_arg.update_specs()
+                    if verbose:
+                        print("Entering phase 2")
+                
+            elif self.simp_mode == "recompute":
+                res = disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, split=True, num_split=self.num_split, max_split=self.max_split)
+                if not res:
+                    self.status = SimplifierState.SIMPLIFY_PHASE2
+                    if verbose:
+                        print("Entering phase 2")
+                elif self.trim_mode is not None:
+                    self.status = SimplifierState.TRIM_PHASE1
+
+        elif self.status == SimplifierState.TRIM_PHASE1:
+            if verbose:
+                print("Trimming rules")
+            if self.trim_mode == "minimize":
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split)
+            elif self.trim_mode == "recompute":
+                self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, max_rounds="until_fail")
+            if len(self.history) >= 2 and self.disc_arg.score >= self.history[-2][2]:
+                self.disc_arg.trans_rules = self.history[-2][1]
+                self.disc_arg.update_specs()
+                self.status = SimplifierState.SIMPLIFY_PHASE2
+                if verbose:
+                        print("Entering phase 2")
+            else:
+                self.status = SimplifierState.SIMPLIFY_PHASE1
+
+        elif self.status == SimplifierState.SIMPLIFY_PHASE2:
+            if verbose:
+                print("Splitting rules")
+            self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, minimize_all=True, sort_pats=True)
+            if self.disc_arg.score >= self.history[-1][2]:
+                self.status = SimplifierState.TRIM_FINAL
+
+        elif self.status == SimplifierState.TRIM_FINAL:
+            if verbose:
+                print("Trimming final rules")
+            self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
+            self.status = SimplifierState.FINISHED
+
+    def try_rationalize(self, verbose=False):
+        return self.disc_arg.try_rationalize(verbose=verbose)
+
+    def check_solution(self, verbose=False):
+        valid = self.disc_arg.is_valid()
+        if verbose:
+            print("Valid", valid)
+            
 
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
@@ -308,12 +420,16 @@ class DischargingArgument:
         else:
             return True
 
-    def try_rationalize(self):
+    def try_rationalize(self, verbose=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
         for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]:
             rat_ok = self.rationalize(n)
             if rat_ok:
+                if verbose:
+                    print("Succesfully rationalized solution, bound {}".format(self.bound))
                 return True
+        if verbose:
+            print("Could not rationalize solution")
         return False
     
     def rationalize(self, denom_bound, verbose=False):
@@ -590,7 +706,7 @@ class DischargingArgument:
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False,
         #           solver="ipx"
@@ -724,16 +840,14 @@ class DischargingArgument:
             
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send]):
+        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send if p[2] != False]):
             # for each legal combo, sum the contributions from each -v
             summa = 0
-            #print("orig_pat", orig_pat)
             for node in self.sft.nodes:
                 summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
             for (pat, vec, away) in surr:
                 if (pat, vec) not in all_pairs:
                     continue
-                #print("summing", pat, vec, away)
                 if all_pairs[pat, vec]:
                     # large pattern -> has sign
                     if away:
@@ -764,13 +878,19 @@ class DischargingArgument:
         
         #print("status before", prob.status)
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False, solver="ipx").solve(prob)
         #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
         #pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
         if prob.status != 1:
-            raise NoSolutionError("Unsolvable linear problem")
+            backup = SOLVER_DICTS[solver_str][1]
+            if backup is not None:
+                solver(**solver_opts).solve(prob)
+                if prob.status != 1:
+                    raise NoSolutionError("Unsolvable linear problem")
+            else:
+                raise NoSolutionError("Unsolvable linear problem")
         if verbose:
             print("Solved in {} seconds".format(time.time()-tim))
         #print("status after", prob.status)
