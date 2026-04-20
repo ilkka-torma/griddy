@@ -103,10 +103,10 @@ class Griddy:
     def run_file(self, filename):
         with open(fix_filename(filename), 'r') as f:
             code = f.read()
-        self.run(code)
+        self.run(code, path=Path(filename).parent.absolute())
 
     # modes = "report", "silent", "assert"
-    def run(self, code, mode="report", print_parsed=False):
+    def run(self, code, mode="report", print_parsed=False, path=None):
         # some commands accumulate results to this list, returned at the end
         results = []
         try:
@@ -1326,9 +1326,7 @@ class Griddy:
                 y_periodic = "y_periodic" in flags
                 node_offsets = kwds.get("node_offsets", self.tiler_nodeoffsets)
                 node_offsets = {node: tuple(float(a) for a in vec) for (node, vec) in node_offsets.items()}
-                pictures = kwds.get("pictures", None)
-                if type(pictures) == list:
-                    pictures = {node : pictures for node in self.nodes}
+                
                 gridmoves = [tuple(map(float, move)) for move in kwds.get("gridmoves", self.tiler_gridmoves)]
                 conf_name = kwds.get("initial", None)
                 if conf_name is not None:
@@ -1339,6 +1337,14 @@ class Griddy:
                 else:
                     conf = None
                 hidden_nodes = kwds.get("hidden", [])
+                
+                pictures = kwds.get("pictures", None)
+                print(pictures)
+                if type(pictures) == list:
+                    pictures = {node : pictures for node in self.nodes}
+                pictures = {node : [self.fix_path(p, path) for p in pictures[node]] for node in self.nodes
+                    if node in pictures}
+                    
                 if mode != "silent": print(hidden_nodes)
                 if mode != "silent": print(gridmoves)
                 if mode != "silent": print(self.tiler_gridmoves)
@@ -1509,6 +1515,11 @@ class Griddy:
         self.db.commit()
         cur.close()
         
+    # add the folder of script to path
+    def fix_path(self, p, path):
+        if path == None:
+            return p
+        return os.path.join(path, p)
 
 # for a dict with lists on the right, return all sections
 def get_sections(dicto):

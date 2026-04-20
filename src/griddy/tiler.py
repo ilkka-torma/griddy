@@ -192,6 +192,7 @@ def cp_from_screen(v):
 def get_picture(p):
     for typ in ["", ".png", ".jpg", ".gif"]:
         path = p + typ
+        print(path)
         if os.path.exists(path):
             return pygame.image.load(path)
     if "_" not in p:
