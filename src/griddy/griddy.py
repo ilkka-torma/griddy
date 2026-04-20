@@ -12,6 +12,7 @@ except ImportError as error:
     print("\n\n")
         
 import sys
+import random
 
 from general import *
 
@@ -816,22 +817,21 @@ class Griddy:
                 #disc_arg.rationalize(10000)
                 #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
                 if simplify:
+                    sort_pats = False
+                    old_rules = [(disc_arg.trans_rules, 2)]
                     if mode != "silent" and not verb:
                         print("Optimizing number of rules")
-                    if trim_rules:
+                    if trim_rules or trim_final:
                         if trim_mode == "minimize":
-                            while True:
-                                try:
-                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split, minimize_all=minimize_all)
-                                except NoSolutionError:
-                                    if verb:
-                                        print("No solution, trying again")
-                                    continue
-                                break
+                            try:
+                                disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split, minimize_all=minimize_all, sort_pats=sort_pats)
+                            except NoSolutionError:
+                                if verb:
+                                    print("No solution, skipping")
                         elif trim_mode == "recompute":
                             disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
-                    old_score = disc_arg.score
                     while True:
+                        old_score = disc_arg.score
                         if type(disc_arg.bound) == float and rationalize_intermediates:
                             rat_ok = disc_arg.try_rationalize()
                             if verb and rat_ok:
@@ -846,16 +846,27 @@ class Griddy:
                                 print(" done")
                         if verb:
                             print("Optimizing number of rules (now {})".format(old_score))
-                        old_rules = disc_arg.trans_rules
                         if simp_mode == "minimize":
-                            while True:
+                            for i in range(3):
                                 try:
-                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, max_larges=max_split_simp, num_split=num_split, ordered_split=ordered_split, minimize_all=minimize_all)
+                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, max_larges=max_split_simp, num_split=num_split, ordered_split=ordered_split, minimize_all=minimize_all, sort_pats=sort_pats or random.randint(0,1) or i==2 or (max_split simp is not None and next((s for s in disc_arg.score if s), 0) <= max_simp_split))
                                 except NoSolutionError:
                                     if verb:
                                         print("No solution, trying again")
                                     continue
                                 break
+                            else:
+                                # no solution found -> backtrack
+                                if verb:
+                                    print("Backtracking instead")
+                                while True:
+                                    old_rule, num = old_rules.pop()
+                                    if num:
+                                        disc_arg.trans_rules = old_rule
+                                        disc_arg.update_specs()
+                                        old_rules.append((old_rule, num-1))
+                                        break
+                                continue
                         elif simp_mode == "recompute":
                             res = disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, split=True, num_split=num_split, max_split=max_split_simp, ordered_split=ordered_split)
                             if not res:
@@ -879,14 +890,26 @@ class Griddy:
                                 print("Recomputed solution is invalid (but may correct itself later)")
                         #disc_arg.rationalize(10000)
                         #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
-                        if disc_arg.score >= old_score:
-                            disc_arg.trans_rules = old_rules
+                        if disc_arg.score >= (old_score or []):
+                            disc_arg.trans_rules = old_rules.pop()[0]
                             disc_arg.update_specs()
-                            break
+                            if sort_pats:
+                                if verb:
+                                    print("Done reducing")
+                                break
+                            else:
+                                sort_pats = True
+                                max_simp_split = None
+                                if verb:
+                                    print("Switching to aggressive reduction")
                         else:
                             old_score = disc_arg.score
+                            old_rules.append((disc_arg.trans_rules, 2))
+                            
                     if trim_rules or trim_final:
-                        disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq)
+                        if verb:
+                            print("Trimming the final rules")
+                        disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, sort_rules=True)
                     if rationalize:
                         rat_ok = disc_arg.try_rationalize()
                         if rat_ok:

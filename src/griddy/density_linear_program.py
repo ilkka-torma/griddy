@@ -23,10 +23,19 @@ SOLVER_DICTS = {
               {"msg" : False,
                "options" : ["--primal", "--cbg",  "--xcheck"]
                }),
-    "HiGHS" : (pulp.apis.HiGHS,
-               {"msg" : False,
-                "solver" : "ipx"
-               })
+    "HiGHS_hipo" : (pulp.apis.HiGHS,
+                    {"msg" : False,
+                     "solver" : "hipo"
+                     }),
+    "HiGHS_ipx" : (pulp.apis.HiGHS,
+                   {"msg" : False,
+                    "solver" : "ipx"
+                    }),
+    "HiGHS_simplex" : (pulp.apis.HiGHS,
+                       {"msg" : False,
+                        "solver" : "simplex",
+                        "simplex_strategy" : "primal"
+                        })
 }
 
 def rules_to_tree(alph, bigdomain, rule_pairs):
@@ -195,7 +204,7 @@ class DischargingArgument:
             self.bigpats = []
         else:
             bigpats = self.bigpats
-        if rule_pairs is None:
+        if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
             for bigpat in bigpats:
                 surr = []
                 orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
@@ -249,7 +258,8 @@ class DischargingArgument:
                 return True
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr, bigpat) in self.surroundings(ret_big=True, bigpat=bigpat):
+        rule_pairs = [(fpat, vec) for (fpat, vecs) in self.trans_rules.items() for vec in vecs]
+        for (orig_nodes, surr, bigpat) in self.surroundings(ret_big=True, bigpat=bigpat, rule_pairs=rule_pairs):
             # for each legal combo, sum the contributions from each -v
             if isinstance(self.bound, Fraction):
                 summa = Fraction(0)
@@ -353,6 +363,12 @@ class DischargingArgument:
                 domain_vecs[fset] = set()
             domain_vecs[fset] |= set(vecs)
         self.specs = [(list(v),list(d)) for (d,v) in domain_vecs.items()]
+        if self.score is None:
+            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
+        else:
+            self.score = [0]*len(self.score)
+        for (fpat, vecs) in trans_rules.items():
+            self.score[-len(fpat)] += len(vecs)
         if rules_only or self.bigpats is None:
             return
         #print("new specs", self.specs)
@@ -368,21 +384,16 @@ class DischargingArgument:
             self.bigpats = set(fd.frozendict({nvec : bigpat[nvec]
                                               for nvec in bigdomain})
                                for bigpat in self.bigpats)
-        if self.score is None:
-            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
-        else:
-            self.score = [0]*len(self.score)
-        for (fpat, vecs) in trans_rules.items():
-            self.score[-len(fpat)] += len(vecs)
 
-    def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None):
+    def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None, sort_rules=False):
         "Iteratively remove rules until each is essential, starting from the largest."
         rule_pairs = [(fpat, vec)
                       for (fpat, vecs) in self.trans_rules.items()
                       if max_rounds is None or len(fpat) > 1
                       for vec in vecs]
         random.shuffle(rule_pairs)
-        #rule_pairs.sort(key=lambda p: -len(p[0]))
+        if sort_rules:
+            rule_pairs.sort(key=lambda p: -len(p[0]))
         #valid, reason = self.is_valid(give_reason=True)
         #if not valid:
         #    print("Invalid")
@@ -542,6 +553,7 @@ class DischargingArgument:
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
 
+        constr_tim = time.time()
         # list all legal combinations of patterns around origin
         i = 0
         for (orig_nodes, surr) in self.surroundings(rule_pairs=None if self.bound is None else send):
@@ -576,7 +588,7 @@ class DischargingArgument:
                     f.write(bigpat_line+"\n")
 
         if verbose:
-            print("Done with {} constraints, now solving".format(i))
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         tim = time.time()
         solver, solver_opts = SOLVER_DICTS[solver_str]
         solver(**solver_opts).solve(prob)
@@ -607,7 +619,7 @@ class DischargingArgument:
         return True
 
     
-    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False):
+    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False, sort_pats=True):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
         # an upper bound on the total share send by large patterns, which we minimize
         if self.bound is None:
@@ -624,7 +636,7 @@ class DischargingArgument:
         num_larges = 0
         for (fpat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
                                                  k=len(self.trans_rules)),
-                                   key=lambda p:-len(p[0])):
+                                   key=(lambda p:-len(p[0])) if sort_pats else (lambda _: 0)):
             for vec in vecs:
                 #fpat = fd.frozendict(pat)
                 if (fpat, vec) not in all_pairs:
@@ -704,6 +716,7 @@ class DischargingArgument:
 
         if verbose:
             print("Done with {} variables ({} to be minimized, {} free), now adding constraints".format(i, i_large, i_small))
+        constr_tim = time.time()
 
         # we minimize the sum of the absolute values of the charges sent by large patterns
         prob = pulp.LpProblem("discharge_opt", pulp.LpMinimize)
@@ -747,7 +760,7 @@ class DischargingArgument:
                 print("{} found so far".format(i))
 
         if verbose:
-            print("Done with {} constraints, now solving".format(i))
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         
         #print("status before", prob.status)
         tim = time.time()
