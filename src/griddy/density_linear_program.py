@@ -12,10 +12,87 @@ from fractions import Fraction
 import random
 
 TOLERANCE = 1e-6
-SOLVER_OPTS_INITIAL = ["--primal", "--cbg",  "--xcheck"]
-SOLVER_OPTS_RECOMPUTE = ["--dual", "--cbg", "--xcheck"]
 
-# TODO: allow saving and loading charge transfer rules
+SOLVER_DICTS = {
+    "CBC" : (pulp.apis.PULP_CBC_CMD,
+             {"msg" : False,
+              "warmStart" : True,
+              "keepFiles" : True
+              }),
+    "GLPK" : (pulp.apis.GLPK_CMD,
+              {"msg" : False,
+               "options" : ["--primal", "--cbg",  "--xcheck"]
+               }),
+    "HiGHS" : (pulp.apis.HiGHS,
+               {"msg" : False,
+                "solver" : "ipx"
+               })
+}
+
+def rules_to_tree(alph, bigdomain, rule_pairs):
+    "Transform charge transfer rules into a decision tree, which can be used to extract constraints from bigpats."
+    # quads will store tuples (pat, vec, away, tr_pat) where:
+    # pat is the original pattern,
+    # vec is the vector along which we transfer charge,
+    # away is True if we transfer away from the origin,
+    # tr_pat is pat translated by -vec if away is False, and pat otherwise.
+    # We will look for tr_pat in the bigpats.
+    quads = []
+    for (pat, vec) in rule_pairs:
+        quads.append((pat, vec, True, pat))
+        quads.append((pat, vec, False,
+                      fd.frozendict({nvsub(nvec, vec) : sym
+                                     for (nvec, sym) in pat.items()})))
+    tree, size = quads_to_tree(alph, bigdomain, quads, [])
+    assert size == len(quads)
+    #print("tree", size, len(tree), [p[:2] for p in tree])
+    return tree
+
+def quads_to_tree(alph, bigdomain, quads, tree):
+    # tree is a list of triples: tree := [(nvec, sym, [tree]) | (pat, vec, bool)].
+    # the idea is that we iterate the list and test whether bigpat[nvec] = sym.
+    # at each match, if the third item is a list we recurse,
+    # and otherwise we add (pat, vec, away) to the constraint.
+    #print("call", quads, tree)
+    sumsizes = 0
+    while quads:
+        #print("lq", len(quads))
+        old_len = len(quads)
+        if all(q[3] == quads[0][3] for q in quads[1:]):
+            #print("eq")
+            for quad in quads:
+                tree.append(quad)
+                sumsizes += 1
+            break
+        else:
+            # greedily choose nvec and sym that split quads the most evenly
+            pair = max(((nvec, sym) for nvec in bigdomain for sym in alph[nvec[1]]
+                        if any(q[3].get(nvec, None) == sym for q in quads)),
+                       key = lambda p: min(n := sum(1 for q in quads
+                                                    if q[3].get(p[0], None) == p[1]),
+                                           len(quads) - n))
+            nvec, sym = pair
+            chosen = [(pat, vec, away, tr_pat.delete(nvec))
+                      for (pat, vec, away, tr_pat) in quads
+                      if tr_pat.get(nvec, None) == sym]
+            #print("pair", nvec, sym, old_len, len(chosen))
+            #print("lc", len(chosen))
+            assert len(chosen) != len(quads)
+            subtree, subsize = quads_to_tree(alph, bigdomain, chosen, [])
+            sumsizes += subsize
+            tree.append((nvec, sym, subtree))
+            quads = [q for q in quads if q[3].get(nvec, None) != sym]
+            assert old_len == len(quads) + len(chosen)
+    #print("ret", tree[::-1])
+    return tree[::-1], sumsizes
+
+def print_tree(tree, level=0):
+    for nvec, sym, item in reversed(tree):
+        print("{}on {} at {}:".format(" "*level, sym, nvec))
+        if type(item) == list:
+            print_tree(item, level+1)
+        else:
+            print("{}use {}".format(" "*(level+1), item))
 
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
@@ -105,8 +182,9 @@ class DischargingArgument:
                     self.trans_rules[fpat][vec] = num
 
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, bigpat=None, ret_big=False):
+    def surroundings(self, bigpat=None, ret_big=False, rule_pairs=None):
         #print("Spec len", len(self.specs))
+        # TODO: find a more efficient way to generate these when self.specs is large
         compute_bigpats = False
         if bigpat is not None:
            bigpats = [bigpat] 
@@ -117,23 +195,49 @@ class DischargingArgument:
             self.bigpats = []
         else:
             bigpats = self.bigpats
-        for bigpat in bigpats:
-            surr = []
-            orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
-            for (vecs, domain) in self.specs:
-                orig_pat = fd.frozendict({nvec : bigpat[nvec] for nvec in domain})
-                for vec in vecs:
-                    # away from origin
-                    surr.append((orig_pat, vec, True))
-                    # toward origin
-                    surr.append((fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), vec, False))
-            if compute_bigpats:
-                self.bigpats.append(bigpat)
-            if ret_big:
-                yield (orig_nodes, surr, bigpat)
-            else:
-                yield (orig_nodes, surr)
-
+        if rule_pairs is None:
+            for bigpat in bigpats:
+                surr = []
+                orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
+                for (vecs, domain) in self.specs:
+                    orig_pat = fd.frozendict({nvec : bigpat[nvec] for nvec in domain})
+                    for vec in vecs:
+                        # away from origin
+                        surr.append((orig_pat, vec, True))
+                        # toward origin
+                        surr.append((fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), vec, False))
+                if compute_bigpats:
+                    self.bigpats.append(bigpat)
+                if ret_big:
+                    yield (orig_nodes, surr, bigpat)
+                else:
+                    yield (orig_nodes, surr)
+        else:
+            tree = rules_to_tree(self.sft.alph, self.bigdomain, rule_pairs)
+            for bigpat in bigpats:
+                #print("new bigpat", bigpat)
+                surr = []
+                orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
+                curr_tree = tree.copy()
+                while curr_tree:
+                    #print("popping", curr_tree[-1])
+                    item = curr_tree.pop()
+                    # item is either (nvec, sym, subtree) or (pat, vec, away, tr_pat)
+                    if len(item) == 4:
+                        if all(bigpat[nvec] == sym for (nvec, sym) in item[3].items()):
+                            # a rule that matches
+                            surr.append(item[:3])
+                    elif bigpat[item[0]] == item[1]:
+                        # a subtree that matches
+                        curr_tree.extend(item[2])
+                #print("surr", surr)
+                if compute_bigpats:
+                    self.bigpats.append(bigpat)
+                if ret_big:
+                    yield (orig_nodes, surr, bigpat)
+                else:
+                    yield (orig_nodes, surr)
+    
 
     def is_valid(self, bigpat=None, give_reason=False):
         "Check that the argument is valid."
@@ -265,19 +369,20 @@ class DischargingArgument:
                                               for nvec in bigdomain})
                                for bigpat in self.bigpats)
         if self.score is None:
-            self.score = [0]*max(len(fpat) for fpat in trans_rules)
+            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
         else:
             self.score = [0]*len(self.score)
         for (fpat, vecs) in trans_rules.items():
             self.score[-len(fpat)] += len(vecs)
 
-    def minimize_rule_count(self, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None):
+    def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None):
         "Iteratively remove rules until each is essential, starting from the largest."
         rule_pairs = [(fpat, vec)
                       for (fpat, vecs) in self.trans_rules.items()
+                      if max_rounds is None or len(fpat) > 1
                       for vec in vecs]
         random.shuffle(rule_pairs)
-        rule_pairs.sort(key=lambda p: -len(p[0]))
+        #rule_pairs.sort(key=lambda p: -len(p[0]))
         #valid, reason = self.is_valid(give_reason=True)
         #if not valid:
         #    print("Invalid")
@@ -286,7 +391,7 @@ class DischargingArgument:
         #old_rules = {fpat : vecs.copy() for (fpat, vecs) in  self.trans_rules.items()}
         if verbose:
             print("Minimizing rule count")
-        num_removed = len(rule_pairs)//10
+        num_removed = max(1, len(rule_pairs)//10)
         i = 0
         while rule_pairs and (max_rounds in [None, "until_fail"] or i < max_rounds):
             i += 1
@@ -300,7 +405,7 @@ class DischargingArgument:
                     del self.trans_rules[fpat]
             if verbose:
                 print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(vecs) for vecs in old_rules.values()), sum(len(vecs) for vecs in self.trans_rules.values()), len(rule_pairs)))
-            same_bound = self.compute_bound(verbose=verbose, print_freq=print_freq, ordered_split=ordered_split)
+            same_bound = self.compute_bound(solver_str, verbose=verbose, print_freq=print_freq, ordered_split=ordered_split)
             #print("Changed:", same_bound)
             if same_bound:
                 # rule was not needed
@@ -337,7 +442,7 @@ class DischargingArgument:
             #        1/0
                 
 
-    def compute_bound(self, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False):
+    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
@@ -393,7 +498,7 @@ class DischargingArgument:
         else:
             i = 0
             splits = 0
-            for (fr_pat, vecs) in sorted(random.sample(self.trans_rules.items(),
+            for (fr_pat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
                                                        k=len(self.trans_rules)),
                                          key=lambda p:-len(p[0])):
                 for vec in vecs:
@@ -439,7 +544,7 @@ class DischargingArgument:
 
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings():
+        for (orig_nodes, surr) in self.surroundings(rule_pairs=None if self.bound is None else send):
             # for each legal combo, sum the contributions from each -v
             summa = 0
             #print("orig_pat", orig_pat)
@@ -473,7 +578,12 @@ class DischargingArgument:
         if verbose:
             print("Done with {} constraints, now solving".format(i))
         tim = time.time()
-        pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
+        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver(**solver_opts).solve(prob)
+        #pulp.HiGHS(msg=False,
+        #           solver="ipx"
+        #           ).solve(prob)
+        #pulp.PULP_CBC_CMD(msg=False, warmStart=True, keepFiles=True).solve(prob)
         #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_INITIAL).solve(prob)
         if verbose:
             print("Solved in {} seconds, bound {}".format(time.time()-tim, density.varValue))
@@ -497,7 +607,7 @@ class DischargingArgument:
         return True
 
     
-    def recompute_with_holes(self, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False):
+    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
         # an upper bound on the total share send by large patterns, which we minimize
         if self.bound is None:
@@ -512,7 +622,7 @@ class DischargingArgument:
             print("Computing pattern variables")
         i = 0
         num_larges = 0
-        for (fpat, vecs) in sorted(random.sample(self.trans_rules.items(),
+        for (fpat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
                                                  k=len(self.trans_rules)),
                                    key=lambda p:-len(p[0])):
             for vec in vecs:
@@ -536,12 +646,12 @@ class DischargingArgument:
                         #print("k")
                         new_fpat = fpat.delete(nvec)
                         if (new_fpat, vec) not in all_pairs:
-                            all_pairs[new_fpat, vec] = False
+                            all_pairs[new_fpat, vec] = minimize_all
                             i += 1
                             if verbose and i%print_freq == 0:
                                 print("{} found so far".format(i))
                 elif (fpat, vec) not in all_pairs:
-                    all_pairs[fpat, vec] = False
+                    all_pairs[fpat, vec] = minimize_all
 
         #for (fpat, vecs) in self.trans_rules.items():
         #    if fpat not in all_pats:
@@ -576,11 +686,11 @@ class DischargingArgument:
             if large:
                 for sign in [True, False]:
                     send[fr_pat, vec, sign] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large), lowBound=0)
-                    if vec in self.trans_rules[fr_pat]:
+                    if vec in self.trans_rules.get(fr_pat, []):
                         send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
                     else:
                         send[fr_pat, vec, sign].setInitialValue(0)
-                    sum_large += len(fr_pat) * send[fr_pat, vec, sign]
+                    sum_large += (len(fr_pat) + 1) * send[fr_pat, vec, sign]
                     i += 1
                     i_large += 1
             else:
@@ -601,7 +711,7 @@ class DischargingArgument:
             
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings():
+        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send]):
             # for each legal combo, sum the contributions from each -v
             summa = 0
             #print("orig_pat", orig_pat)
@@ -641,10 +751,13 @@ class DischargingArgument:
         
         #print("status before", prob.status)
         tim = time.time()
-        pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
+        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver(**solver_opts).solve(prob)
+        #pulp.HiGHS(msg=False, solver="ipx").solve(prob)
+        #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
         #pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
         if prob.status != 1:
-            raise GriddyRuntimeError("Unsolvable linear problem")
+            raise NoSolutionError("Unsolvable linear problem")
         if verbose:
             print("Solved in {} seconds".format(time.time()-tim))
         #print("status after", prob.status)

@@ -732,6 +732,8 @@ class Griddy:
                 the_sft = self.SFTs[sft_name]
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
+                max_split_simp = kwds.get("max_split_simp", max_split)
+                max_split_trim = kwds.get("max_split_trim", max_split)
                 num_split = kwds.get("num_split", None)
                 ordered_split = "ordered_split" in flags
                 save_constr = kwds.get("save_constr", None)
@@ -757,6 +759,9 @@ class Griddy:
                 trim_rules = "trim_rules" in flags
                 trim_final = "trim_final_rules" in flags
                 check_intermediates = "check_intermediates" in flags
+                rationalize_intermediates = "rationalize_intermediates" in flags
+                minimize_all = "minimize_all" in flags
+                solver = kwds.get("solver", "CBC")
                 specs = args[1]
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
@@ -781,7 +786,7 @@ class Griddy:
 
                 disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights)
                 if load_rules is None:
-                    disc_arg.compute_bound(verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
+                    disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
                     if rationalize:
                         rat_ok = disc_arg.try_rationalize()
                         if rat_ok:
@@ -796,10 +801,13 @@ class Griddy:
                                 print("Could not rationalize solution and it seems to be invalid")
                     elif mode != "silent":
                         print("Found lower bound {}".format(disc_arg.bound))
-                        if disc_arg.is_valid():
+                        valid, reason = disc_arg.is_valid(give_reason=True)
+                        if valid:
                             print("Solution seems to be valid")
                         else:
                             print("Solution seems to be invalid")
+                            #print(reason)
+                            #print(disc_arg.trans_rules)
                 else:
                     if verb:
                         print("Loading rules from {}.output".format(load_rules))
@@ -812,11 +820,24 @@ class Griddy:
                         print("Optimizing number of rules")
                     if trim_rules:
                         if trim_mode == "minimize":
-                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split, ordered_split=ordered_split)
+                            while True:
+                                try:
+                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split, minimize_all=minimize_all)
+                                except NoSolutionError:
+                                    if verb:
+                                        print("No solution, trying again")
+                                    continue
+                                break
                         elif trim_mode == "recompute":
-                            disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
+                            disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
                     old_score = disc_arg.score
                     while True:
+                        if type(disc_arg.bound) == float and rationalize_intermediates:
+                            rat_ok = disc_arg.try_rationalize()
+                            if verb and rat_ok:
+                                print("Managed to rationalize solution, exact bound is {}".format(disc_arg.bound))
+                            elif verb:
+                                print("Still could not rationalize solution")
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
@@ -827,9 +848,16 @@ class Griddy:
                             print("Optimizing number of rules (now {})".format(old_score))
                         old_rules = disc_arg.trans_rules
                         if simp_mode == "minimize":
-                            disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, max_larges=max_split, num_split=num_split, ordered_split=ordered_split)
+                            while True:
+                                try:
+                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, max_larges=max_split_simp, num_split=num_split, ordered_split=ordered_split, minimize_all=minimize_all)
+                                except NoSolutionError:
+                                    if verb:
+                                        print("No solution, trying again")
+                                    continue
+                                break
                         elif simp_mode == "recompute":
-                            res = disc_arg.compute_bound(verbose=verb, print_freq=print_freq, split=True, num_split=num_split, max_split=max_split, ordered_split=ordered_split)
+                            res = disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, split=True, num_split=num_split, max_split=max_split_simp, ordered_split=ordered_split)
                             if not res:
                                 simp_mode = "minimize"
                                 continue
@@ -841,9 +869,9 @@ class Griddy:
                                 print(" done")
                         if trim_rules:
                             if trim_mode == "minimize":
-                                disc_arg.recompute_with_holes(verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split, ordered_split=ordered_split)
+                                disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split)
                             elif trim_mode == "recompute":
-                                disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
+                                disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
                         if check_intermediates and verb:
                             if disc_arg.is_valid():
                                 print("Recomputed solution seems to be valid")
@@ -858,7 +886,7 @@ class Griddy:
                         else:
                             old_score = disc_arg.score
                     if trim_rules or trim_final:
-                        disc_arg.minimize_rule_count(verbose=verb, print_freq=print_freq)
+                        disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq)
                     if rationalize:
                         rat_ok = disc_arg.try_rationalize()
                         if rat_ok:

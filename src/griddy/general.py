@@ -5,6 +5,9 @@ class GriddyRuntimeError(Exception):
 class GriddyCompileError(Exception):
     pass
 
+class NoSolutionError(GriddyRuntimeError):
+    pass
+
 def vadd(vec1, vec2):
     return tuple(a+b for (a,b) in zip(vec1, vec2))
 
