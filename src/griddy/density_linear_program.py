@@ -158,7 +158,7 @@ class DischargingSimplifier:
             if verbose:
                 print("Splitting rules")
             if self.simp_mode == "minimize":
-                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=random.randint(0,1) or (self.max_split is not None and next((s for s in disc_arg.score if s), 0) <= self.max_split))
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=random.randint(0,1) or (self.max_split is not None and next((s for s in self.disc_arg.score if s), 0) <= self.max_split))
                 if self.trim_mode is not None:
                     self.status = SimplifierState.TRIM_PHASE1
                 elif self.disc_arg.score >= self.history[-1][2]:
@@ -180,8 +180,8 @@ class DischargingSimplifier:
         elif self.status == SimplifierState.TRIM_PHASE1:
             if verbose:
                 print("Trimming rules")
-            if self.trim_mode == "minimize":
-                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split)
+            if self.trim_mode in ["minimize", None]:
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split, minimize_all=self.minimize_all)
             elif self.trim_mode == "recompute":
                 self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, max_rounds="until_fail")
             if len(self.history) >= 2 and self.disc_arg.score >= self.history[-2][2]:
@@ -205,22 +205,17 @@ class DischargingSimplifier:
                 print("Trimming final rules")
             self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
             self.status = SimplifierState.FINISHED
-
-    def try_rationalize(self, verbose=False):
-        return self.disc_arg.try_rationalize(verbose=verbose)
-
-    def check_solution(self, verbose=False):
-        valid = self.disc_arg.is_valid()
-        if verbose:
-            print("Valid", valid)
             
 
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
-    def __init__(self, sft, specs, radius, weights=None):
+    def __init__(self, sft, specs, radius, weights=None, relevant_nodes=None):
         self.sft = sft
-        self.weights = weights
+        if relevant_nodes is None:
+            self.relevant_nodes = list(sft.nodes)
+        else:
+            self.relevant_nodes = relevant_nodes
         self.radius = radius
         self.specs = specs
         if weights is None:
@@ -375,12 +370,12 @@ class DischargingArgument:
             # for each legal combo, sum the contributions from each -v
             if isinstance(self.bound, Fraction):
                 summa = Fraction(0)
-                for node in self.sft.nodes:
-                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.sft.nodes))
+                for node in self.relevant_nodes:
+                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.relevant_nodes))
             else:
                 summa = 0
-                for node in self.sft.nodes:
-                    summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+                for node in self.relevant_nodes:
+                    summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 try:
                     if away:
@@ -429,7 +424,11 @@ class DischargingArgument:
                     print("Succesfully rationalized solution, bound {}".format(self.bound))
                 return True
         if verbose:
-            print("Could not rationalize solution")
+            valid = self.is_valid()
+            if valid:
+                print("Could not rationalize solution, but it is approximately valid")
+            else:
+                print("Could not rationalize solution and it seems to be invalid")
         return False
     
     def rationalize(self, denom_bound, verbose=False):
@@ -448,8 +447,8 @@ class DischargingArgument:
                 print("Could not rationalize with denominator <= {}, reason:".format(denom_bound))
                 bigpat, orig_nodes, rules, summa, bound = reason
                 old_summa = 0
-                for node in self.sft.nodes:
-                    old_summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+                for node in self.relevant_nodes:
+                    old_summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
                 for (pat, vec, away, _) in rules:
                     if pat in old_rules and vec in old_rules[pat]:
                         if away:
@@ -676,8 +675,8 @@ class DischargingArgument:
             # for each legal combo, sum the contributions from each -v
             summa = 0
             #print("orig_pat", orig_pat)
-            for node in self.sft.nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+            for node in self.relevant_nodes:
+                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 try:
                     if away:
@@ -843,8 +842,8 @@ class DischargingArgument:
         for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send if p[2] != False]):
             # for each legal combo, sum the contributions from each -v
             summa = 0
-            for node in self.sft.nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+            for node in self.relevant_nodes:
+                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 if (pat, vec) not in all_pairs:
                     continue

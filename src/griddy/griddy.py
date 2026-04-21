@@ -731,6 +731,7 @@ class Griddy:
                     raise Exception("{} is not an SFT".format(sft_name))
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
+                relevant_nodes = kwds.get("relevant_nodes", None)
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
                 max_split_simp = kwds.get("max_split_simp", max_split)
@@ -752,6 +753,7 @@ class Griddy:
                 add_singletons = "add_singletons" in flags
                 trim_rules = "trim_rules" in flags
                 trim_final = "trim_final_rules" in flags
+                trim_initial = "trim_initial_rules" in flags
                 check_intermediates = "check_intermediates" in flags
                 rationalize_intermediates = "rationalize_intermediates" in flags
                 minimize_all = "minimize_all" in flags
@@ -778,7 +780,7 @@ class Griddy:
                 if mode != "silent":
                     print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
 
-                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights)
+                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes)
                 if load_rules is None:
                     disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
                 else:
@@ -788,12 +790,18 @@ class Griddy:
                     disc_arg.update_specs()
                     
                 if simplify:
+                    if save_rules is not None:
+                        if verb:
+                            print("Saving intermediate rules...", end='')
+                        disc_arg.save_transfer_rules(save_rules)
+                        if verb:
+                            print(" done")
                     if verb:
                         print("Simplifying rules")
-                    simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules)
+                    simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules or trim_initial)
                     while not simplifier.is_finished():
                         if rationalize_intermediates:
-                            simplifier.try_rationalize(verbose=verb)
+                            disc_arg.try_rationalize(verbose=verb)
                         simplifier.step(verbose=verb, print_freq=print_freq)
                         if save_rules is not None:
                             if verb:
