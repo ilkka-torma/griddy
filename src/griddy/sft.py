@@ -727,13 +727,22 @@ class SFT:
                 solver_values = dict()
                 for (nvec, patch_sym) in zip(domain, patch):
                     node_alph = self.alph[nvec[1]]
-                    nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
-                    model = SAT(AND(node_alph.node_eq_sym(nvars, patch_sym),
-                                    node_alph.node_constraint(nvars)),
-                                return_model=True)
-                    #print("model", model, "circuit", self.circuit)
-                    solver_values.update({var : val for (var, val) in model.items()
-                                          if var in circ_vars})
+                    #nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+                    #model = SAT(AND(node_alph.node_eq_sym(nvars, patch_sym),
+                    #                node_alph.node_constraint(nvars)),
+                    #            return_model=True)
+                    #model2 = node_alph.models[patch_sym]
+                    #print("model", model, "model2", model2)#, "circuit", self.circuit)
+                    #print("old", model, {var : val for (var, val) in model.items()
+                    #              if var in circ_vars},
+                    #      "new", model2, {var : val for (label, val) in model2.items()
+                    #              if (var := nvec + (label,)) in circ_vars})
+                    #solver_values.update({var : val for (var, val) in model.items()
+                    #                      if var in circ_vars})
+                    
+                    model = node_alph.models[patch_sym]
+                    solver_values.update({var : val for (label, val) in model.items()
+                                          if (var := nvec + (label,)) in circ_vars})
                     #for sym in self.alph[nvec[1]][1:]:
                     #    solver_values[nvec + (sym,)] = patch_sym == sym
                 if not patch_solver.send(solver_values):

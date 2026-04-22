@@ -2,7 +2,8 @@
 -- We only list the south and west color (and the parity bits) of each tile
 -- and get the north and east color from its neighbors.
 %nodes H V S W
-%alphabet {H : [0 1] V : [0 1] S : [D R L d r l] W : [D L R d l r]}
+-- Use the binary encoding to save memory; unary_minus_one would also work.
+%alphabet encoding=binary {H : [0 1] V : [0 1] S : [D R L d r l] W : [D L R d l r]}
 -- On S, capital letters are down and others are up.
 -- On W, capital letters are left and others are right.
 -- Side arrow positions are from the perspective of the main arrow.
@@ -46,7 +47,7 @@ in
 
 -- Find an automatic configuration over the Robinson tiles.
 -- This takes a few minutes.
-%find_automatic_conf c robinson extra_rad=2 @verbose print_freq=10000 infer_print_freq=500
+%find_automatic_conf c robinson extra_rad=2 @verbose print_freq=1000 infer_print_freq=500
 
 -- Show the configuration in the visualizer
 %tiler robinson initial=c
