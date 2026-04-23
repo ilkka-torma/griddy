@@ -10,23 +10,45 @@ import frozendict as fd
 import time
 from fractions import Fraction
 import random
+from enum import Enum
 
 TOLERANCE = 1e-6
 
+# A dict of solvers, type str -> ((solver, args), None | (solver, args))
+# The first component is used by default, the second when the first one fails
+# If the second is None, we just fail
 SOLVER_DICTS = {
-    "CBC" : (pulp.apis.PULP_CBC_CMD,
-             {"msg" : False,
-              "warmStart" : True,
-              "keepFiles" : True
-              }),
-    "GLPK" : (pulp.apis.GLPK_CMD,
+    "CBC" : ((pulp.apis.PULP_CBC_CMD,
               {"msg" : False,
-               "options" : ["--primal", "--cbg",  "--xcheck"]
+               "warmStart" : True,
+               "keepFiles" : True
                }),
-    "HiGHS" : (pulp.apis.HiGHS,
+             None),
+    "GLPK" : ((pulp.apis.GLPK_CMD,
                {"msg" : False,
-                "solver" : "ipx"
-               })
+                "options" : ["--primal", "--cbg",  "--xcheck"]
+                }),
+              None),
+    "HiGHS_ipx" : ((pulp.apis.HiGHS,
+                    {"msg" : False,
+                     "solver" : "ipx"
+                     }),
+                   None),
+    "HiGHS_simplex" : ((pulp.apis.HiGHS,
+                        {"msg" : False,
+                         "solver" : "simplex",
+                         "simplex_strategy" : "primal"
+                         }),
+                       None),
+    "HiGHS_hybrid" : ((pulp.apis.HiGHS,
+                       {"msg" : False,
+                        "solver" : "ipx"
+                        }),
+                      (pulp.apis.HiGHS,
+                       {"msg" : False,
+                        "solver" : "simplex",
+                        "simplex_strategy" : "primal"
+                        }))
 }
 
 def rules_to_tree(alph, bigdomain, rule_pairs):
@@ -94,12 +116,106 @@ def print_tree(tree, level=0):
         else:
             print("{}use {}".format(" "*(level+1), item))
 
+class SimplifierState(Enum):
+    "States for the simplifier state machine."
+    SIMPLIFY_PHASE1 = 0
+    TRIM_PHASE1 = 1
+    SIMPLIFY_PHASE2 = 2
+    TRIM_PHASE2 = 3
+    TRIM_FINAL = 4
+    FINISHED = 5
+
+class DischargingSimplifier:
+    "A process for siplifying a discharging argument. Can be suspended, saved, loaded and restarted."
+
+    def __init__(self, disc_arg, solver_str, simp_mode="minimize", trim_mode=None, max_split=None, num_split=None, minimize_all=False, trim_initial=True):
+        self.disc_arg = disc_arg
+        self.orig_bigpats = disc_arg.bigpats
+        self.history = []
+        if trim_initial:
+            self.status = SimplifierState.TRIM_PHASE1
+        else:
+            self.status = SimplifierState.SIMPLIFY_PHASE1
+        self.trim_mode = trim_mode
+        self.simp_mode = simp_mode
+        self.solver_str = solver_str
+
+        self.max_split = max_split
+        self.num_split = num_split
+        self.minimize_all = minimize_all
+
+    def is_finished(self):
+        return self.status == SimplifierState.FINISHED
+
+    def step(self, verbose=False, print_freq=10000):
+        "Apply a single simplifier step/transition."
+        self.history.append((self.status, self.disc_arg.trans_rules, self.disc_arg.score))
+        if verbose:
+            print("Simplification step; number of rules now {} (total {})".format(self.disc_arg.score, sum(self.disc_arg.score)))
+
+        # Choose action based on internal state
+        if self.status == SimplifierState.SIMPLIFY_PHASE1:
+            if verbose:
+                print("Splitting rules")
+            if self.simp_mode == "minimize":
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=random.randint(0,1) or (self.max_split is not None and next((s for s in self.disc_arg.score if s), 0) <= self.max_split))
+                if self.trim_mode is not None:
+                    self.status = SimplifierState.TRIM_PHASE1
+                elif self.disc_arg.score >= self.history[-1][2]:
+                    self.status = SimplifierState.SIMPLIFY_PHASE2
+                    self.disc_arg.trans_rules = self.history[-1][1]
+                    self.disc_arg.update_specs()
+                    if verbose:
+                        print("Entering phase 2")
+                
+            elif self.simp_mode == "recompute":
+                res = disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, split=True, num_split=self.num_split, max_split=self.max_split)
+                if not res:
+                    self.status = SimplifierState.SIMPLIFY_PHASE2
+                    if verbose:
+                        print("Entering phase 2")
+                elif self.trim_mode is not None:
+                    self.status = SimplifierState.TRIM_PHASE1
+
+        elif self.status == SimplifierState.TRIM_PHASE1:
+            if verbose:
+                print("Trimming rules")
+            if self.trim_mode in ["minimize", None]:
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split, minimize_all=self.minimize_all)
+            elif self.trim_mode == "recompute":
+                self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, max_rounds="until_fail")
+            if len(self.history) >= 2 and self.disc_arg.score >= self.history[-2][2]:
+                self.disc_arg.trans_rules = self.history[-2][1]
+                self.disc_arg.update_specs()
+                self.status = SimplifierState.SIMPLIFY_PHASE2
+                if verbose:
+                        print("Entering phase 2")
+            else:
+                self.status = SimplifierState.SIMPLIFY_PHASE1
+
+        elif self.status == SimplifierState.SIMPLIFY_PHASE2:
+            if verbose:
+                print("Splitting rules")
+            self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, minimize_all=True, sort_pats=True)
+            if self.disc_arg.score >= self.history[-1][2]:
+                self.status = SimplifierState.TRIM_FINAL
+
+        elif self.status == SimplifierState.TRIM_FINAL:
+            if verbose:
+                print("Trimming final rules")
+            self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
+            self.status = SimplifierState.FINISHED
+            
+
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
-    def __init__(self, sft, specs, radius, weights=None):
+    def __init__(self, sft, specs, radius, weights=None, relevant_nodes=None):
         self.sft = sft
-        self.weights = weights
+        if relevant_nodes is None:
+            self.relevant_nodes = list(sft.nodes)
+        else:
+            self.relevant_nodes = relevant_nodes
         self.radius = radius
         self.specs = specs
         if weights is None:
@@ -195,7 +311,7 @@ class DischargingArgument:
             self.bigpats = []
         else:
             bigpats = self.bigpats
-        if rule_pairs is None:
+        if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
             for bigpat in bigpats:
                 surr = []
                 orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
@@ -249,16 +365,17 @@ class DischargingArgument:
                 return True
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr, bigpat) in self.surroundings(ret_big=True, bigpat=bigpat):
+        rule_pairs = [(fpat, vec) for (fpat, vecs) in self.trans_rules.items() for vec in vecs]
+        for (orig_nodes, surr, bigpat) in self.surroundings(ret_big=True, bigpat=bigpat, rule_pairs=rule_pairs):
             # for each legal combo, sum the contributions from each -v
             if isinstance(self.bound, Fraction):
                 summa = Fraction(0)
-                for node in self.sft.nodes:
-                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.sft.nodes))
+                for node in self.relevant_nodes:
+                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.relevant_nodes))
             else:
                 summa = 0
-                for node in self.sft.nodes:
-                    summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+                for node in self.relevant_nodes:
+                    summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 try:
                     if away:
@@ -298,12 +415,20 @@ class DischargingArgument:
         else:
             return True
 
-    def try_rationalize(self):
+    def try_rationalize(self, verbose=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
         for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]:
             rat_ok = self.rationalize(n)
             if rat_ok:
+                if verbose:
+                    print("Succesfully rationalized solution, bound {}".format(self.bound))
                 return True
+        if verbose:
+            valid = self.is_valid()
+            if valid:
+                print("Could not rationalize solution, but it is approximately valid")
+            else:
+                print("Could not rationalize solution and it seems to be invalid")
         return False
     
     def rationalize(self, denom_bound, verbose=False):
@@ -322,8 +447,8 @@ class DischargingArgument:
                 print("Could not rationalize with denominator <= {}, reason:".format(denom_bound))
                 bigpat, orig_nodes, rules, summa, bound = reason
                 old_summa = 0
-                for node in self.sft.nodes:
-                    old_summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+                for node in self.relevant_nodes:
+                    old_summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
                 for (pat, vec, away, _) in rules:
                     if pat in old_rules and vec in old_rules[pat]:
                         if away:
@@ -353,6 +478,12 @@ class DischargingArgument:
                 domain_vecs[fset] = set()
             domain_vecs[fset] |= set(vecs)
         self.specs = [(list(v),list(d)) for (d,v) in domain_vecs.items()]
+        if self.score is None:
+            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
+        else:
+            self.score = [0]*len(self.score)
+        for (fpat, vecs) in trans_rules.items():
+            self.score[-len(fpat)] += len(vecs)
         if rules_only or self.bigpats is None:
             return
         #print("new specs", self.specs)
@@ -368,21 +499,16 @@ class DischargingArgument:
             self.bigpats = set(fd.frozendict({nvec : bigpat[nvec]
                                               for nvec in bigdomain})
                                for bigpat in self.bigpats)
-        if self.score is None:
-            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
-        else:
-            self.score = [0]*len(self.score)
-        for (fpat, vecs) in trans_rules.items():
-            self.score[-len(fpat)] += len(vecs)
 
-    def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None):
+    def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None, sort_rules=False):
         "Iteratively remove rules until each is essential, starting from the largest."
         rule_pairs = [(fpat, vec)
                       for (fpat, vecs) in self.trans_rules.items()
                       if max_rounds is None or len(fpat) > 1
                       for vec in vecs]
         random.shuffle(rule_pairs)
-        #rule_pairs.sort(key=lambda p: -len(p[0]))
+        if sort_rules:
+            rule_pairs.sort(key=lambda p: -len(p[0]))
         #valid, reason = self.is_valid(give_reason=True)
         #if not valid:
         #    print("Invalid")
@@ -542,14 +668,15 @@ class DischargingArgument:
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
 
+        constr_tim = time.time()
         # list all legal combinations of patterns around origin
         i = 0
         for (orig_nodes, surr) in self.surroundings(rule_pairs=None if self.bound is None else send):
             # for each legal combo, sum the contributions from each -v
             summa = 0
             #print("orig_pat", orig_pat)
-            for node in self.sft.nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+            for node in self.relevant_nodes:
+                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 try:
                     if away:
@@ -576,9 +703,9 @@ class DischargingArgument:
                     f.write(bigpat_line+"\n")
 
         if verbose:
-            print("Done with {} constraints, now solving".format(i))
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False,
         #           solver="ipx"
@@ -607,7 +734,7 @@ class DischargingArgument:
         return True
 
     
-    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False):
+    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False, sort_pats=True):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
         # an upper bound on the total share send by large patterns, which we minimize
         if self.bound is None:
@@ -624,7 +751,7 @@ class DischargingArgument:
         num_larges = 0
         for (fpat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
                                                  k=len(self.trans_rules)),
-                                   key=lambda p:-len(p[0])):
+                                   key=(lambda p:-len(p[0])) if sort_pats else (lambda _: 0)):
             for vec in vecs:
                 #fpat = fd.frozendict(pat)
                 if (fpat, vec) not in all_pairs:
@@ -704,6 +831,7 @@ class DischargingArgument:
 
         if verbose:
             print("Done with {} variables ({} to be minimized, {} free), now adding constraints".format(i, i_large, i_small))
+        constr_tim = time.time()
 
         # we minimize the sum of the absolute values of the charges sent by large patterns
         prob = pulp.LpProblem("discharge_opt", pulp.LpMinimize)
@@ -711,16 +839,14 @@ class DischargingArgument:
             
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send]):
+        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send if p[2] != False]):
             # for each legal combo, sum the contributions from each -v
             summa = 0
-            #print("orig_pat", orig_pat)
-            for node in self.sft.nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.sft.nodes)
+            for node in self.relevant_nodes:
+                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
             for (pat, vec, away) in surr:
                 if (pat, vec) not in all_pairs:
                     continue
-                #print("summing", pat, vec, away)
                 if all_pairs[pat, vec]:
                     # large pattern -> has sign
                     if away:
@@ -747,17 +873,23 @@ class DischargingArgument:
                 print("{} found so far".format(i))
 
         if verbose:
-            print("Done with {} constraints, now solving".format(i))
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         
         #print("status before", prob.status)
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str]
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False, solver="ipx").solve(prob)
         #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_RECOMPUTE).solve(prob)
         #pulp.PULP_CBC_CMD(msg=False, warmStart=True).solve(prob)
         if prob.status != 1:
-            raise NoSolutionError("Unsolvable linear problem")
+            backup = SOLVER_DICTS[solver_str][1]
+            if backup is not None:
+                solver(**solver_opts).solve(prob)
+                if prob.status != 1:
+                    raise NoSolutionError("Unsolvable linear problem")
+            else:
+                raise NoSolutionError("Unsolvable linear problem")
         if verbose:
             print("Solved in {} seconds".format(time.time()-tim))
         #print("status after", prob.status)

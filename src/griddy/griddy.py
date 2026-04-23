@@ -12,6 +12,7 @@ except ImportError as error:
     print("\n\n")
         
 import sys
+import random
 
 from general import *
 
@@ -730,6 +731,7 @@ class Griddy:
                     raise Exception("{} is not an SFT".format(sft_name))
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
+                relevant_nodes = kwds.get("relevant_nodes", None)
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
                 max_split_simp = kwds.get("max_split_simp", max_split)
@@ -741,23 +743,17 @@ class Griddy:
                 save_rules = kwds.get("save_rules", None)
                 load_rules = kwds.get("load_rules", None)
                 simplify = "simplify" in flags
-                simp_mode = kwds.get("simp_mode", None)
-                if simp_mode not in [None, "minimize", "recompute"]:
+                simp_mode = kwds.get("simp_mode", "minimize")
+                if simp_mode not in ["minimize", "recompute"]:
                     raise GriddyRuntimeError("Unknown simp_mode: {}".format(simp_mode))
                 trim_mode = kwds.get("trim_mode", None)
                 if trim_mode not in [None, "minimize", "recompute"]:
                     raise GriddyRuntimeError("Unknown trim_mode: {}".format(trim_mode))
-                if simp_mode is None:
-                    if trim_mode is None:
-                        simp_mode = trim_mode = "minimize"
-                    else:
-                        simp_mode = trim_mode
-                elif trim_mode is None:
-                    trim_mode = simp_mode
                 rationalize = "rationalize" in flags
                 add_singletons = "add_singletons" in flags
                 trim_rules = "trim_rules" in flags
                 trim_final = "trim_final_rules" in flags
+                trim_initial = "trim_initial_rules" in flags
                 check_intermediates = "check_intermediates" in flags
                 rationalize_intermediates = "rationalize_intermediates" in flags
                 minimize_all = "minimize_all" in flags
@@ -784,121 +780,38 @@ class Griddy:
                 if mode != "silent":
                     print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
 
-                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights)
+                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes)
                 if load_rules is None:
                     disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
-                    if rationalize:
-                        rat_ok = disc_arg.try_rationalize()
-                        if rat_ok:
-                            if mode != "silent":
-                                print("Found lower bound {}".format(disc_arg.bound))
-                                print("Succesfully rationalized solution, it is valid")
-                        elif mode != "silent":
-                            print("Found lower bound {}".format(disc_arg.bound))
-                            if disc_arg.is_valid():
-                                print("Could not rationalize solution, but it seems to be valid")
-                            else:
-                                print("Could not rationalize solution and it seems to be invalid")
-                    elif mode != "silent":
-                        print("Found lower bound {}".format(disc_arg.bound))
-                        valid, reason = disc_arg.is_valid(give_reason=True)
-                        if valid:
-                            print("Solution seems to be valid")
-                        else:
-                            print("Solution seems to be invalid")
-                            #print(reason)
-                            #print(disc_arg.trans_rules)
                 else:
                     if verb:
                         print("Loading rules from {}.output".format(load_rules))
                     disc_arg.load_transfer_rules(load_rules)
                     disc_arg.update_specs()
-                #disc_arg.rationalize(10000)
-                #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
+                    
                 if simplify:
-                    if mode != "silent" and not verb:
-                        print("Optimizing number of rules")
-                    if trim_rules:
-                        if trim_mode == "minimize":
-                            while True:
-                                try:
-                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split, minimize_all=minimize_all)
-                                except NoSolutionError:
-                                    if verb:
-                                        print("No solution, trying again")
-                                    continue
-                                break
-                        elif trim_mode == "recompute":
-                            disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
-                    old_score = disc_arg.score
-                    while True:
-                        if type(disc_arg.bound) == float and rationalize_intermediates:
-                            rat_ok = disc_arg.try_rationalize()
-                            if verb and rat_ok:
-                                print("Managed to rationalize solution, exact bound is {}".format(disc_arg.bound))
-                            elif verb:
-                                print("Still could not rationalize solution")
-                        if save_rules is not None:
-                            if verb:
-                                print("Saving intermediate rules...", end='')
-                            disc_arg.save_transfer_rules(save_rules)
-                            if verb:
-                                print(" done")
+                    if save_rules is not None:
                         if verb:
-                            print("Optimizing number of rules (now {})".format(old_score))
-                        old_rules = disc_arg.trans_rules
-                        if simp_mode == "minimize":
-                            while True:
-                                try:
-                                    disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, max_larges=max_split_simp, num_split=num_split, ordered_split=ordered_split, minimize_all=minimize_all)
-                                except NoSolutionError:
-                                    if verb:
-                                        print("No solution, trying again")
-                                    continue
-                                break
-                        elif simp_mode == "recompute":
-                            res = disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, split=True, num_split=num_split, max_split=max_split_simp, ordered_split=ordered_split)
-                            if not res:
-                                simp_mode = "minimize"
-                                continue
+                            print("Saving intermediate rules...", end='')
+                        disc_arg.save_transfer_rules(save_rules)
+                        if verb:
+                            print(" done")
+                    if verb:
+                        print("Simplifying rules")
+                    simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules or trim_initial)
+                    while not simplifier.is_finished():
+                        if rationalize_intermediates:
+                            disc_arg.try_rationalize(verbose=verb)
+                        simplifier.step(verbose=verb, print_freq=print_freq)
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
                             disc_arg.save_transfer_rules(save_rules)
                             if verb:
                                 print(" done")
-                        if trim_rules:
-                            if trim_mode == "minimize":
-                                disc_arg.recompute_with_holes(solver, verbose=verb, print_freq=print_freq, num_split=0, max_larges=max_split_trim, ordered_split=ordered_split)
-                            elif trim_mode == "recompute":
-                                disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq, max_rounds="until_fail", ordered_split=ordered_split, save_rules=save_rules)
-                        if check_intermediates and verb:
-                            if disc_arg.is_valid():
-                                print("Recomputed solution seems to be valid")
-                            else:
-                                print("Recomputed solution is invalid (but may correct itself later)")
-                        #disc_arg.rationalize(10000)
-                        #print("valid after rationalization?", disc_arg.is_valid(give_reason=True))
-                        if disc_arg.score >= old_score:
-                            disc_arg.trans_rules = old_rules
-                            disc_arg.update_specs()
-                            break
-                        else:
-                            old_score = disc_arg.score
-                    if trim_rules or trim_final:
-                        disc_arg.minimize_rule_count(solver, verbose=verb, print_freq=print_freq)
-                    if rationalize:
-                        rat_ok = disc_arg.try_rationalize()
-                        if rat_ok:
-                            if mode != "silent":
-                                print("Succesfully rationalized solution, it is valid")
-                                if not show_rules:
-                                    print("Final bound: {}".format(disc_arg.bound))
-                        elif mode != "silent":
-                            print("Could not rationalize solution, it might not be valid")
-                            valid, reason = disc_arg.is_valid(give_reason=True)
-                            print(valid)
-                            print(reason)
+                        
+                if rationalize:
+                    disc_arg.try_rationalize(verbose=verb)
                             
                 if show_rules:
                     if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))

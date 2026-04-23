@@ -102,7 +102,7 @@ class LexMinBuilder(PatternBuilder):
                 changed.append(last_nvec)
                 sym = self.pattern[last_nvec]
                 del self.pattern[last_nvec]
-                syms = self.sft.alph[last_nvec[1]]
+                syms = list(self.sft.alph[last_nvec[1]])
                 greater_syms = syms[syms.index(sym)+1:]
                 success = self._try_extend(last_nvec, greater_syms)
                 if success:
@@ -133,8 +133,10 @@ class LexMinBuilder(PatternBuilder):
                 tr_vec = [max(nvec[0][i], -self.sft.radii(twosided=True)[i][0])
                           for i in range(self.sft.dim)]
                 #print("nvec", nvec, "tr_vec", tr_vec)
+                #lookahead_vecs = set(vsub(the_nvec[0], tr_vec)
+                #                     for the_nvec in ([nvec] + self.next_nvecs)[:self.lookahead])
                 lookahead_vecs = set(vsub(the_nvec[0], tr_vec)
-                                     for the_nvec in ([nvec] + self.next_nvecs)[:self.lookahead])
+                                     for the_nvec in max_then_lex_lookaheads(self.sft.dim, self.sft.nodes, nvec, self.lookahead))
                 proc, proc_nvecs = self.lookahead_solver_process(lookahead_vecs)
             else:
                 tr_vec, proc, proc_nvecs = proc_vars
@@ -153,11 +155,12 @@ class LexMinBuilder(PatternBuilder):
                 #print("trying", circ_nvec)
                 node = proc_nvec[1]
                 node_alph = self.sft.alph[node]
-                nvars = [V(l) for l in node_alph.node_vars]
-                models = {sym : SAT(AND(node_alph.node_eq_sym(nvars, sym),
-                                        node_alph.node_constraint(nvars)),
-                                    return_model=True)
-                          for sym in node_alph}
+                #nvars = [V(l) for l in node_alph.node_vars]
+                models = node_alph.models
+                #models = {sym : SAT(AND(node_alph.node_eq_sym(nvars, sym),
+                #                        node_alph.node_constraint(nvars)),
+                #                    return_model=True)
+                #          for sym in node_alph}
                 pat_nvec = nvadd(proc_nvec, tr_vec)
                 #print("circ_nvec", circ_nvec, "pat_nvec", pat_nvec)
                 if pat_nvec in self.pattern:
@@ -204,19 +207,29 @@ def sum_then_lex(dim, nodes, nvec):
         vec[i] -= c
         return (tuple(vec), list(nodes)[0])
 
-def max_then_lex(dim, nodes, nvec):
+def max_then_lex_lookaheads(dim, nodes, nvec, length):
+    nvecs = [nvec]
+    for _ in range(length-1):
+        nvecs.append(max_then_lex(dim, nodes, nvecs[-1], mode="false_snake"))
+    return nvecs
+
+def max_then_lex(dim, nodes, nvec, mode="arc"):
+    "Mode can be arc, snake or false_snake"
     if nvec is None:
         return ((0,)*dim, list(nodes)[0])
     nlist = list(nodes)
     if nvec[1] != nlist[-1]:
         return (nvec[0], nlist[nlist.index(nvec[1])+1])
     the_max = max(nvec[0])
-    # dim 2 special case: snake
+    # dim 2 special case: arcs or snake
     if dim == 2:
-        if the_max%2:
+        if (mode != "snake") or the_max%2:
             a,b = nvec[0]
             if (a, b) == (0, the_max):
-                return ((0, the_max+1), nlist[0])
+                if mode != "arc":
+                    return ((0, the_max+1), nlist[0])
+                else:
+                    return ((the_max+1, 0), nlist[0])
             elif b == the_max:
                 return ((a-1, b), nlist[0])
             else:
@@ -276,6 +289,7 @@ def learn_lex_min_gold(struct, sft, builder, buffer_rad=0, verbose=False, print_
             i += 1
             if verbose and i%print_freq == 0:
                 print("  Round {}: Extended to size {} (max {}, lookahead now {}, {} extension processes)".format(i, len(builder.pattern), builder.max_size, builder.lookahead, len(builder.processes)))
+                #print(list(sorted(builder.pattern)))
 
         if verbose:
             print("Extended to size {}, now inferring DFAs".format(len(builder.pattern)))
