@@ -133,6 +133,23 @@ class Alphabet:
         return self.encoding == other.encoding and self.symbols == other.symbols
 
     @classmethod
+    def str_to_encoding(self, string):
+        if string == "test_alph":
+            return self.test_alph
+        elif string == "unary":
+            return self.unary
+        elif string == "unary_Z":
+            return self.unary_Z
+        elif string == "unary_minus_one":
+            return self.unary_minus_one
+        elif string == "tally":
+            return self.tally
+        elif string == "binary":
+            return self.binary
+        else:
+            raise GriddyRuntimeError("Unknown alphabet encoding: " + string)
+
+    @classmethod
     def test_alph(self, syms, **kwds):
         "An alphabet encoded in unary: one variable per symbol, exactly one is true. Used for testing."
 

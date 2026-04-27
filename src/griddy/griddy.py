@@ -90,7 +90,6 @@ class Griddy:
     thus we pretend to always be in the ()-node of a cell
     """
     def process_nvec(self, nvec):
-        #print(nvec)
         #if not self.has_nodes() and len(nvec) == self.dim:
         #    return (nvec, ())
         #print((nvec[:self.dim], nvec[-1]))
@@ -397,6 +396,33 @@ class Griddy:
                 #print("CIRCUIT", self.SFTs[name].circuit)
                 if mode != "silent" and time.time() - t > 1:
                     print ("Definition took %s seconds." % (time.time() - t))
+
+            elif cmd == "polyomino_sft":
+                name = args[0]
+                tiles = args[1]
+                print("name tiles", name, tiles)
+                onesided = kwds.get("onesided", [])
+                null_sym = kwds.get("null", '0')
+                encoding = kwds.get("encoding", "unary_minus_one")
+                alph = Alphabet.str_to_encoding(encoding)([null_sym] + [tile[0] for tile in tiles])
+                # tile_conds lists the ways in which the origin can be covered by a tile
+                # we will require that exactly one of them is true
+                tile_conds = []
+                for (sym, coords) in tiles:
+                    tile_orig_vec = self.process_nvec(coords[0])[0]
+                    for coord in coords:
+                        (vec, node) = self.process_nvec(coord)
+                        tr_nvec = (vsub(tile_orig_vec, vec), node)
+                        tile_conds.append(alph.node_eq_sym([circuit.V(tr_nvec + (l,)) for l in alph.node_vars], sym))
+                seen = tile_conds[0]
+                two = circuit.F
+                for cond in tile_conds[1:]:
+                    two = circuit.OR(two, circuit.AND(seen, cond))
+                    seen = circuit.OR(seen, cond)
+                circ = circuit.AND(seen, circuit.NOT(two))
+                # make the definitions
+                self.alphabet = {node : alph for node in self.nodes}
+                self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ)
                 
             elif cmd == "sofic1D":
                 sofic_name = args[0]

@@ -106,6 +106,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "start_cache" NAT NAT -> cmd_start_cache
        | "end_cache" -> cmd_end_cache
        | "destroy_circuit_store" cmd_opts -> cmd_destroy_circuit_store
+       | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts list_of{vector} cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open
+       | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts (vector cmd_polyomino_opts)* cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open_open
 
 top_edge: LABEL vector~1..3
 
@@ -140,6 +142,9 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /print_freq/ "=" NAT
               | /expect/ "=" fraction
               | /relevant_nodes/ "=" list_of{node_name} )*
+cmd_polyomino_opts: ( /null/ "=" node_name
+                    | /onesided/ "=" list_of{NAT}
+                    | /encoding/ "=" LABEL )*
               
 
 ### FORMULA GRAMMAR
@@ -697,6 +702,34 @@ class GriddyTransformer(Transformer_NonRecursive):
         if forb:
             forbs.append(forb)
         return (name, [pos_args[1], forbs], opts, flags)
+
+    def cmd_polyomino_sft_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("polyomino_sft", args)
+        return (name, [pos_args[0], [pos_args[2*i+1:2*(i+1)+1] for i in range(len(pos_args)//2)]], opts, flags)
+
+    def cmd_polyomino_sft_open_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("polyomino_sft", args)
+        tiles = []
+        tile_name = pos_args.pop(1)
+        while pos_args[1:]:
+            tile = []
+            while pos_args[1:]:
+                item = pos_args.pop(1)
+                if isinstance(item, str):
+                    new_tile_name = item
+                    break
+                # item is a vector
+                tile.append(item)
+            tiles.append((tile_name, tile))
+            tile_name = new_tile_name
+        return (name, [pos_args[0], tiles], opts, flags)
+
+    def cmd_polyomino_opts(self, items):
+        opts = []
+        while items:
+            opts.append(tuple(items[:2]))
+            items = items[2:]
+        return Opts(opts)
 
     def cmd_info(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("info", args)
