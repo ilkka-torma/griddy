@@ -56,11 +56,11 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "set_weights" cmd_opts dict_pair_of{node_name, fraction} (cmd_opts dict_pair_of{node_name, fraction})* cmd_opts -> cmd_set_weights_open
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts -> cmd_density_bound_single_default
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{list_of{vector}} cmd_opts -> cmd_density_bound_multi_default
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* /;/ cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_density_bound_single_open
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts (list_of{list_of{vector}} cmd_opts)+ -> cmd_density_bound_multi_open
-       | "density_lower_bound" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts list_of{vector} (";" cmd_opts list_of{vector} cmd_opts list_of{vector} cmd_opts)* -> cmd_density_bound_multi_open_open
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts -> cmd_density_bound_single_default
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{list_of{vector}} cmd_dlb_opts -> cmd_density_bound_multi_default
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts vector (cmd_opts vector)* /;/ cmd_dlb_opts vector (cmd_dlb_opts vector)* cmd_dlb_opts -> cmd_density_bound_single_open
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts (list_of{list_of{vector}} cmd_dlb_opts)+ -> cmd_density_bound_multi_open
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} (";" cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts)* -> cmd_density_bound_multi_open_open
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
@@ -126,6 +126,21 @@ cmd_tiler_opts: ( /x_size/ "=" NAT
                 | /colors/ "=" dict_of{LABEL, list_of{NAT}}
                 | /hidden/ "=" list_of{node_name}
                 | "@" ( /x_periodic/ | /y_periodic/ ))*
+cmd_dlb_opts: ( /radius/ "=" NAT
+              | /max_split/ "=" NAT
+              | /num_split/ "=" NAT
+              | /save_constr/ "=" LABEL
+              | /load_constr/ "=" LABEL
+              | /save_rules/ "=" LABEL
+              | /load_rules/ "=" LABEL
+              | /simp_mode/ "=" LABEL
+              | /trim_mode/ "=" LABEL
+              | "@" (/simplify/ | /rationalize/ | /trim_rules/ | /trim_final_rules/ | /trim_initial_rules/ | /rationalize_intermediates/ | /minimize_all/ | /verbose/ | /show_rules/ )
+              | /solver/ "=" LABEL
+              | /print_freq/ "=" NAT
+              | /expect/ "=" fraction
+              | /relevant_nodes/ "=" list_of{node_name} )*
+              
 
 ### FORMULA GRAMMAR
 
@@ -798,6 +813,17 @@ class GriddyTransformer(Transformer_NonRecursive):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
         label, *specs = pos_args
         return (name, [label, [specs[2*i:2*i+2] for i in range(len(specs)//2)]], opts, flags)
+
+    def cmd_dlb_opts(self, items):
+        opts = []
+        while items:
+            label = items.pop(0)
+            if label in ["simplify", "rationalize", "trim_rules", "trim_final_rules", "trim_initial_rules", "rationalize_intermediates", "minimize_all", "verbose", "show_rules"]:
+                opts.append(label)
+            else:
+                data = items.pop(0)
+                opts.append((label, data))
+        return Opts(opts)
 
     def cmd_empty(self, args):
         return self.cmd_default("empty", args)
