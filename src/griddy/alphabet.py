@@ -115,6 +115,9 @@ class Alphabet:
     def __iter__(self):
         return iter(self.symbols)
 
+    def index(self, s):
+        return self.symbols.index(s)
+
     def __getitem__(self, ix):
         return self.symbols[ix]
 
