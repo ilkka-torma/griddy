@@ -65,7 +65,9 @@ class TilerState:
     """
     A class that maintains an undoable state for tiler.
     It contains the current decorated configuration and selection.
-    The nodes of the configuration are decorated with fixedness information.
+    The nodes of the configuration are decorated with fixedness information:
+    a node contains either None or (syms, fix)
+    where syms is a symbol or a list of symbols, and fix is a Boolean.
     """
     
     def __init__(self, conf=None, selection=None, dim=None, nodes=None, alph=None, sizes=None, periodic=None):
@@ -211,7 +213,8 @@ class TilerBackend:
         periodics = [i for (i,st) in enumerate(self.axis_states) if st == AxisState.PERIODIC and i in self.project_to]
         undec_conf = undecorate(self.conf(), unfix_atoms=True, alph=self.sft.alph)
         projection = RecognizableConf([undec_conf.markers[i] for i in self.project_to],
-                                      {self.project(nvec) : sym for (nvec, sym) in undec_conf.pat.items()},
+                                      {self.project(nvec) : sym
+                                       for (nvec, sym) in undec_conf.pat.items()},
                                       self.sft.nodes,
                                       onesided=self.sft.onesided)
         #print("tiler deducing", projection.display_str())
@@ -231,6 +234,43 @@ class TilerBackend:
             self.replace_conf(decorated_conf)
             return True
         return False
+
+    def deduce_forced(self):
+        """
+        Deduce the configuration with fixed axes.
+        Then deduce the set of nodes whose value is forced by the fixed nodes.
+        Put them into the selection and save the old state.
+        Return a Boolean for success.
+        """
+        undec_conf = undecorate(self.conf(), unfix_atoms=True, alph=self.sft.alph)
+        projection = RecognizableConf([undec_conf.markers[i] for i in self.project_to],
+                                      {self.project(nvec) : sym
+                                       for (nvec, sym) in undec_conf.pat.items()},
+                                      self.sft.nodes,
+                                      onesided=self.sft.onesided)
+        deduced_conf = self.sft.deduce(projection)
+        if deduced_conf is not None:
+            deprojection = RecognizableConf(undec_conf.markers,
+                                            {self.deproject(nvec) : sym
+                                             for (nvec, sym) in deduced_conf.pat.items()},
+                                            self.sft.nodes,
+                                            onesided=self.sft.onesided)
+            #print("it's", deduced_conf.display_str())
+            decorated_conf = copy_decoration(deprojection, self.conf())
+            # Now deduce the forced nodes
+            print("items", [x for x in self.conf().pat.items()])
+            maybe_forced = set(nvec for (nvec, data) in self.conf().pat.items() if data is not None and not data[1])
+            while maybe_forced:
+                new_deduced_conf = self.sft.deduce(projection, diff_in=(deduced_conf, maybe_forced))
+                if new_deduced_conf is None:
+                    break
+                maybe_forced = set(nvec for nvec in maybe_forced
+                                   if new_deduced_conf[nvec] == deduced_conf[nvec])
+            self.update_selection(maybe_forced, save=False)
+            self.replace_conf(decorated_conf)
+            return True
+        return False
+        
             
     def minimize_markers(self):
         "Minimize the markers along each non-fixed axis, save the old state if changes were made."

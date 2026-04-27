@@ -1350,6 +1350,8 @@ class Griddy:
                 print(pictures)
                 if type(pictures) == list:
                     pictures = {node : pictures for node in self.nodes}
+                elif pictures is None:
+                    pictures = dict()
                 pictures = {node : [self.fix_path(p, path) for p in pictures[node]] for node in self.nodes
                     if node in pictures}
                     

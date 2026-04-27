@@ -738,21 +738,25 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 sel = backend.selection()
                 if drawcolor_set and sel:
                     patch = dict()
+                    #print("sel nodes", sel, nodes)
                     if drawcolor == FIXITY:
                         paint_fixity = None
                         conf = backend.conf()
                         for ((x,y),n) in sel:
-                            val = conf[(x,y),nodes[n]]
+                            val = conf[(x,y),n]
+                            #print("nvec val", ((x,y),n), val)
                             if val is not None:
                                 paint_fixity = False
                                 if not val[1]:
                                     paint_fixity = True
                                     break
+                        #print("paint_fixity", paint_fixity)
                         if paint_fixity is not None:
                             for ((x,y),n) in sel:
-                                val = conf[(x,y),nodes[n]]
+                                val = conf[(x,y),n]
+                                #print("new nvec val", ((x,y),n), val)
                                 if val is not None and (type(val) != list or len(val) == 1):
-                                    patch[(x,y),nodes[n]] = (val[0], paint_fixity)
+                                    patch[(x,y),n] = (val[0], paint_fixity)
                     else:
                         for ((x,y),n) in sel:
                             if drawcolor == EMPTY:
@@ -762,7 +766,8 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                             else:
                                 if drawcolor[1] < len(the_SFT.alph[n]):
                                     patch[(x,y),n] = (the_SFT.alph[n][drawcolor[1]], True)
-                    
+
+                    #print("patch", patch)
                     backend.replace_patch(patch)
                     currentstate = TILING_UNKNOWN
                     #backend.update_selection(set(), save=False)
@@ -827,7 +832,10 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                     #thred.start()
 
                     #deduce_a_tiling(grid, the_SFT, x_period = x_size if x_periodic else None, y_period = y_size if y_periodic else None)
-                    success = backend.deduce()
+                    if shift_modifier:
+                        success = backend.deduce_forced()
+                    else:
+                        success = backend.deduce()
                     if success:
                         currentstate = TILING_OK
                     else:
@@ -1263,7 +1271,8 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                 draw_msg.append("Node size: sx")
             draw_msg.append("Toggle axis states: cv")
             draw_msg.append("Toggle cursor state: d")
-            draw_msg.append("Deduce pattern: spacebar")
+            draw_msg.append("Deduce pattern: space")
+            draw_msg.append("Deduce forced nodes: shift-space")
             draw_msg.append("Clear deduced nodes: e")
             draw_msg.append("Clear all nodes: shift-e")
             draw_msg.append("Set all nodes to unknown: shift-ctrl-e")

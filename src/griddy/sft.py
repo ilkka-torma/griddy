@@ -498,7 +498,7 @@ class CSIntersection:
                 
         return None
 
-    def deduce(self, conf):
+    def deduce(self, conf, diff_in=None):
         # Deduce a recognizable configuration with a fixed marker structure.
         
         print("deduce(", conf.display_str(), ")")
@@ -554,11 +554,20 @@ class CSIntersection:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
 
+        if diff_in is None:
+            diff_oreds = [T]
+        else:
+            diff_oreds = []
+            diff_conf, diff_nvecs = diff_in
+            for nvec in diff_nvecs:
+                node_alph = self.alph[nvec[1]]
+                diff_oreds.append(NOT(node_alph.node_eq_sym([V(nvec+(l,)) for l in node_alph.node_vars], diff_conf[nvec])))
+
         #circuits = list(circuits.values())
         #print("circuits", circuits)
 
         # Make SAT instance, solve and extract model
-        instance = AND(*(list(circuits) + list(forceds)))
+        instance = AND(OR(*diff_oreds), *(list(circuits) + list(forceds)))
         #print("instance", instance)
         model = SAT_under(instance, node_constraints(self.alph), True)
         if model == False:
@@ -944,8 +953,10 @@ class SFT:
                 
         return None
 
-    def deduce(self, conf):
+    def deduce(self, conf, diff_in=None):
         # Deduce a recognizable configuration with a fixed marker structure.
+        # If diff_in=(conf2, set) is not None, we also require that the result
+        # differs from conf2 at some node in set.
         
         #print("deduce(", conf.display_str(), ")")
                 
@@ -991,11 +1002,18 @@ class SFT:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
 
+        diff_oreds = []
+        if diff_in is not None:
+            diff_conf, diff_nvecs = diff_in
+            for nvec in diff_nvecs:
+                node_alph = self.alph[nvec[1]]
+                diff_oreds.append(NOT(node_alph.node_eq_sym([V(nvec+(l,)) for l in node_alph.node_vars], diff_conf[nvec])))
+
         #circuits = list(circuits.values())
         #print("circuits", circuits)
 
         # Make SAT instance, solve and extract model
-        instance = AND(*(list(circuits) + list(forceds)))
+        instance = AND(OR(*diff_oreds), *(list(circuits) + list(forceds)))
         #print("instance", instance)
         model = SAT_under(instance, node_constraints(self.alph), True)
         if model == False:
