@@ -501,12 +501,12 @@ class CSIntersection:
     def deduce(self, conf, diff_in=None):
         # Deduce a recognizable configuration with a fixed marker structure.
         
-        print("deduce(", conf.display_str(), ")")
-        print(self.sft, self.sft.circuit)
-        print(self.clopen)
+        #print("deduce(", conf.display_str(), ")")
+        #print(self.sft, self.sft.circuit)
+        #print(self.clopen)
                 
         diff_vecs = set(var[0] for var in self.sft.circuit.get_variables())
-        print(diff_vecs)
+        #print(diff_vecs)
         # this is the set of positions where we need to put the SFT check
         vec_domain = set(vsub(nvec[0], dvec)
                          for nvec in conf.pat
@@ -519,6 +519,7 @@ class CSIntersection:
         
         #print("vec_domain", vec_domain)
         #print("unknowns", unknowns)
+        #print("conf.pat", set(conf.pat))
         
         # circuits will only contain the circuits that refer only to nodes in the domain
         circuits = []
@@ -582,8 +583,9 @@ class CSIntersection:
                 pat[nvec] = None
             else:
                 node_alph = self.alph[nvec[1]]
-                nvals = [model[nvec+(l,)] for l in node_alph.node_vars]
+                nvals = [model.get(nvec+(l,), False) for l in node_alph.node_vars]
                 pat[nvec] = node_alph.model_to_sym(nvals)
+                
         #print("final pat", pat)
         return RecognizableConf(conf.markers, pat, self.nodes, onesided=conf.onesided)
 

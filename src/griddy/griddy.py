@@ -400,28 +400,43 @@ class Griddy:
             elif cmd == "polyomino_sft":
                 name = args[0]
                 tiles = args[1]
-                print("name tiles", name, tiles)
+                #print("name tiles", name, tiles)
                 onesided = kwds.get("onesided", [])
                 null_sym = kwds.get("null", '0')
-                encoding = kwds.get("encoding", "unary_minus_one")
-                alph = Alphabet.str_to_encoding(encoding)([null_sym] + [tile[0] for tile in tiles])
-                # tile_conds lists the ways in which the origin can be covered by a tile
-                # we will require that exactly one of them is true
-                tile_conds = []
+                alph_enc = Alphabet.str_to_encoding(kwds.get("encoding", "unary_minus_one"))
+                alph = dict()
+                for node in self.nodes:
+                    syms = [sym for (sym, tile) in tiles if tile[0][1] == node]
+                    for sym in syms:
+                        if syms.count(sym) > 1:
+                            raise GriddyRuntimeError("Multiply defined polyomino tile: node {} symbol {}".format(node, sym))
+                    alph[node] = alph_enc([null_sym] + syms)
+                #print("alph", alph)
+                tile_conds = {node : [] for node in self.nodes}
+                # tile_conds lists the ways in which each node at the origin can be covered by a tile
+                # we will require that exactly one of them is true for each node
                 for (sym, coords) in tiles:
-                    tile_orig_vec = self.process_nvec(coords[0])[0]
+                    (orig_vec, orig_node) = self.process_nvec(coords[0])
+                    orig_alph = alph[orig_node]
                     for coord in coords:
                         (vec, node) = self.process_nvec(coord)
-                        tr_nvec = (vsub(tile_orig_vec, vec), node)
-                        tile_conds.append(alph.node_eq_sym([circuit.V(tr_nvec + (l,)) for l in alph.node_vars], sym))
-                seen = tile_conds[0]
-                two = circuit.F
-                for cond in tile_conds[1:]:
-                    two = circuit.OR(two, circuit.AND(seen, cond))
-                    seen = circuit.OR(seen, cond)
-                circ = circuit.AND(seen, circuit.NOT(two))
+                        tr_nvec = (vsub(orig_vec, vec), orig_node)
+                        tile_conds[node].append(orig_alph.node_eq_sym([circuit.V(tr_nvec + (l,))
+                                                                     for l in orig_alph.node_vars],
+                                                                    sym))
+                #print("tile_conds", tile_conds)
+                anded = []
+                for conds in tile_conds.values():
+                    seen = conds[0]
+                    two = circuit.F
+                    for cond in conds[1:]:
+                        two = circuit.OR(two, circuit.AND(seen, cond))
+                        seen = circuit.OR(seen, cond)
+                    anded.append(circuit.AND(seen, circuit.NOT(two)))
+                circ = circuit.AND(*anded)
+                #print("circ", circ)
                 # make the definitions
-                self.alphabet = {node : alph for node in self.nodes}
+                self.alphabet = alph
                 self.SFTs[name] = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, circuit=circ)
                 
             elif cmd == "sofic1D":
