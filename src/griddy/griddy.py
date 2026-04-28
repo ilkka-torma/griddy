@@ -406,7 +406,7 @@ class Griddy:
                 alph_enc = Alphabet.str_to_encoding(kwds.get("encoding", "unary_minus_one"))
                 alph = dict()
                 for node in self.nodes:
-                    syms = [sym for (sym, tile) in tiles if tile[0][1] == node]
+                    syms = [sym for (sym, tile) in tiles if self.process_nvec(tile[0])[1] == node]
                     for sym in syms:
                         if syms.count(sym) > 1:
                             raise GriddyRuntimeError("Multiply defined polyomino tile: node {} symbol {}".format(node, sym))

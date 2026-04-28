@@ -1069,6 +1069,44 @@ lt (0;1) (-1;1)
 """
 unit_tests.append(("Linear CA test", code))
 
+code = """
+%polyomino_sft a
+H (0,0) (1,0)
+V (0,1) (0,0)
+%sft a2 Ao
+(o=0 -> o.lt=H | o.up=V) &
+(o=H -> o.rt=0 & o.rt.up!=V) &
+(o=V -> o.dn=0)
+%equals expect=T a a2
+
+%polyomino_sft x
+L (0,0) (0,1) (0,2) (1,0)
+T (0,0) (1,0) (-1,0) (0,-1)
+%sft x2 Ao 1 == #[
+o != 0,
+o.lt = L,
+o.dn = L,
+o.dn.dn = L,
+o.rt = T,
+o.lt = T,
+o.up = T
+]
+%equals expect=T x x2
+
+%topology hex
+%polyomino_sft y null=N
+R (0,0;0) (0,0;1)
+R (0,0;1) (1,0;0)
+S (0,0;0)
+K (0,0;1)
+%sft y2 ACo
+(o.0=R <-> o.0.sE=N) &
+(o.1=R <-> o.1.nE=N)
+%equals expect=T y y2
+-- TODO
+"""
+unit_tests.append(("Polyomino tilings", code))
+
 
 
 if __name__ == "__main__":

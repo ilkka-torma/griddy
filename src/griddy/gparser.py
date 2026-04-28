@@ -142,7 +142,7 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /print_freq/ "=" NAT
               | /expect/ "=" fraction
               | /relevant_nodes/ "=" list_of{node_name} )*
-cmd_polyomino_opts: ( /null/ "=" node_name
+cmd_polyomino_opts: ( /null/ "=" LABEL
                     | /onesided/ "=" list_of{NAT}
                     | /encoding/ "=" LABEL )*
               
