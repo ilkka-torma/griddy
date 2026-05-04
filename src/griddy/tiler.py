@@ -1093,7 +1093,6 @@ def run(the_SFT, topology, gridmoves, nodeoffsets,
                         if Noneish(conf[(x, y), nodes[n]]):
                             continue
                         for t in topology:
-                            print(t)
                             a, b = t[1], t[2]
                             if a[-1] in hidden_nodes:
                                 continue
