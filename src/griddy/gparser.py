@@ -511,7 +511,10 @@ class GriddyTransformer(Transformer_NonRecursive):
         expr = items[-1]
         for (typ, call, res) in items[:-1][::-1]:
             if typ == "bool":
-                expr = ("LET", call, res, expr)
+                if len(call) == 1:
+                    expr = ("SETBOOL", call[0], res, expr)
+                else:
+                    expr = ("LET", call, res, expr)
             elif typ == "num":
                 expr = ("SETNUM", call, res, expr)
             else:
