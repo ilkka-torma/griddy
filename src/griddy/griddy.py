@@ -856,6 +856,8 @@ class Griddy:
                             if mode != "silent": print("on {}:".format(dict(fr_pat)))
                             for (vec, amount) in sorted(amounts.items()):
                                 if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
+                elif mode != "silent":
+                    print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:
                     if verb:
                         print("Saving final rules...", end='')
@@ -866,7 +868,8 @@ class Griddy:
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)
                     assert disc_arg.bound == expect
-                if mode != "silent": print("Calculation took", time.time() - tim, "seconds.")
+                if mode != "silent":
+                    print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "find_automatic_conf":
                 conf_name = args[0]

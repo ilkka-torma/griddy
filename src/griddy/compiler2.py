@@ -595,6 +595,8 @@ def prod_circuit(factors, global_restr):
 # Apply a numeric function to a numeric circuit    
 def num_func_circ(func, arg, global_restr):
     circ, rng = arg
+    if circ is None:
+        return (None, func(rng))
     new_rng = list(sorted(set(func(num) for num in rng)))
     oreds = {num : [] for num in new_rng}
     for (i, num) in enumerate(rng):
@@ -610,6 +612,7 @@ def num_func_circ(func, arg, global_restr):
 # Return the MOCircuit and a list of values that's the range of the numeric expression.
 # Each value has a corresponding output (accessed by its index).
 def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, subst, externals, global_restr):
+    #print("ne2c", formula)
     op = formula[0]
     if op == "NUM_VAR":
         # check that the variable is numeric

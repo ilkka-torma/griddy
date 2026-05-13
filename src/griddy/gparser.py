@@ -173,7 +173,7 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 ?atomic_formula: "(" formula ")"
                | STRICT_LABEL (LABEL | pos_expr | "(" formula ")")*            -> bool_or_call
                | (left_sym_or_node | list_of{sym_or_node}) (NEG? comp_op (left_sym_or_node | list_of{sym_or_node}))+ -> node_comp
-               | num_formula (num_comp_op num_formula)+ -> num_comp
+               | (left_num_formula num_comp_op)+ num_formula -> num_comp
 
 !num_comp_op: "==" | "/=" | "<=" | "<" | ">=" | ">"
 
@@ -185,18 +185,22 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
                   | "switch" formula ":" formula (";" formula ":" formula)* ";"? -> switch_formula
 
 ?num_formula: sum_num_formula
-?sum_num_formula: prod_num_formula ("+" prod_num_formula)*
-?prod_num_formula: atomic_num_formula ("*" atomic_num_formula)*
+?left_num_formula: left_sum_num_formula
+?sum_num_formula: (left_prod_num_formula "+")* prod_num_formula
+?left_sum_num_formula: left_prod_num_formula ("+" left_prod_num_formula)*
+?prod_num_formula: (atomic_num_formula "*")* (atomic_num_formula | rightmost_num_formula)
+?left_prod_num_formula: atomic_num_formula ("*" atomic_num_formula)*
 
 ?atomic_num_formula: "(" num_formula ")"
-                   | "abs" atomic_num_formula                    -> num_call
                    | "#" list_of{formula}                        -> num_count_list
                    | "#"? INT                                    -> num_const
                    | STRICT_LABEL                                -> num_var
                    | "#" STRICT_LABEL "[" finite_set "]" formula -> count_quantified
                    | "dist" pos_expr pos_expr                    -> num_dist
                    | "#" pos_expr                                -> num_node
-                   | letexpr{num_formula}
+
+?rightmost_num_formula: "abs" atomic_num_formula -> num_call
+                      | letexpr{num_formula}
 
 !comp_op: "=" | "@" | "~" | "~~" | "~^" nat_set
 
@@ -577,8 +581,14 @@ class GriddyTransformer(Transformer_NonRecursive):
     def sum_num_formula(self, formulas):
         return ("SUM", *formulas)
 
+    def left_sum_num_formula(self, formulas):
+        return self.sum_num_formula(formulas)
+
     def prod_num_formula(self, formulas):
         return ("PROD", *formulas)
+
+    def left_prod_num_formula(self, formulas):
+        return self.prod_num_formula(formulas)
 
     def num_comp_op(self, op):
         op = op[0]
