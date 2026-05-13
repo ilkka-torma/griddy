@@ -644,8 +644,8 @@ class BlockMap:
             topology.append(t[:1] + (t[1][:time_axis] + (0,) + t[1][time_axis:], t[2], t[3]))
             # add the time direction, default name is "fut"/"past"
         for n in nodes:
-            topology.append(("fut", (0,)*time_axis + (1,) + (0,)*(dim-time_axis) + (n, n)))
-            topology.append(("past", (0,)*time_axis + (-1,) + (0,)*(dim-time_axis) + (n, n)))
+            topology.append(("fut", ((0,)*time_axis + (1,) + (0,)*(dim-time_axis)), n, n))
+            topology.append(("past", ((0,)*time_axis + (-1,) + (0,)*(dim-time_axis)), n, n))
             
         return SFT(dim+1, nodes, alph, topology, self.graph, circuit=AND(*anded), onesided=[time_axis] if onesided else [])
 
