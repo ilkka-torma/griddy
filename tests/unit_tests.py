@@ -556,10 +556,10 @@ code = """
 %SFT count1 Ao 1 <= #[o=1 o.rt=1 o.up=1 o.up.rt=1] <= 3
 %SFT man1 Ao !(o=o.rt=o.up=o.up.rt)
 %equal expect=T count1 man1
-%SFT count2 Ao let v a := a=1 in letnum n := 1 in #p[o:1] v p <= n
+%SFT count2 Ao let v a := a=1; n := #1 in #p[o:1] v p <= n
 %SFT man2 Ao !Ex[o:1] Ey[o:1] y!@x=y=1
 %equal expect=T count2 man2
-%SFT count3 Ao let v a := letnum n := 1 in #p[a:1] p=1 <= n in v o
+%SFT count3 Ao let v a := let n := #1 in #p[a:1] p=1 <= n in v o
 %equal expect=T count3 man2
 %SFT count4 Ao (#p[o:1] p=1 | p.up=0) + 1 <= abs (#q[o:1] q=0 | q.rt=1)
 %SFT count5 Ao ((#p[o:1] p=1 | p.up=0) + 2)*3 >= ((#q[o:1] q=0 | q.rt=1) + 1)*3
@@ -1105,6 +1105,23 @@ K (0,0;1)
 %equals expect=T y y2
 """
 unit_tests.append(("Polyomino tilings", code))
+
+code = """
+%alphabet Z2
+%sft a  Ao let q := o.rt in o=1 | q=1
+%sft a2 Ao o=1 | o.rt=1
+%equal expect=T a a2
+%sft b  Ao let q := o+o.rt; r := o.up in r=q
+%sft b2 Ao o.up = o+o.rt
+%equal expect=T b b2
+%sft c  Ao Ep[o:1] let q := p.up in q!@o & p=1
+%sft c2 Ao Ep[o:1 - {o.dn}] p=1
+%equal expect=T c c2
+%sft d  Ao let q := o.rt; n := #r[o:1] r=q in n==2
+%sft d2 Ao #r[o:1] r=o.rt == 2
+%equal expect=T d d2
+"""
+unit_tests.append(("Node and numeric lets", code))
 
 
 

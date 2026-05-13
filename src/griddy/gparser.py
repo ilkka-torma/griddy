@@ -154,7 +154,7 @@ cmd_polyomino_opts: ( /null/ "=" LABEL
 # This means that an and_formula (or any other binary operator) cannot contain a let_formula
 # except on the very right.
 
-quantified: QUANTIFIER STRICT_LABEL imp_formula
+quantified: QUANTIFIER STRICT_LABEL formula
 
 QUANTIFIER: "A" | "AC" | "E" | "EC"
 
@@ -172,17 +172,17 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
 
 ?atomic_formula: "(" formula ")"
                | STRICT_LABEL (LABEL | pos_expr | "(" formula ")")*            -> bool_or_call
-               | (sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
+               | (left_sym_or_node | list_of{sym_or_node}) (NEG? comp_op (left_sym_or_node | list_of{sym_or_node}))+ -> node_comp
                | num_formula (num_comp_op num_formula)+ -> num_comp
 
 !num_comp_op: "==" | "/=" | "<=" | "<" | ">=" | ">"
 
-rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula           -> restr_quantified
-                 | "subst" (pos_expr ":=" LABEL)+ "in" formula                  -> subst_formula
-                 | "let" STRICT_LABEL+ ":=" formula "in" formula                -> let_formula
-                 | "letnum" STRICT_LABEL ":=" num_formula "in" formula          -> letnum_formula
-                 | "if" formula "then" formula "else" formula                   -> ite_formula
-                 | "switch" formula ":" formula (";" formula ":" formula)* ";"? -> switch_formula
+?rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula           -> restr_quantified
+                  | "subst" (pos_expr ":=" LABEL)+ "in" formula                  -> subst_formula
+                  | (left_sym_or_node | list_of{sym_or_node}) (NEG? comp_op (sym_or_node | list_of{sym_or_node}))+ -> node_comp
+                  | letexpr{formula}
+                  | "if" formula "then" formula "else" formula                   -> ite_formula
+                  | "switch" formula ":" formula (";" formula ":" formula)* ";"? -> switch_formula
 
 ?num_formula: sum_num_formula
 ?sum_num_formula: prod_num_formula ("+" prod_num_formula)*
@@ -191,11 +191,12 @@ rightmost_formula: QUANTIFIER STRICT_LABEL "[" finite_set "]" formula           
 ?atomic_num_formula: "(" num_formula ")"
                    | "abs" atomic_num_formula                    -> num_call
                    | "#" list_of{formula}                        -> num_count_list
-                   | INT                                         -> num_const
+                   | "#"? INT                                    -> num_const
                    | STRICT_LABEL                                -> num_var
                    | "#" STRICT_LABEL "[" finite_set "]" formula -> count_quantified
                    | "dist" pos_expr pos_expr                    -> num_dist
                    | "#" pos_expr                                -> num_node
+                   | letexpr{num_formula}
 
 !comp_op: "=" | "@" | "~" | "~~" | "~^" nat_set
 
@@ -203,6 +204,7 @@ nat_set: nat_range ("," nat_range)*
 !nat_range: NAT ("-" NAT?)?
 
 ?sym_or_node: sum_sym_or_node
+?left_sym_or_node: left_sum_sym_or_node
 ?sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? prod_sym_or_node
 ?left_sum_sym_or_node: (left_sum_sym_or_node (/\+/ | /-/))? left_prod_sym_or_node
 ?prod_sym_or_node: (left_prod_sym_or_node "*")? (rightmost_sym_or_node | atomic_sym_or_node)
@@ -210,8 +212,14 @@ nat_set: nat_range ("," nat_range)*
 
 ?atomic_sym_or_node: LABEL | pos_expr
 
-rightmost_sym_or_node: "if" formula "then" sym_or_node "else" sym_or_node -> sym_or_node_ite
-                     | "switch" formula ":" sym_or_node (";" formula ":" sym_or_node)* ";"? -> sym_or_node_switch
+?rightmost_sym_or_node: "if" formula "then" sym_or_node "else" sym_or_node -> sym_or_node_ite
+                      | "switch" formula ":" sym_or_node (";" formula ":" sym_or_node)* ";"? -> sym_or_node_switch
+                      | letexpr{sym_or_node}
+
+let_pair: STRICT_LABEL+ ":=" formula    -> let_pair_formula
+        | STRICT_LABEL ":=" sym_or_node -> let_pair_node
+        | STRICT_LABEL ":=" num_formula -> let_pair_num
+letexpr{inner}: "let" let_pair (";" let_pair)* "in" inner
 
 ?pos_expr: STRICT_LABEL ("." (LABEL | vector))*
 
@@ -486,6 +494,26 @@ class GriddyTransformer(Transformer_NonRecursive):
             return anded[0]
         return ("AND", *anded)
 
+    def let_pair_formula(self, items):
+        return ("bool", tuple(items[:-1]), items[-1])
+
+    def let_pair_num(self, items):
+        return ("num", *items)
+
+    def let_pair_node(self, items):
+        return ("node", *items)
+
+    def letexpr(self, items):
+        expr = items[-1]
+        for (typ, call, res) in items[:-1][::-1]:
+            if typ == "bool":
+                expr = ("LET", call, res, expr)
+            elif typ == "num":
+                expr = ("SETNUM", call, res, expr)
+            else:
+                expr = ("SETNODE", call, res, expr)
+        return expr
+
     def iff_formula(self, formulas):
         if len(formulas) == 2:
             return ("IFF", *formulas)
@@ -526,10 +554,6 @@ class GriddyTransformer(Transformer_NonRecursive):
         result = letexpr[-2]
         rest = letexpr[-1]
         return ("LET", tuple(call), result, rest)
-
-    def letnum_formula(self, letexpr):
-        var, result, rest = letexpr
-        return ("SETNUM", var, result, rest)
 
     def subst_formula(self, substexpr):
         subst = {substexpr[2*i] : substexpr[2*i+1]

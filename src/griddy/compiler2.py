@@ -227,6 +227,18 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         variables_new = dict(variables)
         variables_new[var] = num_circ
         ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[3], variables_new, subst, externals, global_restr)
+
+    elif op == "SETNODE":
+        var = formula[1]
+        try:
+            pos = eval_to_position(graph, topology, nodes, formula[2], variables)
+        except KeyError:
+            pos = None
+        if pos is None:
+            pos = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, formula[2])
+        variables_new = dict(variables)
+        variables_new[var] = pos
+        ret = formula_to_circuit_(graph, topology, nodes, alphabet, formula[3], variables_new, subst, externals, global_restr)
         
     elif op == "POSEQ":
         # p1 and p2 must be position expressions
@@ -602,7 +614,7 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
     if op == "NUM_VAR":
         # check that the variable is numeric
         val = variables[formula[1]]
-        #print("val", val)
+        #print("NUM_VAR val", val)
         if type(val) == tuple and (isinstance(val[0], moc.MOCircuit) or (val[0] is None and type(val[1]) == int)):
             return val
         else:
@@ -752,7 +764,7 @@ def collect_unbound_vars(formula, bound = None):
     elif op in ["SET_BALL", "SET_SPHERE"]:
         possibles.update(collect_unbound_vars(formula[3], bound))
     else:
-        raise Exception("Unknown operation " + op)
+        raise GriddyCompileError("Unknown operation " + op)
     ret = set()
     for p in possibles:
         if p not in bound:
@@ -777,7 +789,8 @@ debug = False
 
 def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
     #print("e2p context", graph, topology, nodes)
-    #print("expr", expr)
+    #print("e2pos", expr)
+    #print("vars", pos_variables)
     #print()
     # should be name of variable
     if type(expr) != tuple:
@@ -894,6 +907,7 @@ def eval_to_position_(graph, topology, nodes, expr, pos_variables, top=True):
 def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, expr):
     "Given a position or value expression, evaluate to a value, a circuit list over an alphabet, or a list of disjoint switch cases or such, or None. Also return its type (val, circs, list, None) for convenience."
     #print("ep2c", expr)
+    #print("vars", variables)
     orig_expr = expr
     while expr in variables:
         expr = variables[expr]
