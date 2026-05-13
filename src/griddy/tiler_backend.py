@@ -258,10 +258,23 @@ class TilerBackend:
             #print("it's", deduced_conf.display_str())
             decorated_conf = copy_decoration(deprojection, self.conf())
             # Now deduce the forced nodes
-            print("items", [x for x in self.conf().pat.items()])
+            #print("items", [x for x in self.conf().pat.items()])
             maybe_forced = set(nvec for (nvec, data) in self.conf().pat.items() if data is not None and not data[1])
+            i = 0
             while maybe_forced:
-                new_deduced_conf = self.sft.deduce(projection, diff_in=(deduced_conf, maybe_forced))
+                i += 1
+                print("Round {}: {} potential forced nodes".format(i, len(maybe_forced)))
+                num_classes = max(1, len(maybe_forced)//2)
+                while num_classes:
+                    print("{} classes".format(num_classes))
+                    classes = [[] for _ in range(num_classes)]
+                    for (j, nvec) in enumerate(sorted(maybe_forced)):
+                        classes[j%num_classes].append(nvec)
+                    new_deduced_conf = self.sft.deduce(projection, diff_in_all=[(deduced_conf, cls) for cls in classes])
+                    if new_deduced_conf is None:
+                        num_classes = num_classes//2
+                    else:
+                        break
                 if new_deduced_conf is None:
                     break
                 maybe_forced = set(nvec for nvec in maybe_forced

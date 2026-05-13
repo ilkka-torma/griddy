@@ -498,7 +498,7 @@ class CSIntersection:
                 
         return None
 
-    def deduce(self, conf, diff_in=None):
+    def deduce(self, conf, diff_in_all=None):
         # Deduce a recognizable configuration with a fixed marker structure.
         
         #print("deduce(", conf.display_str(), ")")
@@ -555,20 +555,23 @@ class CSIntersection:
             nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
             forceds.add(OR(*(node_alph.node_eq_sym(nvars, sym) for sym in syms)))
 
-        if diff_in is None:
-            diff_oreds = [T]
+        if diff_in_all is None:
+            diff_andeds = []
         else:
-            diff_oreds = []
-            diff_conf, diff_nvecs = diff_in
-            for nvec in diff_nvecs:
-                node_alph = self.alph[nvec[1]]
-                diff_oreds.append(NOT(node_alph.node_eq_sym([V(nvec+(l,)) for l in node_alph.node_vars], diff_conf[nvec])))
+            diff_andeds = []
+            for diff_in in diff_in_all:
+                diff_oreds = []
+                diff_conf, diff_nvecs = diff_in
+                for nvec in diff_nvecs:
+                    node_alph = self.alph[nvec[1]]
+                    diff_oreds.append(NOT(node_alph.node_eq_sym([V(nvec+(l,)) for l in node_alph.node_vars], diff_conf[nvec])))
+                diff_andeds.append(OR(*diff_oreds))
 
         #circuits = list(circuits.values())
         #print("circuits", circuits)
 
         # Make SAT instance, solve and extract model
-        instance = AND(OR(*diff_oreds), *(list(circuits) + list(forceds)))
+        instance = AND(*diff_andeds, *circuits, *forceds)
         #print("instance", instance)
         model = SAT_under(instance, node_constraints(self.alph), True)
         if model == False:
