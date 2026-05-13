@@ -427,12 +427,7 @@ class Griddy:
                 #print("tile_conds", tile_conds)
                 anded = []
                 for conds in tile_conds.values():
-                    seen = conds[0]
-                    two = circuit.F
-                    for cond in conds[1:]:
-                        two = circuit.OR(two, circuit.AND(seen, cond))
-                        seen = circuit.OR(seen, cond)
-                    anded.append(circuit.AND(seen, circuit.NOT(two)))
+                    anded.append(circuit.ONE(*conds))
                 circ = circuit.AND(*anded)
                 #print("circ", circ)
                 # make the definitions
@@ -1470,8 +1465,10 @@ class Griddy:
             elif cmd == "tile_box":
                 name = args[0]
                 rad = args[1]
+                tim = time.time()
                 if mode != "silent": print("Tiling %s-hypercube with SFT %s." % (rad, name))
                 succ = self.SFTs[name].tile_box(rad)
+                if mode != "silent": print("Done in {} seconds.".format(time.time() - tim))
                 assert succ
 
             elif cmd == "keep_tiling":

@@ -1118,6 +1118,18 @@ def ATMOSTONE(*inputs):
             inps.append(OR(NOT(inputs[a]), NOT(inputs[b])))
     return AND(*inps)
 
+def ONE(*inputs):
+    L = len(inputs)
+    if L == 0:
+        return F
+    elif L == 1:
+        return inputs[0]
+    else:
+        return OR(AND(ONE(*inputs[L//2:]),
+                      *(NOT(x) for x in inputs[:L//2])),
+                  AND(ONE(*inputs[:L//2]),
+                      *(NOT(x) for x in inputs[L//2:])))
+
 
 #c = OR(AND(V("b"), V("a")), NOT(V("b")), NOT(V("b")))
 #print(evaluate(c, {"a": True, "b": True}))

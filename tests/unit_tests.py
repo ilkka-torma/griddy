@@ -1103,7 +1103,6 @@ K (0,0;1)
 (o.0=R <-> o.0.sE=N) &
 (o.1=R <-> o.1.nE=N)
 %equals expect=T y y2
--- TODO
 """
 unit_tests.append(("Polyomino tilings", code))
 
