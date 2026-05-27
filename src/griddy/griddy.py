@@ -1512,6 +1512,19 @@ class Griddy:
                 except KeyError:
                     raise GriddyRuntimeError("No automorphism named {}".format(arg_name))
                 self.SFTs[name] = aut(the_sft)
+
+            elif cmd == "affine_automorphism":
+                name = args[0]
+                matrix = kwds.get("matrix", None)
+                node_map = kwds.get("node_map", None)
+                vectors = kwds.get("shift", None)
+                if type(vectors) == tuple:
+                    # single vector for unnamed node
+                    vectors = {node : vectors for node in self.nodes}
+                self.automorphisms[name] = node_automorphism.AffineAutomorphism(dim=self.dim,
+                                                                                matrix=matrix,
+                                                                                node_map=node_map,
+                                                                                vectors=vectors)
                 
                                         
             elif mode == "report":

@@ -109,6 +109,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts list_of{vector} cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts (vector cmd_polyomino_opts)* cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open_open
        | "transform" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_transform
+       | ("affine_automorphism" | "aff_aut") cmd_aff_aut_opts STRICT_LABEL cmd_aff_aut_opts -> cmd_aff_aut
 
 top_edge: LABEL vector~1..3
 
@@ -146,6 +147,9 @@ cmd_dlb_opts: ( /radius/ "=" NAT
 cmd_polyomino_opts: ( /null/ "=" LABEL
                     | /onesided/ "=" list_of{NAT}
                     | /encoding/ "=" LABEL )*
+cmd_aff_aut_opts: ( /matrix/ "=" list_of{list_of{NAT}}
+                  | /node_map/ "=" dict_of{node_name, node_name}
+                  | /shift/ "=" (dict_of{node_name, vector} | vector) )*
               
 
 ### FORMULA GRAMMAR
@@ -1073,6 +1077,16 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_transform(self, args):
         return self.cmd_default("transform", args)
+
+    def cmd_aff_aut(self, args):
+        return self.cmd_default("affine_automorphism", args)
+
+    def cmd_aff_aut_opts(self, items):
+        opts = []
+        while items:
+            opts.append(tuple(items[:2]))
+            items = items[2:]
+        return Opts(opts)
 
     def start(self, cmds):
         return list(cmds)

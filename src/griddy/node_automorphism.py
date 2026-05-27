@@ -73,7 +73,7 @@ class AffineAutomorphism:
                 return (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
-            circuit.transform(circ, lambda var: self(var, inv=not inv))
+            circuit.transform(circ, lambda var: self(var))
             return circ
         elif isinstance(arg, sft.SFT):
             # TODO: transform topology?
