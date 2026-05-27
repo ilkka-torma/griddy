@@ -108,6 +108,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "destroy_circuit_store" cmd_opts -> cmd_destroy_circuit_store
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts list_of{vector} cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts (vector cmd_polyomino_opts)* cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open_open
+       | "transform" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_transform
 
 top_edge: LABEL vector~1..3
 
@@ -1069,6 +1070,9 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_destroy_circuit_store(self, args):
         return self.cmd_default("destroy_circuit_store", args)
+
+    def cmd_transform(self, args):
+        return self.cmd_default("transform", args)
 
     def start(self, cmds):
         return list(cmds)

@@ -26,6 +26,7 @@ import finite_automata
 import configuration
 import circuit
 import abstract_SAT_simplify
+import node_automorphism
 
 import period_automaton
 import density_linear_program
@@ -72,6 +73,7 @@ class Griddy:
                          for node in self.nodes}
         self.dim = 2
         self.topology = grid
+        self.automorphisms = grid_symmetries
         self.graph = graphs.AbelianGroup([0,1]) #None
         #self.tiler_skew = 1 # actually skew is completely useless
         self.tiler_gridmoves = [(1,0), (0,1)]
@@ -236,6 +238,7 @@ class Griddy:
                 if top in ["line"]:
                     self.dim = 1
                     self.topology = line
+                    self.automorphisms = line_symmetries
                     self.nodes = sft.Nodes()
                     # only the first will be used
                     self.tiler_gridmoves = [(1, 0), (0, 1)]
@@ -244,6 +247,7 @@ class Griddy:
                 elif top in ["square", "grid", "squaregrid"]:
                     self.dim = 2
                     self.topology = grid
+                    self.automorphisms = grid_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (0,1)]
                     #self.tiler_skew = 1
@@ -251,6 +255,7 @@ class Griddy:
                 elif top in ["hex", "hexgrid"]:
                     self.dim = 2
                     self.topology = hexgrid
+                    self.automorphisms = hex_symmetries
                     # hex grid is currently implemented with nodes, instead of directly as a graph, so we cannot use nodes with it
                     self.nodes = sft.Nodes(['0','1'])
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
@@ -259,6 +264,7 @@ class Griddy:
                 elif top in ["king", "kinggrid"]:
                     self.dim = 2
                     self.topology = kinggrid
+                    self.automorphisms = king_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (0,1)]
                     #self.tiler_skew = 1
@@ -267,6 +273,8 @@ class Griddy:
                     dim = int(top[4:])
                     self.dim = dim                    
                     self.topology = []
+                    # TODO: generate symmetries?
+                    self.automorphisms = {}
                     for w in words(dim, "MZP"):
                         if w != "Z"*dim:
                             v = ()
@@ -282,6 +290,7 @@ class Griddy:
                 elif top in ["triangle", "trianglegrid"]:
                     self.dim = 2
                     self.topology = trianglegrid
+                    self.automorphisms = triangle_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (-0.5,0.6)]
                     #self.tiler_skew = 1
@@ -289,12 +298,14 @@ class Griddy:
                 elif top in ["CR"]:
                     self.dim = 2
                     self.topology = CR4d8e2_topology
+                    self.automorphisms = {}
                     self.nodes = CR4d8e2_nodes
                     self.tiler_gridmoves = [(1,0), (-0.5,0.5)]
                     #self.tiler_skew = 1
                     self.tiler_nodeoffsets = {"big" : (0,0), "small" : (0.5,0)}
                 else:
                     self.topology = []
+                    self.automorphisms = {}
                     legacy = None
                     for edge in top:
                         if legacy == None:
@@ -326,7 +337,6 @@ class Griddy:
                 """
                 self.graph = graphs.AbelianGroup(range(self.dim))
                 #print("ki", self.topology)
-                
 
             elif cmd == "save_environment":
                 name = args[0]
@@ -1490,6 +1500,19 @@ class Griddy:
                     self.destroy_store()
                 else:
                     print("Add the @imsure flag to actually destroy the circuit store.")
+
+            elif cmd == "transform":
+                name, aut_name, arg_name = args
+                try:
+                    the_sft = self.SFTs[arg_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No set named {}".format(arg_name))
+                try:
+                    aut = self.automorphisms[aut_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No automorphism named {}".format(arg_name))
+                self.SFTs[name] = aut(the_sft)
+                
                                         
             elif mode == "report":
                 raise Exception("Unknown command %s." % cmd)
@@ -1926,11 +1949,26 @@ def modernize_topology(topology, dim = None):
 line = [("rt", (0,()), (1,())),
         ("lt", (0,()), (-1,()))]
 line = modernize_topology(line)
+line_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=1),
+    "flip" : node_automorphism.AffineAutomorphism(matrix=[[-1]])
+}
+
 grid = [("up", (0,0,()), (0,1,())),
         ("dn", (0,0,()), (0,-1,())),
         ("rt", (0,0,()), (1,0,())),
         ("lt", (0,0,()), (-1,0,()))]
 grid = modernize_topology(grid)
+grid_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2),
+    "rot90" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[1,0]]),
+    "rot180" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,-1]]),
+    "rot270" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[-1,0]]),
+    "refl0" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,1]]),
+    "refl90" : node_automorphism.AffineAutomorphism(matrix=[[1,0],[0,-1]]),
+    "refl45" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[1,0]]),
+    "refl135" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[-1,0]])
+}
 
 """
 hexgrid = [("up", (0,0,0), (0,1,1)),
@@ -1947,6 +1985,50 @@ hexgrid = [("N", (0,0,('0',)), (0,1,('1',))),
            ("nE", (0,0,('1',)), (1,0,('0',))),
            ("nW", (0,0,('1',)), (0,0,('0',)))]
 hexgrid = modernize_topology(hexgrid)
+hex_nodes = sft.Nodes(['0', '1'])
+# symmetries are centered on the face between (0,0) and (1,1)
+hex_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2, nodes=hex_nodes),
+    "rot60" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,-1],[1,0]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,0), ('1',) : (1,0)}),
+    "rot120" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,-1],[1,-1]],
+        vectors={('0',) : (1,0), ('1',) : (1,1)}),
+    "rot180" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,0],[0,-1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (1,1), ('1',) : (1,1)}),
+    "rot240" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,1],[-1,0]],
+        vectors={('0',) : (1,1), ('1',) : (0,1)}),
+    "rot300" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,1],[-1,1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,1), ('1',) : (0,0)}),
+    "refl0" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,-1],[0,-1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,1), ('1',) : (1,1)}),
+    "refl30" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,0],[1,-1]],
+        vectors={('0',) : (0,0), ('1',) : (0,1)}),
+    "refl60" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,1],[1,0]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,0), ('1',) : (0,0)}),
+    "refl90" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,1],[0,1]],
+        vectors={('0',) : (1,0), ('1',) : (0,0)}),
+    "refl120" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,0],[-1,1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (1,1), ('1',) : (1,0)}),
+    "refl150" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,-1],[-1,0]],
+        vectors={('0',) : (1,1), ('1',) : (1,1)})
+}
 
 kinggrid = [("E", (0,0,()), (1,0,())),
             ("NW", (0,0,()), (1,1,())),
@@ -1956,14 +2038,30 @@ kinggrid = [("E", (0,0,()), (1,0,())),
             ("SW", (0,0,()), (-1,-1,())),
             ("S", (0,0,()), (0,-1,())),
             ("SE", (0,0,()), (1,-1,()))]
-kinggrid = modernize_topology(kinggrid)           
+kinggrid = modernize_topology(kinggrid)
+king_symmetries = grid_symmetries
+
 trianglegrid = [("E", (0,0,()), (1,0,())),
             ("Ne", (0,0,()), (1,1,())),
             ("Nw", (0,0,()), (0,1,())),
             ("W", (0,0,()), (-1,0,())),
             ("Sw", (0,0,()), (-1,-1,())),
             ("Se", (0,0,()), (0,-1,()))]
-trianglegrid = modernize_topology(trianglegrid) 
+trianglegrid = modernize_topology(trianglegrid)
+triangle_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2),
+    "rot60" : node_automorphism.AffineAutomorphism(matrix=[[1,-1],[1,0]]),
+    "rot120" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[1,-1]]),
+    "rot180" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,-1]]),
+    "rot240" : node_automorphism.AffineAutomorphism(matrix=[[-1,1],[-1,0]]),
+    "rot300" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[-1,1]]),
+    "refl0" : node_automorphism.AffineAutomorphism(matrix=[[1,-1],[0,-1]]),
+    "refl30" : node_automorphism.AffineAutomorphism(matrix=[[1,0],[1,-1]]),
+    "refl60" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[1,0]]),
+    "refl90" : node_automorphism.AffineAutomorphism(matrix=[[-1,1],[0,-1]]),
+    "refl120" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[-1,1]]),
+    "refl150" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[-1,0]])
+}
 
 Wang_nodes = ["E", "N", "W", "S"]
 Wang_topology = [("up", (0,0,"N"), (0,1,"S")),
@@ -1987,7 +2085,7 @@ CR4d8e2_topology = [('N', (0, 0, 'big'), (0, 1, 'small')),
                     ('E', (0, 0, 'small'), (1, 0, 'big')),
                     ('S', (0, 0, 'small'), (0, -1, 'big')),
                     ('W', (0, 0, 'small'), (0, 0, 'big'))]
-CR4d8e2_topology = modernize_topology(CR4d8e2_topology)                    
+CR4d8e2_topology = modernize_topology(CR4d8e2_topology)
 
 
 # You can toggle this to run a REPL without sending command line arguments.

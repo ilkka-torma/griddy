@@ -21,7 +21,10 @@ class AffineAutomorphism:
     def __init__(self, dim=None, nodes=None, node_map=None, matrix=None, vectors=None):
         self.dim = dim
         if nodes is None:
-            self.nodes = list(node_map)
+            if node_map is not None:
+                self.nodes = list(node_map)
+            else:
+                self.nodes = sft.Nodes()
         else:
             self.nodes = nodes
         if node_map is None:
@@ -44,8 +47,8 @@ class AffineAutomorphism:
             self.matrix = numpy.identity(dim)
         else:
             self.matrix = numpy.asmatrix(matrix)
-        if numpy.linalg.det(self.matrix) != 1:
-            raise GriddyRuntimeError("Affine node automorphism needs matrix of determinant 1")
+        if abs(numpy.linalg.det(self.matrix)) != 1:
+            raise GriddyRuntimeError("Affine node automorphism needs matrix of determinant 1 or -1")
         self.inv_matrix = numpy.linalg.inv(self.matrix).astype(int)
         if vectors is None:
             self.vectors = {node : numpy.zeros((dim, 1)) for node in self.nodes}
@@ -57,16 +60,17 @@ class AffineAutomorphism:
 
     def __call__(self, arg, inv=False):
         "Apply the automorphism to a value, whose type is inferred at runtime."
-        if type(arg) == tuple and len(arg) == 2:
+        #print("call", arg)
+        if type(arg) == tuple and len(arg) in [2,3]:
             # node vector
-            vec, node = arg
+            vec, node = arg[:2]
             if inv:
                 new_node = self.inv_node_map[node]
                 new_vec = numpy.matvec(self.inv_matrix, vec - self.vectors[new_node])
-                return (tuple(int(x) for x in new_vec.flat), new_node)
+                return (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
             else:
                 new_vec = numpy.matvec(self.matrix, vec) + self.vectors[node]
-                return (tuple(int(x) for x in new_vec.flat), self.node_map[node])
+                return (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
             circuit.transform(circ, lambda var: self(var, inv=not inv))
