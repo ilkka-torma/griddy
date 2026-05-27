@@ -110,6 +110,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts (vector cmd_polyomino_opts)* cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open_open
        | "transform" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_transform
        | ("affine_automorphism" | "aff_aut") cmd_aff_aut_opts STRICT_LABEL cmd_aff_aut_opts -> cmd_aff_aut
+       | "closure_under_autos" STRICT_LABEL STRICT_LABEL list_of{STRICT_LABEL} -> cmd_closure_autos_closed
+       | "closure_under_autos" STRICT_LABEL STRICT_LABEL STRICT_LABEL* -> cmd_closure_autos_open
 
 top_edge: LABEL vector~1..3
 
@@ -1077,6 +1079,13 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_transform(self, args):
         return self.cmd_default("transform", args)
+
+    def cmd_closure_autos_closed(self, args):
+        return self.cmd_default("closure_under_autos", args)
+
+    def cmd_closure_autos_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("closure_under_autos", args)
+        return (name, [pos_args[0], pos_args[1], pos_args[2:]], opts, flags)
 
     def cmd_aff_aut(self, args):
         return self.cmd_default("affine_automorphism", args)

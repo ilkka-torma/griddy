@@ -1510,8 +1510,26 @@ class Griddy:
                 try:
                     aut = self.automorphisms[aut_name]
                 except KeyError:
-                    raise GriddyRuntimeError("No automorphism named {}".format(arg_name))
+                    raise GriddyRuntimeError("No automorphism named {}".format(aut_name))
                 self.SFTs[name] = aut(the_sft)
+
+            elif cmd == "closure_under_autos":
+                name, arg_name, aut_names = args
+                try:
+                    the_sft = self.SFTs[arg_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No set named {}".format(arg_name))
+                if isinstance(aut_names, str):
+                    aut_names = [aut_names]
+                auts = []
+                for aut_name in aut_names:
+                    try:
+                        auts.append(self.automorphisms[aut_name])
+                    except KeyError:
+                        raise GriddyRuntimeError("No automorphism named {}".format(aut_name))
+                group = node_automorphism.AffineAutomorphism.generate_group(auts)
+                self.SFTs[name] = sft.intersection(*(aut(the_sft) for aut in group))
+                    
 
             elif cmd == "affine_automorphism":
                 name = args[0]
