@@ -1471,7 +1471,9 @@ class Griddy:
                 name = args[0]
                 rad = args[1]
                 if mode != "silent": print("Tiling %s-hypercube with SFT %s." % (rad, name))
+                tim = time.time()
                 succ = self.SFTs[name].tile_box(rad)
+                if mode != "silent": print("Done in {} seconds.".format(time.time()-tim))
                 assert succ
 
             elif cmd == "keep_tiling":
