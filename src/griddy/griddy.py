@@ -427,12 +427,7 @@ class Griddy:
                 #print("tile_conds", tile_conds)
                 anded = []
                 for conds in tile_conds.values():
-                    seen = conds[0]
-                    two = circuit.F
-                    for cond in conds[1:]:
-                        two = circuit.OR(two, circuit.AND(seen, cond))
-                        seen = circuit.OR(seen, cond)
-                    anded.append(circuit.AND(seen, circuit.NOT(two)))
+                    anded.append(circuit.ONE(*conds))
                 circ = circuit.AND(*anded)
                 #print("circ", circ)
                 # make the definitions
@@ -861,6 +856,8 @@ class Griddy:
                             if mode != "silent": print("on {}:".format(dict(fr_pat)))
                             for (vec, amount) in sorted(amounts.items()):
                                 if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
+                elif mode != "silent":
+                    print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:
                     if verb:
                         print("Saving final rules...", end='')
@@ -871,7 +868,8 @@ class Griddy:
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)
                     assert disc_arg.bound == expect
-                if mode != "silent": print("Calculation took", time.time() - tim, "seconds.")
+                if mode != "silent":
+                    print("Calculation took", time.time() - tim, "seconds.")
 
             elif cmd == "find_automatic_conf":
                 conf_name = args[0]
@@ -1470,10 +1468,11 @@ class Griddy:
             elif cmd == "tile_box":
                 name = args[0]
                 rad = args[1]
+                tim = time.time()
                 if mode != "silent": print("Tiling %s-hypercube with SFT %s." % (rad, name))
                 tim = time.time()
                 succ = self.SFTs[name].tile_box(rad)
-                if mode != "silent": print("Done in {} seconds.".format(time.time()-tim))
+                if mode != "silent": print("Done in {} seconds.".format(time.time() - tim))
                 assert succ
 
             elif cmd == "keep_tiling":

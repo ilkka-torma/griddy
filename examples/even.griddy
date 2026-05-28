@@ -18,9 +18,7 @@
 	(has_e_inverse o o.rt) &
 	o != 1
 	
-%CA put_ones
-1 Ao o != 0;
-0 Ao o = 0
+%CA put_ones o if o!=0 then 1 else 0
 
 %SFT fullshift Ao 0=0
 %product prod even_pre fullshift
