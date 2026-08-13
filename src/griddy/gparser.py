@@ -56,11 +56,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "set_weights" cmd_opts dict_pair_of{node_name, fraction} (cmd_opts dict_pair_of{node_name, fraction})* cmd_opts -> cmd_set_weights_open
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts -> cmd_density_bound_single_default
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{list_of{vector}} cmd_dlb_opts -> cmd_density_bound_multi_default
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts vector (cmd_opts vector)* /;/ cmd_dlb_opts vector (cmd_dlb_opts vector)* cmd_dlb_opts -> cmd_density_bound_single_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts (list_of{list_of{vector}} cmd_dlb_opts)+ -> cmd_density_bound_multi_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} (";" cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts)* -> cmd_density_bound_multi_open_open
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"? -> cmd_density_bound_single
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL ";"? (node_name ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"?)+ -> cmd_density_bound_multi
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
@@ -862,11 +859,46 @@ class GriddyTransformer(Transformer_NonRecursive):
         (name, pos_args, opts, flags) = self.cmd_default("minimum_density", args)
         return (name, [pos_args[0], pos_args[1:]], opts, flags)
 
-    def cmd_density_bound_single_default(self, args):
-        return self.cmd_default("density_lower_bound", args)
+    def cmd_density_bound_single(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label = pos_args.pop(0)
+        trans_nvecs = []
+        while pos_args:
+            arg = pos_args.pop(0)
+            if arg == ";":
+                break
+            else:
+                trans_nvecs.append(arg)
+        nhood_nvecs = pos_args
+        return (name, [label, {() : [(nvec, nhood_nvecs) for nvec in trans_nvecs]}], opts, flags)
 
-    def cmd_density_bound_multi_default(self, args):
-        return self.cmd_default("density_lower_bound", args)
+    def cmd_density_bound_multi(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label = pos_args.pop(0)
+        specs = dict()
+        arg = pos_args.pop(0)
+        while pos_args:
+            node_name = arg
+            trans_nvecs = []
+            while pos_args:
+                arg = pos_args.pop(0)
+                if arg == ";":
+                    break
+                else:
+                    trans_nvecs.append(arg)
+            nhood_nvecs = []
+            while pos_args:
+                arg = pos_args.pop(0)
+                if isinstance(arg[0], str):
+                    # we read a node name
+                    break
+                else:
+                    nhood_nvecs.append(arg)
+            if node_name not in specs:
+                specs[node_name] = []
+            for tr_nvec in trans_nvecs:
+                specs[node_name].append((tr_nvec, nhood_nvecs))
+        return (name, [label, specs], opts, flags)
 
     def cmd_density_bound_single_open(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)

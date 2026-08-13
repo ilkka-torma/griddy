@@ -217,16 +217,17 @@ class DischargingArgument:
         else:
             self.relevant_nodes = relevant_nodes
         self.radius = radius
+        # specs has type dict[node_name : [(nvec, [nvec])]]
         self.specs = specs
         if weights is None:
             self.weights = {a:int(a) for alph in sft.alph.values() for a in alph}
         else:
             self.weights = weights
         self.bound = None
-        # trans_rules will be a dict[frozenpattern : dict[vector : number]]
+        # trans_rules will be dict[node_name : dict[frozenpattern : dict[vector : number]]]
         self.trans_rules = None
-        self.bigpats = None
-        self.bigdomain = None
+        self.bigpats = {node : None for node in self.sft.nodes}
+        self.bigdomain = {node : None for node in self.sft.nodes}
         self.score = None
 
     def save_transfer_rules(self, filename):
@@ -298,36 +299,44 @@ class DischargingArgument:
                     self.trans_rules[fpat][vec] = num
 
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, bigpat=None, ret_big=False, rule_pairs=None):
+    def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None):
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
         compute_bigpats = False
         if bigpat is not None:
-           bigpats = [bigpat] 
-        elif self.bigpats is None:
+           bigpats = [bigpat]
+        elif self.bigpats[node] is None:
             compute_bigpats = True
-            self.bigdomain = set(nvsub(nvec, vec) for (vecs, domain) in self.specs for nvec in domain for vec in vecs+[(0,)*self.sft.dim]) | {((0,)*self.sft.dim, node) for node in self.sft.nodes}
-            bigpats = self.sft.all_patterns(self.bigdomain, extra_rad=self.radius)
-            self.bigpats = []
+            self.bigdomain[node] = {((0,)*self.sft.dim, node)}
+            for (source_node, node_specs) in self.specs.items():
+                for ((vec, target_node), domain) in node_specs:
+                    if source_node == node:
+                        self.bigdomain[node] |= set(domain)
+                    if target_node == node:
+                        self.bigdomain[node] |= set(nvsub(nvec, vec) for nvec in domain)
+            bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius)
+            self.bigpats[node] = []
         else:
-            bigpats = self.bigpats
+            bigpats = self.bigpats[node]
         if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
             for bigpat in bigpats:
                 surr = []
-                orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
-                for (vecs, domain) in self.specs:
-                    orig_pat = fd.frozendict({nvec : bigpat[nvec] for nvec in domain})
-                    for vec in vecs:
-                        # away from origin
-                        surr.append((orig_pat, vec, True))
-                        # toward origin
-                        surr.append((fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), vec, False))
+                orig_val = bigpat[((0,)*self.sft.dim, node)]
+                for (source_node, node_specs) in self.specs.items():
+                    for (tr_nvec, domain) in node_specs:
+                        if source_node == node:
+                            # send charge away from origin node
+                            surr.append((source_node, fd.frozendict({nvec : bigpat[nvec] for nvec in domain}), tr_nvec, True))
+                        (vec, target_node) = tr_nvec
+                        if target_node == node:
+                            # send charge to origin node
+                            surr.append((source_node, fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), tr_nvec, False))
                 if compute_bigpats:
-                    self.bigpats.append(bigpat)
+                    self.bigpats[node].append(bigpat)
                 if ret_big:
-                    yield (orig_nodes, surr, bigpat)
+                    yield (orig_val, surr, bigpat)
                 else:
-                    yield (orig_nodes, surr)
+                    yield (orig_val, surr)
         else:
             tree = rules_to_tree(self.sft.alph, self.bigdomain, rule_pairs)
             for bigpat in bigpats:
@@ -603,25 +612,19 @@ class DischargingArgument:
 
         if verbose:
             print("Computing pattern variables")
+        i = 0
         if self.trans_rules is None:
-            for (k, (vectors, domain)) in enumerate(self.specs):
-                patterns = set()
-                for pat in self.sft.all_patterns(domain, extra_rad=self.radius):
-                    patterns.add(fd.frozendict(pat))
-
-                # create variables for how much is discharged in each direction from each pattern
-                i = 0
-                for vec in vectors:
-                    for fr_pat in patterns:
-                        # assert p[(0,0)] == 1
-                        # send at most everything away
-                        send[fr_pat, vec] = pulp.LpVariable("patvec{},{}".format(k,i)) #, 0, 1)
-                        send[fr_pat, vec].setInitialValue(0)
+            for (node, node_specs) in self.specs.items():
+                for (tr_nvec, domain) in node_specs:
+                    for pat in self.sft.all_patterns(domain, extra_rad=self.radius):
+                        fr_pat = fd.frozendict(pat)
+                        send[node, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i))
+                        send[node, fr_pat, tr_nvec].setInitialValue(0)
                         i += 1
                         total_vars += 1
                         if verbose and total_vars%print_freq == 0:
                             print("{} found so far".format(total_vars))
-        else:
+        else: # TODO
             i = 0
             splits = 0
             for (fr_pat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
@@ -657,13 +660,14 @@ class DischargingArgument:
                         total_vars += 1
                         if verbose and total_vars%print_freq == 0:
                             print("{} found so far".format(total_vars))
-                        
-        specs = dict()
-        for (fpat, vec) in send:
-            if fpat not in specs:
-                specs[fpat] = []
-            specs[fpat].append(vec)
-        self.update_specs(specs, rules_only=True)
+
+        # TODO: update this
+        #specs = dict()
+        #for (fpat, vec) in send:
+        #    if fpat not in specs:
+        #        specs[fpat] = []
+        #    specs[fpat].append(vec)
+        #self.update_specs(specs, rules_only=True)
 
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
@@ -671,25 +675,26 @@ class DischargingArgument:
         constr_tim = time.time()
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings(rule_pairs=None if self.bound is None else send):
-            # for each legal combo, sum the contributions from each -v
-            summa = 0
-            #print("orig_pat", orig_pat)
-            for node in self.relevant_nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
-            for (pat, vec, away) in surr:
-                try:
-                    if away:
-                        summa -= send[pat, vec]
-                    else:
-                        summa += send[pat, vec]
-                except KeyError:
-                    pass
-
-            prob += summa >= density
-            i += 1
-            if verbose and i%print_freq == 0:
-                print("{} found so far".format(i))
+        for node in self.sft.nodes:
+            for (orig_val, surr) in self.surroundings(node, rule_pairs=None if self.bound is None else send):
+                # for each legal combo, sum the contributions from each -v
+                summa = 0
+                for (source, pat, nvec, away) in surr:
+                    try:
+                        if away:
+                            summa -= send[source, pat, nvec]
+                        else:
+                            summa += send[source, pat, nvec]
+                    except KeyError:
+                        pass
+                if node in self.relevant_nodes:
+                    summa += self.weights[orig_val]
+                    prob += summa >= density
+                else:
+                    prob += summa >= 0
+                i += 1
+                if verbose and i%print_freq == 0:
+                    print("{} found so far".format(i))
 
         if save_constr is not None:
             # save bigpats to file
@@ -721,16 +726,17 @@ class DischargingArgument:
             self.update_specs(rules_only=True)
             return False
 
-        self.trans_rules = dict()
-        for ((fr_pat, vec), var) in send.items():
+        self.trans_rules = {node : dict() for node in self.sft.nodes}
+        for ((source, fr_pat, nvec), var) in send.items():
             if var.varValue:
-                if fr_pat not in self.trans_rules:
-                    self.trans_rules[fr_pat] = dict()
-                self.trans_rules[fr_pat][vec] = var.varValue
+                if fr_pat not in self.trans_rules[source]:
+                    self.trans_rules[source][fr_pat] = dict()
+                self.trans_rules[source][fr_pat][nvec] = var.varValue
 
         if self.bound is None:
             self.bound = density.varValue
-        self.update_specs()
+        #self.update_specs()
+        #print("trans_rules", self.trans_rules)
         return True
 
     

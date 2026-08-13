@@ -125,7 +125,7 @@ class Griddy:
             if mode == "assert" or mode == "silent":
                 raise Exception("Parse error")
             return None
-        #print (parsed)
+        #print ("parsed", parsed)
         #a = bbb
         for parsed_line in parsed:
             cmd, args, kwds, flags = parsed_line
@@ -807,13 +807,12 @@ class Griddy:
                 specs = args[1]
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
-                if type(specs[0][0]) == tuple:
-                    # single spec
-                    specs = [specs]
-                specs = [(dirs, [self.process_nvec(nvec) for nvec in nhood])
-                         for [dirs, nhood] in specs]
+                specs = {node : [(self.process_nvec(tr_nvec),
+                                  [self.process_nvec(nvec) for nvec in nhood_nvecs])
+                                 for (tr_nvec, nhood_nvecs) in node_specs]
+                         for (node, node_specs) in specs.items()}
                 if add_singletons:
-                    # add all singletons to the specs
+                    # add all singletons to the specs [TODO: update]
                     spec_pairs = {(d, nvec)
                                   for (dirs, nvecs) in specs
                                   for d in dirs
@@ -824,7 +823,7 @@ class Griddy:
                 verb = "verbose" in flags
                 show_rules = "show_rules" in flags
                 if mode != "silent":
-                    print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
+                    print("Computing lower bound for density in {}".format(sft_name))
 
                 disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes)
                 if load_rules is None:
