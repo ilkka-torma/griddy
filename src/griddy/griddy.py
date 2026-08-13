@@ -778,6 +778,9 @@ class Griddy:
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
                 relevant_nodes = kwds.get("relevant_nodes", None)
+                symmetries = kwds.get("symmetries", [])
+                symmetries = [self.automorphisms[label] for label in symmetries]
+                symmetries = node_automorphism.AffineAutomorphism.generate_group(symmetries, dim=the_sft.dim, nodes=the_sft.nodes)
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
                 max_split_simp = kwds.get("max_split_simp", max_split)
@@ -825,7 +828,7 @@ class Griddy:
                 if mode != "silent":
                     print("Computing lower bound for density in {}".format(sft_name))
 
-                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes)
+                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes, symmetries=symmetries)
                 if load_rules is None:
                     disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
                 else:

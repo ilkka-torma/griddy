@@ -76,33 +76,35 @@ class AffineAutomorphism:
             vec, node = arg[:2]
             if inv:
                 new_node = self.inv_node_map[node]
-                new_vec = numpy.matvec(self.inv_matrix, vec - self.vectors[new_node])
-                return (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
+                new_vec = numpy.matvec(self.inv_matrix, vec - numpy.transpose(self.vectors[new_node]))
+                ret = (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
             else:
-                new_vec = numpy.matvec(self.matrix, vec) + self.vectors[node]
-                return (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
+                new_vec = numpy.matvec(self.matrix, vec) + numpy.transpose(self.vectors[node])
+                ret = (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
             circuit.transform(circ, lambda var: self(var))
-            return circ
+            ret = circ
         elif isinstance(arg, sft.SFT):
             # TODO: transform topology?
             if arg.onesided:
                 raise GriddyRuntimeError("Cannot transform SFT with onesided directions")
-            return sft.SFT(arg.dim, arg.nodes, arg.alph, arg.topology, arg.graph, circuit=self(arg.circuit))
+            ret = sft.SFT(arg.dim, arg.nodes, arg.alph, arg.topology, arg.graph, circuit=self(arg.circuit))
         elif isinstance(arg, sft.Clopen):
             # TODO: transform topology?
             if arg.onesided:
                 raise GriddyRuntimeError("Cannot transform clopen set with onesided directions")
-            return sft.Clopen(arg.dim, arg.nodes, arg.alph, arg.topology, arg.graph, circuit=self(arg.circuit))
+            ret = sft.Clopen(arg.dim, arg.nodes, arg.alph, arg.topology, arg.graph, circuit=self(arg.circuit))
         elif isinstance(arg, sft.CSIntersection):
             # TODO: transform topology?
             if arg.onesided:
                 raise GriddyRuntimeError("Cannot transform set with onesided directions")
-            return sft.CSIntersection(sft=self(arg.sft), clopen=self(arg.clopen))
+            ret = sft.CSIntersection(sft=self(arg.sft), clopen=self(arg.clopen))
         else:
             raise GriddyRuntimeError("Could not apply affine automorphism to {}".format(type(arg)))
         # TODO: add configurations and block maps
+        #print("ret", ret)
+        return ret
 
     def then(self, other):
         "Compose affine automorphisms."

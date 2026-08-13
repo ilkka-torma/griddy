@@ -1182,6 +1182,7 @@ class SFT:
         circuits.append(node_constraints(self.alph)(circuits))
 
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in domain for l in self.alph[nvec[1]].node_vars]):
+            #print("model", model)
             pat = dict()
             for nvec in domain:
                 node_alph = self.alph[nvec[1]]

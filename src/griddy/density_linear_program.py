@@ -9,6 +9,7 @@ import pulp
 import frozendict as fd
 import time
 from fractions import Fraction
+from node_automorphism import AffineAutomorphism
 import random
 from enum import Enum
 
@@ -210,7 +211,7 @@ class DischargingSimplifier:
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
-    def __init__(self, sft, specs, radius, weights=None, relevant_nodes=None):
+    def __init__(self, sft, specs, radius, weights=None, relevant_nodes=None, symmetries=None):
         self.sft = sft
         if relevant_nodes is None:
             self.relevant_nodes = list(sft.nodes)
@@ -223,6 +224,11 @@ class DischargingArgument:
             self.weights = {a:int(a) for alph in sft.alph.values() for a in alph}
         else:
             self.weights = weights
+        if symmetries is None:
+            self.symmetries = AffineAutomorphism.generate_group(dim=sft.dim,
+                                                                nodes=sft.nodes)
+        else:
+            self.symmetries = symmetries
         self.bound = None
         # trans_rules will be dict[node_name : dict[frozenpattern : dict[vector : number]]]
         self.trans_rules = None
@@ -310,16 +316,34 @@ class DischargingArgument:
             self.bigdomain[node] = {((0,)*self.sft.dim, node)}
             for (source_node, node_specs) in self.specs.items():
                 for ((vec, target_node), domain) in node_specs:
-                    if source_node == node:
-                        self.bigdomain[node] |= set(domain)
-                    if target_node == node:
-                        self.bigdomain[node] |= set(nvsub(nvec, vec) for nvec in domain)
+                    for aut in self.symmetries:
+                        #print("aut", aut)
+                        aut_domain = [aut(nvec) for nvec in domain]
+                        #print("domain", domain, "aut_domain", aut_domain)
+                        aut_vec = aut((vec, target_node))[0]
+                        if source_node == node:
+                            self.bigdomain[node] |= set(aut_domain)
+                        if target_node == node:
+                            self.bigdomain[node] |= set(nvsub(nvec, aut_vec)
+                                                        for nvec in aut_domain)
+            #print("bigdomain", self.bigdomain[node])
             bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius)
             self.bigpats[node] = []
         else:
             bigpats = self.bigpats[node]
         if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
             for bigpat in bigpats:
+                if compute_bigpats:
+                    found = False
+                    for aut in self.symmetries:
+                        aut_bigpat = {aut(nvec) : sym for (nvec, sym) in bigpat.items()}
+                        if aut_bigpat in self.bigpats[node]:
+                            found = True
+                            break
+                    if found:
+                        continue
+                    else:
+                        self.bigpats[node].append(bigpat)
                 surr = []
                 orig_val = bigpat[((0,)*self.sft.dim, node)]
                 for (source_node, node_specs) in self.specs.items():
@@ -331,8 +355,6 @@ class DischargingArgument:
                         if target_node == node:
                             # send charge to origin node
                             surr.append((source_node, fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), tr_nvec, False))
-                if compute_bigpats:
-                    self.bigpats[node].append(bigpat)
                 if ret_big:
                     yield (orig_val, surr, bigpat)
                 else:
@@ -617,13 +639,20 @@ class DischargingArgument:
             for (node, node_specs) in self.specs.items():
                 for (tr_nvec, domain) in node_specs:
                     for pat in self.sft.all_patterns(domain, extra_rad=self.radius):
-                        fr_pat = fd.frozendict(pat)
-                        send[node, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i))
-                        send[node, fr_pat, tr_nvec].setInitialValue(0)
-                        i += 1
-                        total_vars += 1
-                        if verbose and total_vars%print_freq == 0:
-                            print("{} found so far".format(total_vars))
+                        # check that a symmetric pattern does not already exist
+                        for aut in self.symmetries:
+                            aut_pat = fd.frozendict({aut(nvec) : sym
+                                                     for (nvec, sym) in pat.items()})
+                            if (node, aut_pat, aut(tr_nvec)) in send:
+                                break
+                        else:
+                            fr_pat = fd.frozendict(pat)
+                            send[node, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i))
+                            send[node, fr_pat, tr_nvec].setInitialValue(0)
+                            i += 1
+                            total_vars += 1
+                            if verbose and total_vars%print_freq == 0:
+                                print("{} found so far".format(total_vars))
         else: # TODO
             i = 0
             splits = 0
@@ -671,6 +700,10 @@ class DischargingArgument:
 
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
+            for ((s, p, d), v) in send.items():
+                print("when", p)
+                print("can send to", d)
+                print("var", v)
 
         constr_tim = time.time()
         # list all legal combinations of patterns around origin
@@ -680,13 +713,17 @@ class DischargingArgument:
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
-                    try:
-                        if away:
-                            summa -= send[source, pat, nvec]
-                        else:
-                            summa += send[source, pat, nvec]
-                    except KeyError:
-                        pass
+                    for aut in self.symmetries:
+                        aut_pat = fd.frozendict({aut(nvec) : sym for (nvec, sym) in pat.items()})
+                        aut_nvec = aut(nvec)
+                        try:
+                            if away:
+                                summa -= send[source, aut_pat, aut_nvec]
+                            else:
+                                summa += send[source, aut_pat, aut_nvec]
+                        except KeyError:
+                            continue
+                        break
                 if node in self.relevant_nodes:
                     summa += self.weights[orig_val]
                     prob += summa >= density
