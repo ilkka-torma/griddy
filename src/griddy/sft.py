@@ -1147,10 +1147,14 @@ class SFT:
             yield pat
     
     # domain is a collection of nodevectors
-    def all_patterns(self, domain, existing=None, extra_rad=0):
+    # if mod_symmetries are given, only generate one pattern in each equivalence class
+    # mod_symmetries is assumed to be a finite group
+    def all_patterns(self, domain, existing=None, extra_rad=0, mod_symmetries=None):
 
         if existing is None:
             existing = dict()
+        if mod_symmetries is None:
+            mod_symmetries = [node_automorphism.AffineAutomorphism(dim=self.dim, nodes=self.nodes)]
 
         #print("domain", domain)
         
