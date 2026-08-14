@@ -51,9 +51,13 @@ class AffineAutomorphism:
             raise GriddyRuntimeError("Affine node automorphism needs matrix of determinant 1 or -1")
         self.inv_matrix = numpy.linalg.inv(self.matrix).astype(int)
         if vectors is None:
-            self.vectors = {node : numpy.zeros((dim, 1)) for node in self.nodes}
+            self.vectors = {node : numpy.zeros((1, dim)) for node in self.nodes}
         else:
-            self.vectors = {node : numpy.array(vec) for (node, vec) in vectors.items()}
+            self.vectors = {node :
+                            numpy.asmatrix([[i] for i in vec])
+                            if type(vec) == tuple
+                            else vec
+                            for (node, vec) in vectors.items()}
 
     def __repr__(self):
         return "AffineAutomorphism(node_map={}, matrix={}, vectors={})".format(self.node_map, self.matrix, self.vectors)
@@ -74,12 +78,13 @@ class AffineAutomorphism:
         if type(arg) == tuple and len(arg) in [2,3]:
             # node vector
             vec, node = arg[:2]
+            vecmat = numpy.asmatrix([[i] for i in vec])
             if inv:
                 new_node = self.inv_node_map[node]
-                new_vec = numpy.matvec(self.inv_matrix, vec - numpy.transpose(self.vectors[new_node]))
+                new_vec = self.inv_matrix * (vecmat - self.vectors[new_node])
                 ret = (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
             else:
-                new_vec = numpy.matvec(self.matrix, vec) + numpy.transpose(self.vectors[node])
+                new_vec = self.matrix * vecmat + self.vectors[node]
                 ret = (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()

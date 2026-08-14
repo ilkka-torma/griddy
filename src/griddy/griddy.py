@@ -808,12 +808,14 @@ class Griddy:
                 minimize_all = "minimize_all" in flags
                 solver = kwds.get("solver", "CBC")
                 specs = args[1]
+                #print("specs", specs)
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
                 specs = {node : [(self.process_nvec(tr_nvec),
                                   [self.process_nvec(nvec) for nvec in nhood_nvecs])
                                  for (tr_nvec, nhood_nvecs) in node_specs]
                          for (node, node_specs) in specs.items()}
+                #print("specs", specs)
                 if add_singletons:
                     # add all singletons to the specs [TODO: update]
                     spec_pairs = {(d, nvec)
