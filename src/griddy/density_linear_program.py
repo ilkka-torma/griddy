@@ -308,6 +308,7 @@ class DischargingArgument:
     def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None):
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
+        # TODO: aut can change the nodes!
         compute_bigpats = False
         if bigpat is not None:
            bigpats = [bigpat]
@@ -344,17 +345,22 @@ class DischargingArgument:
                         continue
                     else:
                         self.bigpats[node].append(bigpat)
-                surr = []
+                surr = set()
+                #print("found bigpat", bigpat)
                 orig_val = bigpat[((0,)*self.sft.dim, node)]
                 for (source_node, node_specs) in self.specs.items():
                     for (tr_nvec, domain) in node_specs:
-                        if source_node == node:
-                            # send charge away from origin node
-                            surr.append((source_node, fd.frozendict({nvec : bigpat[nvec] for nvec in domain}), tr_nvec, True))
-                        (vec, target_node) = tr_nvec
-                        if target_node == node:
-                            # send charge to origin node
-                            surr.append((source_node, fd.frozendict({nvec : bigpat[nvsub(nvec, vec)] for nvec in domain}), tr_nvec, False))
+                        for aut in self.symmetries:
+                            aut_source = aut(((0,)*self.sft.dim, source_node))[1]
+                            aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
+                            aut_domain = {aut(nvec) for nvec in domain}
+                            if aut_source == node:
+                                # send charge away from origin node
+                                surr.add((node, fd.frozendict({nvec : bigpat[nvec] for nvec in aut_domain}), aut_trnvec, True))
+                            (vec, target_node) = tr_nvec
+                            if aut_target == node:
+                                # send charge to origin node
+                                surr.add((aut_source, fd.frozendict({nvec : bigpat[nvsub(nvec, aut_trvec)] for nvec in aut_domain}), aut_trnvec, False))
                 if ret_big:
                     yield (orig_val, surr, bigpat)
                 else:
@@ -700,10 +706,10 @@ class DischargingArgument:
 
         if verbose:
             print("Done with {} variables, now adding constraints".format(total_vars))
-            for ((s, p, d), v) in send.items():
-                print("when", p)
-                print("can send to", d)
-                print("var", v)
+            #for ((s, p, d), v) in send.items():
+            #    print("when", p)
+            #    print("can send to", d)
+            #    print("var", v)
 
         constr_tim = time.time()
         # list all legal combinations of patterns around origin
@@ -727,6 +733,7 @@ class DischargingArgument:
                 if node in self.relevant_nodes:
                     summa += self.weights[orig_val]
                     prob += summa >= density
+                    #print("adding", summa >= density)
                 else:
                     prob += summa >= 0
                 i += 1
@@ -746,6 +753,7 @@ class DischargingArgument:
 
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
+        #print("prob", prob)
         tim = time.time()
         solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
