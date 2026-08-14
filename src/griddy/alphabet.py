@@ -31,7 +31,7 @@ def node_constraints(alphabets):
 class Alphabet:
     "A finite alphabet plus a method of encoding it into circuits."
 
-    def __init__(self, symbols, node_vars, model_to_sym, node_constraint, node_eq_sym, node_eq_node, sym_to_num, operations=None, encoding = None):
+    def __init__(self, symbols, node_vars, model_to_sym, node_constraint, node_eq_sym, node_eq_node, node_leq_node, sym_to_num, operations=None, encoding = None):
         """
         A finite alphabet.
         * symbols is a list of its elements (they have a default order).
@@ -45,6 +45,8 @@ class Alphabet:
           a symbol of the alphabet, and returns a circuit constraining them to represent the symbol.
         * node_eq_node is a function that takes two lists of circuits and returns a circuit
           constraining them to represent the same variable.
+        * node_leq_node is a function that takes two lists of circuits and returns a circuit
+          constraining them to be in nondescending order.
         * sym_to_num takes a symbol and returns a number or None
         * operations is a dict of supported binary operations, given as
           string : (func(sym, sym -> sym), None or func([circ], [circ] -> [circ])).
@@ -69,6 +71,7 @@ class Alphabet:
         self.node_constraint = node_constraint
         self.node_eq_sym = node_eq_sym
         self.node_eq_node = node_eq_node
+        self.node_leq_node = node_leq_node
         self.sym_to_num = sym_to_num
         self.encoding = encoding
 
@@ -172,13 +175,21 @@ class Alphabet:
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
+        def n_leq_n(circs1, circs2):
+            zeros = True
+            is_leq = False
+            for (circ1, circ2) in zip(circs1, circs2):
+                is_leq = OR(isleq, AND(zeros, circ1))
+                zeros = AND(zeros, NOT(circ1), NOT(circ2))
+            return is_leq
+
         def s_to_num(sym):
             if is_nat(sym):
                 return int(sym)
             else:
                 return None
                           
-        return self(syms, labels, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="test", **kwds)
+        return self(syms, labels, m_to_s, exactly_one, n_eq_s, n_eq_n, n_leq_n, s_to_num, encoding="test", **kwds)
 
     @classmethod
     def unary(self, syms, **kwds):
@@ -201,13 +212,21 @@ class Alphabet:
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
+        def n_leq_n(circs1, circs2):
+            zeros = True
+            is_leq = False
+            for (circ1, circ2) in zip(circs1, circs2):
+                is_leq = OR(isleq, AND(zeros, circ1))
+                zeros = AND(zeros, NOT(circ1), NOT(circ2))
+            return is_leq
+
         def s_to_num(sym):
             if is_nat(sym):
                 return int(sym)
             else:
                 return None
                           
-        return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, s_to_num, encoding="unary", **kwds)
+        return self(syms, syms, m_to_s, exactly_one, n_eq_s, n_eq_n, n_leq_n, s_to_num, encoding="unary", **kwds)
 
     @classmethod
     def unary_Z(self, m, **kwds):
@@ -277,13 +296,23 @@ class Alphabet:
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
+        def n_leq_n(circs1, circs2):
+            zeros1 = True
+            zeros2 = True
+            is_leq = False
+            for (circ1, circ2) in zip(circs1, circs2):
+                is_leq = OR(isleq, AND(zeros1, zeros2, circ1))
+                zeros1 = AND(zeros1, NOT(circ1))
+                zeros2 = AND(zeros2, NOT(circ2))
+            return OR(zeros1, AND(is_leq, NOT(zeros2)))
+
         def s_to_num(sym):
             if is_nat(sym):
                 return int(sym)
             else:
                 return None
                           
-        return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, s_to_num, encoding="unary_minus_one", **kwds)
+        return self(syms, syms[1:], m_to_s, at_most_one, n_eq_s, n_eq_n, n_leq_n, s_to_num, encoding="unary_minus_one", **kwds)
 
     @classmethod
     def tally(self, syms, **kwds):
@@ -316,13 +345,16 @@ class Alphabet:
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
+        def n_leq_n(circs1, circs2):
+            return AND(*(IMP(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
+
         def s_to_num(sym):
             if is_nat(sym):
                 return int(sym)
             else:
                 return None
                           
-        return self(syms, syms[1:], m_to_s, contiguous, n_eq_s, n_eq_n, s_to_num, encoding="tally", **kwds)
+        return self(syms, syms[1:], m_to_s, contiguous, n_eq_s, n_eq_n, n_leq_n, s_to_num, encoding="tally", **kwds)
 
     @classmethod
     def binary(self, syms, **kwds):
@@ -373,13 +405,22 @@ class Alphabet:
         def n_eq_n(circs1, circs2):
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
+        def n_leq_n(circs1, circs2):
+            # lexicographical order
+            same = True
+            is_lt = False
+            for (circ1, circ2) in zip(circs1, circs2):
+                is_lt = OR(is_lt, AND(same, NOT(circ1), circ2))
+                same = AND(same, IFF(circ1, circ2))
+            return OR(same, is_lt)
+
         def s_to_num(sym):
             if is_nat(sym):
                 return int(sym)
             else:
                 return None
                           
-        return self(syms, vrs, m_to_s, codes_something, n_eq_s, n_eq_n, s_to_num, encoding="binary", **kwds)
+        return self(syms, vrs, m_to_s, codes_something, n_eq_s, n_eq_n, n_leq_n, s_to_num, encoding="binary", **kwds)
 
 
 
