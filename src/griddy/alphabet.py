@@ -1,5 +1,5 @@
 import math
-from circuit import Circuit, AND, OR, NOT, T, F, IFF, V, SAT
+from circuit import Circuit, AND, OR, NOT, T, F, IFF, IMP, V, SAT
 from functools import partial
 
 # Does this string represent a number?
@@ -176,8 +176,8 @@ class Alphabet:
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
         def n_leq_n(circs1, circs2):
-            zeros = True
-            is_leq = False
+            zeros = T
+            is_leq = F
             for (circ1, circ2) in zip(circs1, circs2):
                 is_leq = OR(isleq, AND(zeros, circ1))
                 zeros = AND(zeros, NOT(circ1), NOT(circ2))
@@ -213,10 +213,10 @@ class Alphabet:
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
         def n_leq_n(circs1, circs2):
-            zeros = True
-            is_leq = False
+            zeros = T
+            is_leq = F
             for (circ1, circ2) in zip(circs1, circs2):
-                is_leq = OR(isleq, AND(zeros, circ1))
+                is_leq = OR(is_leq, AND(zeros, circ1))
                 zeros = AND(zeros, NOT(circ1), NOT(circ2))
             return is_leq
 
@@ -297,9 +297,9 @@ class Alphabet:
             return AND(*(IFF(circ1, circ2) for (circ1, circ2) in zip(circs1, circs2)))
 
         def n_leq_n(circs1, circs2):
-            zeros1 = True
-            zeros2 = True
-            is_leq = False
+            zeros1 = T
+            zeros2 = T
+            is_leq = F
             for (circ1, circ2) in zip(circs1, circs2):
                 is_leq = OR(isleq, AND(zeros1, zeros2, circ1))
                 zeros1 = AND(zeros1, NOT(circ1))
@@ -407,8 +407,8 @@ class Alphabet:
 
         def n_leq_n(circs1, circs2):
             # lexicographical order
-            same = True
-            is_lt = False
+            same = T
+            is_lt = F
             for (circ1, circ2) in zip(circs1, circs2):
                 is_lt = OR(is_lt, AND(same, NOT(circ1), circ2))
                 same = AND(same, IFF(circ1, circ2))

@@ -58,6 +58,10 @@ class AffineAutomorphism:
                             if type(vec) == tuple
                             else vec
                             for (node, vec) in vectors.items()}
+        self._hash = hash((tuple(self.matrix.flat), tuple((node, tuple(vec.flat)) for (node, vec) in self.vectors.items()), tuple(self.node_map.items())))
+
+    def __hash__(self):
+        return self._hash
 
     def __repr__(self):
         return "AffineAutomorphism(node_map={}, matrix={}, vectors={})".format(self.node_map, self.matrix, self.vectors)
@@ -120,6 +124,24 @@ class AffineAutomorphism:
                         for (node, img_node) in self.node_map.items()}
         return AffineAutomorphism(node_map=comp_node_map, matrix=comp_matrix, vectors=comp_vectors)
 
+    def shift_to_map(self, source, target=None):
+        """
+            Compose with a translation to map source nvec to target nvec.
+            Missing target means target=source.
+            Return a new automorphism, or None if not possible.
+        """
+        if target is None:
+            target = source
+        img_vec, img_node = self(source)
+        if img_node != target[1]:
+            return None
+        tr_vec = numpy.asmatrix([[i] for i in vsub(target[0], img_vec)])
+        new_vecs = {node : vec + tr_vec for (node, vec) in self.vectors.items()}
+        ret = AffineAutomorphism(
+            dim=self.dim, nodes=self.nodes, node_map=self.node_map, matrix=self.matrix,
+            vectors=new_vecs)
+        assert ret(source) == target
+        return ret
 
     @classmethod
     def generate_group(self, generators, dim=None, nodes=None):

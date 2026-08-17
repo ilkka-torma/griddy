@@ -3,6 +3,7 @@ from circuit import *
 from configuration import *
 from itertools import chain
 from alphabet import node_constraints
+from node_automorphism import AffineAutomorphism
 import automatic_conf
 import graphs
 
@@ -1153,8 +1154,15 @@ class SFT:
 
         if existing is None:
             existing = dict()
+        id_sym = AffineAutomorphism(dim=self.dim, nodes=self.nodes)
         if mod_symmetries is None:
-            mod_symmetries = [node_automorphism.AffineAutomorphism(dim=self.dim, nodes=self.nodes)]
+            mod_symmetries = [id_sym]
+        domain = list(domain)
+        nontriv_symmetries = []
+        for aut in mod_symmetries:
+            if aut != id_sym and set(domain) == {aut(nvec) for nvec in domain} and aut not in nontriv_symmetries:
+                nontriv_symmetries.append(aut)
+            
 
         #print("domain", domain)
         
@@ -1182,6 +1190,24 @@ class SFT:
         #print("kapa")
         #for c in circuits:
         #    print (c.get_variables())
+
+        # add constraints that pick the lex minimal pattern from each orbit
+        same_so_far = [T for _ in nontriv_symmetries]
+        greater = [F for _ in nontriv_symmetries]
+        for nvec in domain:
+            node_alph = self.alph[nvec[1]]
+            nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+            new_same = []
+            new_gt = []
+            for (aut, same, greater) in zip(nontriv_symmetries, same_so_far, greater):
+                img = aut(nvec)
+                # img must have the same alphabet since we have an automorphism
+                img_nvars = [V(img+(l,)) for l in node_alph.node_vars]
+                new_gt.append(OR(greater, AND(same, NOT(node_alph.node_leq_node(nvars, img_nvars)))))
+                new_same.append(AND(same, node_alph.node_eq_node(nvars, img_nvars)))
+            same_so_far = new_same
+            greater = new_gt
+        circuits.append(AND(*(NOT(gt) for gt in greater)))
 
         circuits.append(node_constraints(self.alph)(circuits))
 

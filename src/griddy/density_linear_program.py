@@ -218,8 +218,6 @@ class DischargingArgument:
         else:
             self.relevant_nodes = relevant_nodes
         self.radius = radius
-        # specs has type dict[node_name : [(nvec, [nvec])]]
-        self.specs = specs
         #print("specs", specs)
         if weights is None:
             self.weights = {a:int(a) for alph in sft.alph.values() for a in alph}
@@ -230,6 +228,42 @@ class DischargingArgument:
                                                                 nodes=sft.nodes)
         else:
             self.symmetries = symmetries
+        # compute one node from each symmetry orbit
+        # also check that no orbit contains both relevant and irrelevant nodes
+        self.sym_nodes = dict()
+        for node in self.sft.nodes:
+            for aut in self.symmetries:
+                img_node = aut(((0,)*self.sft.dim, node))[1]
+                if (node in self.relevant_nodes) != (img_node in self.relevant_nodes):
+                    n1, n2 = sorted([node, img_node],
+                                    key=lambda n: n in self.relevant_nodes)
+                    raise GriddyRuntimeError("Irrelevant node {} in symmetry orbit of relevant node {}".format(n1, n2))
+                if img_node in self.sym_nodes:
+                    break
+            else:
+                self.sym_nodes[node] = set()
+                # filter and translate symmetries to fix this node at origin
+                for aut in self.symmetries:
+                    new_aut = aut.shift_to_map(((0,)*self.sft.dim, node))
+                    if new_aut is not None:
+                        self.sym_nodes[node].add(new_aut)
+        
+        # specs has type dict[node_name : [(nvec, [nvec])]]
+        # normalize the specs so that the nodes are in sym_nodes
+        self.specs = dict()
+        for (node, node_spec) in specs.items():
+            for aut in self.symmetries:
+                img_node = aut.node_map[node]
+                if img_node not in self.sym_nodes:
+                    continue
+                new_aut = aut.shift_to_map(((0,)*self.sft.dim, node),
+                                           ((0,)*self.sft.dim, img_node))
+                self.specs[img_node] = [
+                    (new_aut(tr_nvec), [new_aut(nvec) for nvec in domain])
+                    for (tr_nvec, domain) in node_spec
+                ]
+                break
+                
         self.bound = None
         # trans_rules will be dict[node_name : dict[frozenpattern : dict[vector : number]]]
         self.trans_rules = None
@@ -307,9 +341,9 @@ class DischargingArgument:
 
     # enumerate combined locally correct patterns that affect origin
     def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None):
+        assert node in self.sym_nodes
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
-        # TODO: handle all nodes in surroundings to avoid duplication
         compute_bigpats = False
         if bigpat is not None:
            bigpats = [bigpat]
@@ -318,58 +352,61 @@ class DischargingArgument:
             self.bigdomain[node] = {((0,)*self.sft.dim, node)}
             for (source_node, node_specs) in self.specs.items():
                 for ((vec, target_node), domain) in node_specs:
-                    for aut in self.symmetries:
+                    for aut in self.sym_nodes[source_node]:
                         #print("aut", aut)
-                        aut_orig_vec, aut_source = aut(((0,)*self.sft.dim, source_node))
-                        aut_domain = [nvsub(aut(nvec), aut_orig_vec) for nvec in domain]
+                        aut_domain = [aut(nvec) for nvec in domain]
                         #print("domain", domain, "aut_domain", aut_domain)
-                        aut_vec, aut_target = nvsub(aut((vec, target_node)), aut_orig_vec)
-                        if aut_source == node:
+                        aut_vec, aut_target = aut((vec, target_node))
+                        if source_node == node:
                             self.bigdomain[node] |= set(aut_domain)
                         if aut_target == node:
                             self.bigdomain[node] |= set(nvsub(nvec, aut_vec)
                                                         for nvec in aut_domain)
-            #print("bigdomain size", len(self.bigdomain[node]))
-            bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius)
+            #print("bigdomain", self.bigdomain[node])
+            # only compute one pattern from each symmetry orbit
+            bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node])
             self.bigpats[node] = []
         else:
             bigpats = self.bigpats[node]
         if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
             for bigpat in bigpats:
+                #print("got bigpat", bigpat)
                 if compute_bigpats:
-                    found = False
-                    for aut in self.symmetries:
-                        (aut_orig_vec, aut_node) = aut(((0,)*self.sft.dim, node))
-                        if aut_node == node:
-                            aut_bigpat = {nvsub(aut(nvec), aut_orig_vec) : sym
-                                          for (nvec, sym) in bigpat.items()}
-                            if aut_bigpat in self.bigpats[node]:
-                                found = True
-                                break
-                    if found:
-                        continue
-                    else:
-                        self.bigpats[node].append(bigpat)
-                surr = set()
-                #print("found bigpat", bigpat)
+                    #found = False
+                    #for aut in self.symmetries:
+                    #    (aut_orig_vec, aut_node) = aut(((0,)*self.sft.dim, node))
+                    #    if aut_node == node:
+                    #        aut_bigpat = {nvsub(aut(nvec), aut_orig_vec) : sym
+                    #                      for (nvec, sym) in bigpat.items()}
+                    #        if aut_bigpat in self.bigpats[node]:
+                    #            found = True
+                    #            break
+                    #if found:
+                    #    continue
+                    #else:
+                    self.bigpats[node].append(bigpat)
+                surr = []
+                #print("accepted bigpat", bigpat)
                 orig_val = bigpat[((0,)*self.sft.dim, node)]
                 for (source_node, node_specs) in self.specs.items():
                     for (tr_nvec, domain) in node_specs:
                         #print("transition", source_node, tr_nvec, domain)
+                        # here we must consider all symmetries to find transitions
+                        # but we return the original, untransformed patterns
                         for aut in self.symmetries:
                             (aut_orig_vec, aut_source) = aut(((0,)*self.sft.dim, source_node))
                             #print("aut source", aut_orig_vec, aut_source)
                             aut_trnvec = (aut_trvec, aut_target) = nvsub(aut(tr_nvec), aut_orig_vec)
                             #print("aut target", aut_trvec, aut_target)
-                            aut_domain = {nvsub(aut(nvec), aut_orig_vec) for nvec in domain}
+                            aut_domain = {nvsub(aut(nvec), aut_orig_vec) : nvec for nvec in domain}
                             #print("aut domain", aut_domain)
                             if aut_source == node:
                                 # send charge away from origin node
-                                surr.add((node, fd.frozendict({nvec : bigpat[nvec] for nvec in aut_domain}), aut_trnvec, True))
+                                surr.append((source_node, fd.frozendict({nvec : bigpat[img_nvec] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, True))
                             (vec, target_node) = tr_nvec
                             if aut_target == node:
                                 # send charge to origin node
-                                surr.add((aut_source, fd.frozendict({nvec : bigpat[nvsub(nvec, aut_trvec)] for nvec in aut_domain}), aut_trnvec, False))
+                                surr.append((source_node, fd.frozendict({nvec : bigpat[nvsub(img_nvec, aut_trvec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, False))
                 #print("surr", orig_val, surr)
                 if ret_big:
                     yield (orig_val, surr, bigpat)
@@ -654,22 +691,14 @@ class DischargingArgument:
         if self.trans_rules is None:
             for (node, node_specs) in self.specs.items():
                 for (tr_nvec, domain) in node_specs:
-                    for pat in self.sft.all_patterns(domain, extra_rad=self.radius):
-                        # check that a symmetric pattern does not already exist
-                        for aut in self.symmetries:
-                            (aut_orig_vec, aut_orig_node) = aut(((0,)*self.sft.dim, node))
-                            aut_pat = fd.frozendict({nvsub(aut(nvec), aut_orig_vec) : sym
-                                                     for (nvec, sym) in pat.items()})
-                            if (aut_orig_node, aut_pat, nvsub(aut(tr_nvec), aut_orig_vec)) in send:
-                                break
-                        else:
-                            fr_pat = fd.frozendict(pat)
-                            send[node, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i))
-                            send[node, fr_pat, tr_nvec].setInitialValue(0)
-                            i += 1
-                            total_vars += 1
-                            if verbose and total_vars%print_freq == 0:
-                                print("{} found so far".format(total_vars))
+                    for pat in self.sft.all_patterns(domain, extra_rad=self.radius, mod_symmetries=[aut for aut in self.sym_nodes[node] if aut(tr_nvec) == tr_nvec]):
+                        fr_pat = fd.frozendict(pat)
+                        send[node, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i))
+                        send[node, fr_pat, tr_nvec].setInitialValue(0)
+                        i += 1
+                        total_vars += 1
+                        if verbose and total_vars%print_freq == 0:
+                            print("{} found so far".format(total_vars))
         else: # TODO
             i = 0
             splits = 0
@@ -724,34 +753,20 @@ class DischargingArgument:
 
         constr_tim = time.time()
         # list all legal combinations of patterns around origin
-        # only handle one node from each equivalence class
-        repr_nodes = []
-        for node in self.sft.nodes:
-            for aut in self.symmetries:
-                img_node = aut(((0,)*self.sft.dim, node))[1]
-                if img_node in repr_nodes:
-                    break
-            else:
-                repr_nodes.append(node)
+        # only handle one node from each symmetry orbit
         i = 0
-        for node in repr_nodes:
+        for node in self.sym_nodes:
             for (orig_val, surr) in self.surroundings(node, rule_pairs=None if self.bound is None else send):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
-                    for aut in self.symmetries:
-                        aut_orig_vec, aut_source = aut(((0,)*self.sft.dim, source))
-                        aut_pat = fd.frozendict({nvsub(aut(nvec), aut_orig_vec) : sym
-                                                 for (nvec, sym) in pat.items()})
-                        aut_nvec = nvsub(aut(nvec), aut_orig_vec)
-                        try:
-                            if away:
-                                summa -= send[aut_source, aut_pat, aut_nvec]
-                            else:
-                                summa += send[aut_source, aut_pat, aut_nvec]
-                        except KeyError:
-                            continue
-                        break
+                    try:
+                        if away:
+                            summa -= send[source, pat, nvec]
+                        else:
+                            summa += send[source, pat, nvec]
+                    except KeyError:
+                        continue
                 if node in self.relevant_nodes:
                     summa += self.weights[orig_val]
                     prob += summa >= density
