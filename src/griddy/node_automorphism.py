@@ -60,6 +60,65 @@ class AffineAutomorphism:
                             for (node, vec) in vectors.items()}
         self._hash = hash((tuple(self.matrix.flat), tuple((node, tuple(vec.flat)) for (node, vec) in self.vectors.items()), tuple(self.node_map.items())))
 
+    @classmethod
+    def from_examples(self, examples, nodes=None):
+        "Produce a node automorphism from finitely many examples."
+        # deduce node map
+        seen_nodes = set(nvec[1] for pair in examples.items() for nvec in pair)
+        if nodes is None:
+            nodes = list(seen_nodes)
+        else:
+            nodes = list(nodes)
+        node_map = {nvec[1] : img[1] for (nvec, img) in examples.items()}
+        missing_node = None
+        missing_img = None
+        for node in seen_nodes:
+            if node not in node_map:
+                missing_node = node
+            if node not in node_map.values():
+                missing_img = node
+        if missing_node is not None:
+            node_map[missing_node] = missing_img
+        for node in nodes:
+            if node not in node_map:
+                node_map[node] = node
+
+        # deduce matrix and vectors by solving a system of linear equations
+        dim = len(list(examples)[0][0])
+        examples = list(examples.items())
+        coeff_matrix = []
+        res_vector = []
+        for ((vec, node), (img_vec, _)) in examples:
+            for j in range(dim):
+                coeff_matrix.append(
+                    [(i==j)*vec[k] for i in range(dim) for k in range(dim)] +\
+                    [(i==j)*int(n==node) for n in nodes for i in range(dim)])
+                res_vector.append(img_vec[j])
+        if len(coeff_matrix) < len(coeff_matrix[0]):
+            raise GriddyRuntimeError("Could not deduce affine automorphism: underdetermined")
+        #print("dim", dim, "nodes", nodes, "matrix", coeff_matrix, "vec", res_vector)
+        try:
+            res = numpy.linalg.lstsq(numpy.array(coeff_matrix), numpy.array(res_vector))
+        except numpy.linalg.LinAlgError:
+            raise GriddyRuntimeError("Could not deduce affine automorphism: unsolvable")
+        res2 = []
+        for x in res[0]:
+            y = int(round(x))
+            if not (-0.000002 <= x-y <= 0.000002):
+                raise GriddyRuntimeError("Could not deduce affine automorphism: non-integer solution")
+            res2.append(y)
+        matrix = [res2[i*dim:(i+1)*dim]
+                  for i in range(dim)]
+        vectors = {node : tuple(res2[dim*dim+i*dim:dim*dim+(i+1)*dim])
+                   for (i, node) in enumerate(nodes)}
+        aut = self(dim=dim, nodes=nodes, matrix=matrix, vectors=vectors, node_map=node_map)
+
+        # check that aut agrees with examples
+        for (nvec, img) in examples:
+            if aut(nvec) != img:
+                raise GriddyRuntimeError("Could not deduce affine automorphism: invalid solution ({} -> {} != {})".format(nvec, aut(nvec), img))
+        return aut
+
     def __hash__(self):
         return self._hash
 
@@ -149,7 +208,8 @@ class AffineAutomorphism:
         if not generators:
             # trivial group
             return [AffineAutomorphism(dim=dim, nodes=nodes)]
-        frontier = group = list(generators)
+        frontier = list(generators)
+        group = list(frontier)
         while frontier:
             new_frontier = []
             for elem in frontier:

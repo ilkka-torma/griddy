@@ -57,7 +57,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
        | "density_lower_bound" cmd_dlb_opts STRICT_LABEL (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"? -> cmd_density_bound_single
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL ";"? (node_name ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"?)+ -> cmd_density_bound_multi
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts ";"? (node_name ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"?)+ -> cmd_density_bound_multi
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
@@ -149,7 +149,8 @@ cmd_polyomino_opts: ( /null/ "=" LABEL
                     | /encoding/ "=" LABEL )*
 cmd_aff_aut_opts: ( /matrix/ "=" list_of{list_of{NAT}}
                   | /node_map/ "=" dict_of{node_name, node_name}
-                  | /shift/ "=" (dict_of{node_name, vector} | vector) )*
+                  | /shift/ "=" (dict_of{node_name, vector} | vector)
+                  | /examples/ "=" dict_of{vector, vector} )*
               
 
 ### FORMULA GRAMMAR

@@ -1540,13 +1540,22 @@ class Griddy:
                 matrix = kwds.get("matrix", None)
                 node_map = kwds.get("node_map", None)
                 vectors = kwds.get("shift", None)
+                examples = kwds.get("examples", None)
                 if type(vectors) == tuple:
                     # single vector for unnamed node
                     vectors = {node : vectors for node in self.nodes}
-                self.automorphisms[name] = node_automorphism.AffineAutomorphism(dim=self.dim,
-                                                                                matrix=matrix,
-                                                                                node_map=node_map,
-                                                                                vectors=vectors)
+                if examples is not None:
+                    examples = {self.process_nvec(nvec) : self.process_nvec(img)
+                                for (nvec, img) in examples.items()}
+                    aut = node_automorphism.AffineAutomorphism.from_examples(examples, nodes=self.nodes)
+                    # TODO: check that aut aligns with other data if given
+                    self.automorphisms[name] = aut
+                else:
+                    self.automorphisms[name] = node_automorphism.AffineAutomorphism(
+                        dim=self.dim,
+                        matrix=matrix,
+                        node_map=node_map,
+                        vectors=vectors)
                 
                                         
             elif mode == "report":
