@@ -220,7 +220,7 @@ class DischargingArgument:
         self.radius = radius
         #print("specs", specs)
         if weights is None:
-            self.weights = {a:int(a) for alph in sft.alph.values() for a in alph}
+            self.weights = {a:int(a) for node in relevant_nodes for a in sft.alph[node]}
         else:
             self.weights = weights
         if symmetries is None:
@@ -342,6 +342,7 @@ class DischargingArgument:
     # enumerate combined locally correct patterns that affect origin
     def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None):
         assert node in self.sym_nodes
+        #print("node", node)
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
         compute_bigpats = False
@@ -362,7 +363,7 @@ class DischargingArgument:
                         if aut_target == node:
                             self.bigdomain[node] |= set(nvsub(nvec, aut_vec)
                                                         for nvec in aut_domain)
-            #print("bigdomain", self.bigdomain[node])
+            #print("bigdomain", list(sorted(self.bigdomain[node])))
             # only compute one pattern from each symmetry orbit
             bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node])
             self.bigpats[node] = []

@@ -279,6 +279,8 @@ class Alphabet:
             return syms[ix]
         
         def at_most_one(circs):
+            if not circs:
+                return T
             seen = circs[0]
             two = F
             for circ in circs[1:]:
@@ -326,6 +328,8 @@ class Alphabet:
 
         # 1^*0^* = locally testable, check 01 does not appear
         def contiguous(circs):
+            if not circs:
+                return T
             seen = circs[0]
             checks = []
             for i in range(len(circs)-1):
@@ -333,6 +337,8 @@ class Alphabet:
             return AND(*checks)
 
         def n_eq_s(circs, sym):
+            if not circs:
+                return T
             ix = syms.index(sym)
             if ix:
                 if ix == len(syms)-1: # for last symbol, we just check last pos
