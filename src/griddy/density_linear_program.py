@@ -153,6 +153,7 @@ class DischargingSimplifier:
         self.history.append((self.status, self.disc_arg.trans_rules, self.disc_arg.score))
         if verbose:
             print("Simplification step; number of rules now {} (total {})".format(self.disc_arg.score, sum(self.disc_arg.score)))
+        print("state", self.status)
 
         # Choose action based on internal state
         if self.status == SimplifierState.SIMPLIFY_PHASE1:
@@ -204,7 +205,7 @@ class DischargingSimplifier:
         elif self.status == SimplifierState.TRIM_FINAL:
             if verbose:
                 print("Trimming final rules")
-            self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
+            #self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
             self.status = SimplifierState.FINISHED
             
 
@@ -220,7 +221,9 @@ class DischargingArgument:
         self.radius = radius
         #print("specs", specs)
         if weights is None:
-            self.weights = {a:int(a) for node in relevant_nodes for a in sft.alph[node]}
+            self.weights = {a:int(a)
+                            for node in self.relevant_nodes
+                            for a in sft.alph[node]}
         else:
             self.weights = weights
         if symmetries is None:
@@ -267,8 +270,8 @@ class DischargingArgument:
         self.bound = None
         # trans_rules will be dict[node_name : dict[frozenpattern : dict[vector : number]]]
         self.trans_rules = None
-        self.bigpats = {node : None for node in self.sft.nodes}
-        self.bigdomain = {node : None for node in self.sft.nodes}
+        self.bigpats = {node : None for node in self.sym_nodes}
+        self.bigdomain = {node : None for node in self.sym_nodes}
         self.score = None
 
     def save_transfer_rules(self, filename):
@@ -339,8 +342,26 @@ class DischargingArgument:
                         num = float(numstr)
                     self.trans_rules[fpat][vec] = num
 
+    def bigdomain_from_spec(self, node):
+        "Compute bigdomain of node from spec."
+        bigdomain = {((0,)*self.sft.dim, node)}
+        for (source_node, node_specs) in self.specs.items():
+            for ((vec, target_node), domain) in node_specs:
+                # we need to consider all symmetries
+                for aut in self.symmetries:
+                    aut_orig_vec, aut_source = aut(((0,)*self.sft.dim, source_node))
+                    aut_domain = [aut(nvec) for nvec in domain]
+                    aut_vec, aut_target = aut((vec, target_node))
+                    if aut_source == node:
+                        bigdomain |= set(nvsub(nvec, aut_orig_vec)
+                                         for nvec in aut_domain)
+                    if aut_target == node:
+                        bigdomain |= set(nvsub(nvec, aut_vec)
+                                         for nvec in aut_domain)
+        return bigdomain
+
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None):
+    def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None, verbose=False):
         assert node in self.sym_nodes
         #print("node", node)
         #print("Spec len", len(self.specs))
@@ -350,28 +371,18 @@ class DischargingArgument:
            bigpats = [bigpat]
         elif self.bigpats[node] is None:
             compute_bigpats = True
-            self.bigdomain[node] = {((0,)*self.sft.dim, node)}
-            for (source_node, node_specs) in self.specs.items():
-                for ((vec, target_node), domain) in node_specs:
-                    for aut in self.sym_nodes[source_node]:
-                        #print("aut", aut)
-                        aut_domain = [aut(nvec) for nvec in domain]
-                        #print("domain", domain, "aut_domain", aut_domain)
-                        aut_vec, aut_target = aut((vec, target_node))
-                        if source_node == node:
-                            self.bigdomain[node] |= set(aut_domain)
-                        if aut_target == node:
-                            self.bigdomain[node] |= set(nvsub(nvec, aut_vec)
-                                                        for nvec in aut_domain)
-            #print("bigdomain", list(sorted(self.bigdomain[node])))
+            self.bigdomain[node] = self.bigdomain_from_spec(node)
+            if verbose:
+                print("Node {}: considering patterns of size {}".format(node, len(self.bigdomain[node])))
+                #print(self.bigdomain[node])
             # only compute one pattern from each symmetry orbit
             bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node])
             self.bigpats[node] = []
         else:
             bigpats = self.bigpats[node]
         if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
-            for bigpat in bigpats:
-                #print("got bigpat", bigpat)
+            for the_bigpat in bigpats:
+                #print("got bigpat", bigpat, len(bigpat), node)
                 if compute_bigpats:
                     #found = False
                     #for aut in self.symmetries:
@@ -385,32 +396,36 @@ class DischargingArgument:
                     #if found:
                     #    continue
                     #else:
-                    self.bigpats[node].append(bigpat)
+                    self.bigpats[node].append(the_bigpat)
                 surr = []
                 #print("accepted bigpat", bigpat)
-                orig_val = bigpat[((0,)*self.sft.dim, node)]
+                if node in self.relevant_nodes:
+                    orig_val = the_bigpat[((0,)*self.sft.dim, node)]
+                else:
+                    orig_val = None
                 for (source_node, node_specs) in self.specs.items():
                     for (tr_nvec, domain) in node_specs:
                         #print("transition", source_node, tr_nvec, domain)
                         # here we must consider all symmetries to find transitions
                         # but we return the original, untransformed patterns
                         for aut in self.symmetries:
+                            #print("aut", aut)
                             (aut_orig_vec, aut_source) = aut(((0,)*self.sft.dim, source_node))
                             #print("aut source", aut_orig_vec, aut_source)
-                            aut_trnvec = (aut_trvec, aut_target) = nvsub(aut(tr_nvec), aut_orig_vec)
+                            aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
                             #print("aut target", aut_trvec, aut_target)
-                            aut_domain = {nvsub(aut(nvec), aut_orig_vec) : nvec for nvec in domain}
+                            aut_domain = {aut(nvec) : nvec for nvec in domain}
                             #print("aut domain", aut_domain)
                             if aut_source == node:
                                 # send charge away from origin node
-                                surr.append((source_node, fd.frozendict({nvec : bigpat[img_nvec] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, True))
+                                surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_orig_vec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, True))
                             (vec, target_node) = tr_nvec
                             if aut_target == node:
                                 # send charge to origin node
-                                surr.append((source_node, fd.frozendict({nvec : bigpat[nvsub(img_nvec, aut_trvec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, False))
+                                surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_trvec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, False))
                 #print("surr", orig_val, surr)
                 if ret_big:
-                    yield (orig_val, surr, bigpat)
+                    yield (orig_val, surr, the_bigpat)
                 else:
                     yield (orig_val, surr)
         else:
@@ -440,7 +455,7 @@ class DischargingArgument:
                     yield (orig_nodes, surr)
     
 
-    def is_valid(self, bigpat=None, give_reason=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False):
         "Check that the argument is valid."
         bigpat_given = bigpat is not None
         if self.bound is None:
@@ -449,45 +464,54 @@ class DischargingArgument:
             else:
                 return True
         # list all legal combinations of patterns around origin
+        excess_pats = []
         i = 0
-        rule_pairs = [(fpat, vec) for (fpat, vecs) in self.trans_rules.items() for vec in vecs]
-        for (orig_nodes, surr, bigpat) in self.surroundings(ret_big=True, bigpat=bigpat, rule_pairs=rule_pairs):
-            # for each legal combo, sum the contributions from each -v
-            if isinstance(self.bound, Fraction):
-                summa = Fraction(0)
-                for node in self.relevant_nodes:
-                    summa += Fraction(self.weights[orig_nodes[node]]) / Fraction(len(self.relevant_nodes))
-            else:
-                summa = 0
-                for node in self.relevant_nodes:
-                    summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
-            for (pat, vec, away) in surr:
-                try:
-                    if away:
-                        summa -= self.trans_rules[pat][vec]
-                    else:
-                        summa += self.trans_rules[pat][vec]
-                except KeyError:
-                    # missing rules are treated as 0
-                    pass
-            if type(summa) == float:
-                # reduce floating point inaccuracies but possibly introduce false positives
-                summa += TOLERANCE
-            if summa < self.bound:
-                if give_reason:
-                    return False, (bigpat, orig_nodes,
-                                   [(pat, vec, away,
-                                     self.trans_rules[pat][vec]
-                                     if pat in self.trans_rules and vec in self.trans_rules[pat]
-                                     else None)
-                                    for (pat, vec, away) in surr],
-                                   summa,
-                                   self.bound)
+        for node in self.sym_nodes:
+            #rule_pairs = [(fpat, vec) for (fpat, vecs) in self.trans_rules.items() for vec in vecs]
+            for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat):#, rule_pairs=rule_pairs):
+                # for each legal combo, sum the contributions from each -v
+                if isinstance(self.bound, Fraction):
+                    summa = Fraction(0)
                 else:
-                    return False
+                    summa = 0
+                for (source, pat, nvec, away) in surr:
+                    try:
+                        if away:
+                            summa -= self.trans_rules[source][pat][nvec]
+                        else:
+                            summa += self.trans_rules[source][pat][nvec]
+                    except KeyError:
+                        # missing rules are treated as 0
+                        pass
+                if type(summa) == float:
+                    # reduce float inaccuracies but possibly introduce false positives
+                    summa += TOLERANCE
+                if node in self.relevant_nodes:
+                    good = summa + self.weights[orig_val] >= self.bound
+                    if summa + self.weights[orig_val] >= self.bound + TOLERANCE:
+                        excess_pats.append(the_bigpat)
+                else:
+                    good = summa >= 0
+                    if summa >= TOLERANCE:
+                        #print("excess", the_bigpat)
+                        excess_pats.append(the_bigpat)
+                if not good:
+                    if give_reason:
+                        return False, (the_bigpat, orig_nodes,
+                                       [(pat, vec, away,
+                                         self.trans_rules[pat][vec]
+                                         if pat in self.trans_rules and vec in self.trans_rules[pat]
+                                         else None)
+                                        for (pat, vec, away) in surr],
+                                       summa,
+                                       self.bound)
+                    elif ret_excess:
+                        return False, None
+                    else:
+                        return False
         if give_reason:
             if bigpat_given:
-                return True, (bigpat, orig_nodes,
+                return True, (the_bigpat, orig_nodes,
                               [(pat, vec, away,
                                 self.trans_rules[pat][vec]
                                 if pat in self.trans_rules and vec in self.trans_rules[pat]
@@ -497,6 +521,8 @@ class DischargingArgument:
                               self.bound)
             else:
                 return True, "valid"
+        elif ret_excess:
+            return True, excess_pats
         else:
             return True
 
@@ -556,34 +582,44 @@ class DischargingArgument:
         "Update specs, bigdomain and score to match the current or given transition rules."
         if trans_rules is None:
             trans_rules = self.trans_rules
-        domain_vecs = dict()
-        for (fpat, vecs) in trans_rules.items():
-            fset = frozenset(fpat)
-            if fset not in domain_vecs:
-                domain_vecs[fset] = set()
-            domain_vecs[fset] |= set(vecs)
-        self.specs = [(list(v),list(d)) for (d,v) in domain_vecs.items()]
+        domain_nvecs = dict()
+        max_card = 0
+        #print("old specs", self.specs)
+        for (node, rules) in trans_rules.items():
+            domain_nvecs[node] = dict()
+            for (fpat, nvecs) in rules.items():
+                fset = frozenset(fpat)
+                max_card = max(max_card, len(fset))
+                if fset not in domain_nvecs:
+                    domain_nvecs[node][fset] = set()
+                domain_nvecs[node][fset] |= set(nvecs)
+        self.specs = {node : [(v, list(d))
+                              for (d,vs) in nvecs.items()
+                              for v in vs]
+                      for (node, nvecs) in domain_nvecs.items()
+                      if nvecs}
         if self.score is None:
-            self.score = [0]*max((len(fpat) for fpat in trans_rules), default=0)
+            self.score = [0]*max_card
         else:
             self.score = [0]*len(self.score)
-        for (fpat, vecs) in trans_rules.items():
-            self.score[-len(fpat)] += len(vecs)
+        for (node, rules) in trans_rules.items():
+            for (fpat, nvecs) in rules.items():
+                self.score[-len(fpat)] += len(nvecs)
+        #print("score", self.score)
         if rules_only or self.bigpats is None:
             return
         #print("new specs", self.specs)
-        bigdomain = set(nvsub(nvec, vec)
-                        for (vecs, domain) in self.specs
-                        for nvec in domain
-                        for vec in vecs+[(0,)*self.sft.dim]) \
-                            | {((0,)*self.sft.dim, node)
-                               for node in self.sft.nodes}
+        bigdomain = dict()
+        for node in self.sym_nodes:
+            bigdomain[node] = self.bigdomain_from_spec(node)
+        #print("new bigdomain", bigdomain)
         if bigdomain != self.bigdomain:
-            #print("old bigdomain", self.bigdomain, "new", bigdomain)
+            #print("changing")
             self.bigdomain = bigdomain
-            self.bigpats = set(fd.frozendict({nvec : bigpat[nvec]
-                                              for nvec in bigdomain})
-                               for bigpat in self.bigpats)
+            self.bigpats = {node : set(fd.frozendict({nvec : bigpat[nvec]
+                                                      for nvec in bigdomain[node]})
+                                       for bigpat in pats)
+                            for (node, pats) in self.bigpats.items()}
 
     def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None, sort_rules=False):
         "Iteratively remove rules until each is essential, starting from the largest."
@@ -757,7 +793,7 @@ class DischargingArgument:
         # only handle one node from each symmetry orbit
         i = 0
         for node in self.sym_nodes:
-            for (orig_val, surr) in self.surroundings(node, rule_pairs=None if self.bound is None else send):
+            for (orig_val, surr) in self.surroundings(node, rule_pairs=None if self.bound is None else send, verbose=verbose):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -818,7 +854,7 @@ class DischargingArgument:
 
         if self.bound is None:
             self.bound = density.varValue
-        #self.update_specs()
+        self.update_specs()
         #print("trans_rules", self.trans_rules)
         return True
 
@@ -831,43 +867,47 @@ class DischargingArgument:
         
         total_vars = 0
         total_constr = 0
-        all_pairs = dict() # (fpat, vec) : True for large patterns, False for small
+        rule_triples = [(node, fpat, nvec)
+                        for (node, rules) in self.trans_rules.items()
+                        for (fpat, nvecs) in rules.items()
+                        for nvec in nvecs]
+        random.shuffle(rule_triples)
+        if sort_pats:
+            rule_triples.sort(key=lambda p: -len(p[1]))
         #print("num split", num_split)
 
         if verbose:
             print("Computing pattern variables")
         i = 0
         num_larges = 0
-        for (fpat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
-                                                 k=len(self.trans_rules)),
-                                   key=(lambda p:-len(p[0])) if sort_pats else (lambda _: 0)):
-            for vec in vecs:
-                #fpat = fd.frozendict(pat)
-                if (fpat, vec) not in all_pairs:
-                    i += 1
-                    if verbose and i%print_freq == 0:
-                        print("{} found so far".format(i))
-                if len(fpat) > 1 and (max_larges is None or num_larges < max_larges):
-                    #print("n")
-                    all_pairs[fpat, vec] = True
-                    num_larges += 1
-                    if num_split is None:
-                        split_nvecs = fpat
-                    elif ordered_split:
-                        split_nvecs = list(sorted(fpat))[:num_split]
-                    else:
-                        split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
-                    #print(split_nvecs)
-                    for nvec in split_nvecs:
-                        #print("k")
-                        new_fpat = fpat.delete(nvec)
-                        if (new_fpat, vec) not in all_pairs:
-                            all_pairs[new_fpat, vec] = minimize_all
-                            i += 1
-                            if verbose and i%print_freq == 0:
-                                print("{} found so far".format(i))
-                elif (fpat, vec) not in all_pairs:
-                    all_pairs[fpat, vec] = minimize_all
+        processed_triples = dict() # True for to-be minimized rules, False for others
+        for triple in rule_triples:
+            node, fpat, tr_nvec = triple
+            if triple not in processed_triples:
+                i += 1
+                if verbose and i%print_freq == 0:
+                    print("{} found so far".format(i))
+            if len(fpat) > 1 and (max_larges is None or num_larges < max_larges):
+                #print("n")
+                processed_triples[triple] = True
+                num_larges += 1
+                if num_split is None:
+                    split_nvecs = fpat
+                elif ordered_split:
+                    split_nvecs = list(sorted(fpat))[:num_split]
+                else:
+                    split_nvecs = random.sample(sorted(fpat), min(num_split, len(fpat)))
+                #print(split_nvecs)
+                for sp_nvec in split_nvecs:
+                    #print("k")
+                    new_fpat = fpat.delete(sp_nvec)
+                    if (node, new_fpat, tr_nvec) not in processed_triples:
+                        processed_triples[node, new_fpat, tr_nvec] = minimize_all
+                        i += 1
+                        if verbose and i%print_freq == 0:
+                            print("{} found so far".format(i))
+            elif triple not in processed_triples:
+                processed_triples[triple] = minimize_all
 
         #for (fpat, vecs) in self.trans_rules.items():
         #    if fpat not in all_pats:
@@ -883,12 +923,14 @@ class DischargingArgument:
         #           and all(vec in all_pats[fpat][0] for vec in vecs)
         #           for (fpat, vecs) in self.trans_rules.items())
 
-        specs = dict()
-        for (fpat, vec) in all_pairs:
-            if fpat not in specs:
-                specs[fpat] = []
-            specs[fpat].append(vec)
-        self.update_specs(specs, rules_only=True)
+        rules = dict()
+        for (node, fpat, nvec) in processed_triples:
+            if node not in rules:
+                rules[node] = dict()
+            if fpat not in rules[node]:
+                rules[node][fpat] = []
+            rules[node][fpat].append(nvec)
+        self.update_specs(trans_rules=rules, rules_only=True)
 
         send = dict()
         sum_large = 0
@@ -896,30 +938,30 @@ class DischargingArgument:
         i = 0
         i_large = 0
         i_small = 0
-        for ((fr_pat, vec), large) in all_pairs.items():
+        for ((node, fr_pat, tr_nvec), large) in processed_triples.items():
             # create variables for how much is discharged in each direction from each pattern
             # for large patterns we split into positive and negative parts
             if large:
                 for sign in [True, False]:
-                    send[fr_pat, vec, sign] = pulp.LpVariable("patvec{},{},{}".format(i,sign,large), lowBound=0)
-                    if vec in self.trans_rules.get(fr_pat, []):
-                        send[fr_pat, vec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[fr_pat][vec]))
+                    send[node, fr_pat, tr_nvec, sign] = pulp.LpVariable("patvec{}".format(i), lowBound=0)
+                    if tr_nvec in self.trans_rules[node].get(fr_pat, []):
+                        send[node, fr_pat, tr_nvec, sign].setInitialValue(max(0, (-1)**(1-sign)*self.trans_rules[node][fr_pat][tr_nvec]))
                     else:
-                        send[fr_pat, vec, sign].setInitialValue(0)
-                    sum_large += (len(fr_pat) + 1) * send[fr_pat, vec, sign]
+                        send[node, fr_pat, tr_nvec, sign].setInitialValue(0)
+                    sum_large += (len(fr_pat) + 1) * send[node, fr_pat, tr_nvec, sign]
                     i += 1
-                    i_large += 1
+                i_large += 1
             else:
-                send[fr_pat, vec, None] = pulp.LpVariable("patvec{},{},{}".format(i,None,large))
-                if fr_pat in self.trans_rules and vec in self.trans_rules[fr_pat]:
-                    send[fr_pat, vec, None].setInitialValue(self.trans_rules[fr_pat][vec])
+                send[node, fr_pat, tr_nvec, None] = pulp.LpVariable("patvec{}".format(i))
+                if fr_pat in self.trans_rules[node] and tr_nvec in self.trans_rules[node][fr_pat]:
+                    send[node, fr_pat, tr_nvec, None].setInitialValue(self.trans_rules[node][fr_pat][tr_nvec])
                 else:
-                    send[fr_pat, vec, None].setInitialValue(0)
+                    send[node, fr_pat, tr_nvec, None].setInitialValue(0)
                 i += 1
                 i_small += 1
 
         if verbose:
-            print("Done with {} variables ({} to be minimized, {} free), now adding constraints".format(i, i_large, i_small))
+            print("Done with {} variables (2*{} to be minimized, {} free), now adding constraints".format(i, i_large, i_small))
         constr_tim = time.time()
 
         # we minimize the sum of the absolute values of the charges sent by large patterns
@@ -928,38 +970,41 @@ class DischargingArgument:
             
         # list all legal combinations of patterns around origin
         i = 0
-        for (orig_nodes, surr) in self.surroundings(rule_pairs=[p[:2] for p in send if p[2] != False]):
-            # for each legal combo, sum the contributions from each -v
-            summa = 0
-            for node in self.relevant_nodes:
-                summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
-            for (pat, vec, away) in surr:
-                if (pat, vec) not in all_pairs:
-                    continue
-                if all_pairs[pat, vec]:
-                    # large pattern -> has sign
-                    if away:
-                        summa -= send[pat, vec, True]
-                        summa += send[pat, vec, False]
+        for node in self.sym_nodes:
+            for (orig_val, surr) in self.surroundings(node):#rule_pairs=[p[:2] for p in send if p[2] != False]):
+                # for each legal combo, sum the contributions from each -v
+                summa = 0
+                for (source, pat, nvec, away) in surr:
+                    if (source, pat, nvec) not in processed_triples:
+                        continue
+                    if processed_triples[source, pat, nvec]:
+                        # large pattern -> has sign
+                        if away:
+                            summa -= send[source, pat, nvec, True]
+                            summa += send[source, pat, nvec, False]
+                        else:
+                            summa += send[source, pat, nvec, True]
+                            summa -= send[source, pat, nvec, False]
                     else:
-                        summa += send[pat, vec, True]
-                        summa -= send[pat, vec, False]
-                else:
-                    # small pattern -> does not have sign
-                    if away:
-                        summa -= send[pat, vec, None]
-                    else:
-                        summa += send[pat, vec, None]
+                        # small pattern -> does not have sign
+                        if away:
+                            summa -= send[source, pat, nvec, None]
+                        else:
+                            summa += send[source, pat, nvec, None]
 
-            # the resulting charge must be at least the known bound
-            constr = summa >= self.bound
-            #print("constr", constr)
-            #if constr == False:
-            #    raise GriddyRuntimeError("Unable to optimize invalid discharging argument")
-            prob += constr
-            i += 1
-            if verbose and i%print_freq == 0:
-                print("{} found so far".format(i))
+                # the resulting charge must be at least the known bound
+                if node in self.relevant_nodes:
+                    summa += self.weights[orig_val]
+                    constr = summa >= self.bound
+                else:
+                    constr = summe >= 0
+                #print("constr", constr)
+                #if constr == False:
+                #    raise GriddyRuntimeError("Unable to optimize invalid discharging argument")
+                prob += constr
+                i += 1
+                if verbose and i%print_freq == 0:
+                    print("{} found so far".format(i))
 
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
@@ -985,16 +1030,18 @@ class DischargingArgument:
 
         # collect results
         self.trans_rules = dict()
-        for ((fr_pat, vec, sign), var) in send.items():
+        for ((node, fr_pat, nvec, sign), var) in send.items():
             if var.varValue:
-                if fr_pat not in self.trans_rules:
-                    self.trans_rules[fr_pat] = dict()
-                if vec not in self.trans_rules[fr_pat]:
-                    self.trans_rules[fr_pat][vec] = 0
+                if node not in self.trans_rules:
+                    self.trans_rules[node] = dict()
+                if fr_pat not in self.trans_rules[node]:
+                    self.trans_rules[node][fr_pat] = dict()
+                if nvec not in self.trans_rules[node][fr_pat]:
+                    self.trans_rules[node][fr_pat][nvec] = 0
                 if (sign is None) or sign:
-                    self.trans_rules[fr_pat][vec] += var.varValue
+                    self.trans_rules[node][fr_pat][nvec] += var.varValue
                 else:
-                    self.trans_rules[fr_pat][vec] -= var.varValue
+                    self.trans_rules[node][fr_pat][nvec] -= var.varValue
         self.update_specs()
             
 

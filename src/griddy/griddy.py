@@ -791,6 +791,7 @@ class Griddy:
                 load_constr = kwds.get("load_constr", None)
                 save_rules = kwds.get("save_rules", None)
                 load_rules = kwds.get("load_rules", None)
+                forbid_excess = kwds.get("forbid_excess", None)
                 simplify = "simplify" in flags
                 simp_mode = kwds.get("simp_mode", "minimize")
                 if simp_mode not in ["minimize", "recompute"]:
@@ -865,11 +866,12 @@ class Griddy:
                             
                 if show_rules:
                     if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
-                    for (fr_pat, amounts) in sorted(disc_arg.trans_rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
-                        if amounts:
-                            if mode != "silent": print("on {}:".format(dict(fr_pat)))
-                            for (vec, amount) in sorted(amounts.items()):
-                                if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
+                    for (node, rules) in disc_arg.trans_rules.items():
+                        for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
+                            if amounts:
+                                if mode != "silent": print("on {}:".format(dict(fr_pat)))
+                                for (nvec, amount) in sorted(amounts.items()):
+                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, node, nvec))
                 elif mode != "silent":
                     print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:
@@ -878,6 +880,12 @@ class Griddy:
                     disc_arg.save_transfer_rules(save_rules)
                     if verb:
                         print(" done")
+                if forbid_excess is not None:
+                    _, excess_pats = disc_arg.is_valid(ret_excess=True)
+                    if verb:
+                        print("Found {} patterns with excess charge; forming SFT".format(len(excess_pats)))
+                    no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
+                    self.SFTs[forbid_excess] = sft.intersection(the_sft, no_excess)
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)

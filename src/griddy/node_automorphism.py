@@ -19,6 +19,7 @@ class AffineAutomorphism:
     "An affine node automorphism on Z^d: each node (v; r) is mapped to (A v+c_r; r')."
 
     def __init__(self, dim=None, nodes=None, node_map=None, matrix=None, vectors=None):
+        #print("making aut", matrix, vectors, node_map)
         self.dim = dim
         if nodes is None:
             if node_map is not None:
@@ -44,21 +45,23 @@ class AffineAutomorphism:
                 raise GriddyRuntimeError("Could not deduce dimension of affine automorphism")
         self.dim = dim
         if matrix is None:
-            self.matrix = numpy.identity(dim)
+            self.matrix = numpy.identity(dim).astype(int)
         else:
-            self.matrix = numpy.asmatrix(matrix)
+            self.matrix = numpy.array(matrix)
         if abs(numpy.linalg.det(self.matrix)) != 1:
             raise GriddyRuntimeError("Affine node automorphism needs matrix of determinant 1 or -1")
         self.inv_matrix = numpy.linalg.inv(self.matrix).astype(int)
         if vectors is None:
-            self.vectors = {node : numpy.zeros((1, dim)) for node in self.nodes}
+            self.vectors = {node : numpy.zeros((dim, 1)).astype(int)
+                            for node in self.nodes}
         else:
             self.vectors = {node :
-                            numpy.asmatrix([[i] for i in vec])
+                            numpy.array([[i] for i in vec]).astype(int)
                             if type(vec) == tuple
                             else vec
                             for (node, vec) in vectors.items()}
         self._hash = hash((tuple(self.matrix.flat), tuple((node, tuple(vec.flat)) for (node, vec) in self.vectors.items()), tuple(self.node_map.items())))
+        #print("made", self.matrix, self.vectors, self.node_map)
 
     @classmethod
     def from_examples(self, examples, nodes=None):
@@ -144,10 +147,10 @@ class AffineAutomorphism:
             vecmat = numpy.asmatrix([[i] for i in vec])
             if inv:
                 new_node = self.inv_node_map[node]
-                new_vec = self.inv_matrix * (vecmat - self.vectors[new_node])
+                new_vec = self.inv_matrix @ (vecmat - self.vectors[new_node])
                 ret = (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
             else:
-                new_vec = self.matrix * vecmat + self.vectors[node]
+                new_vec = self.matrix @ vecmat + self.vectors[node]
                 ret = (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
@@ -178,8 +181,8 @@ class AffineAutomorphism:
         "Compose affine automorphisms."
         comp_node_map = {node : other.node_map[self.node_map[node]]
                          for node in self.nodes}
-        comp_matrix = other.matrix * self.matrix
-        comp_vectors = {node : other.matrix * self.vectors[node] + other.vectors[img_node]
+        comp_matrix = other.matrix @ self.matrix
+        comp_vectors = {node : other.matrix @ self.vectors[node] + other.vectors[img_node]
                         for (node, img_node) in self.node_map.items()}
         return AffineAutomorphism(node_map=comp_node_map, matrix=comp_matrix, vectors=comp_vectors)
 
@@ -194,7 +197,7 @@ class AffineAutomorphism:
         img_vec, img_node = self(source)
         if img_node != target[1]:
             return None
-        tr_vec = numpy.asmatrix([[i] for i in vsub(target[0], img_vec)])
+        tr_vec = numpy.array([[i] for i in vsub(target[0], img_vec)]).astype(int)
         new_vecs = {node : vec + tr_vec for (node, vec) in self.vectors.items()}
         ret = AffineAutomorphism(
             dim=self.dim, nodes=self.nodes, node_map=self.node_map, matrix=self.matrix,
@@ -208,8 +211,13 @@ class AffineAutomorphism:
         if not generators:
             # trivial group
             return [AffineAutomorphism(dim=dim, nodes=nodes)]
+        dim = generators[0].dim
+        nodes = generators[0].nodes
         frontier = list(generators)
+        identity = AffineAutomorphism(dim=dim, nodes=nodes)
         group = list(frontier)
+        if identity not in group:
+            group = [identity] + group
         while frontier:
             new_frontier = []
             for elem in frontier:
