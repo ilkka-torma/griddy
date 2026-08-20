@@ -1242,7 +1242,7 @@ class SFT:
                 anded.append(OR(*ored))
             self.circuit = AND(*anded)
 
-    def deduce_forbs(self, domain=None):
+    def deduce_forbs(self, domain=None, cap=None):
         self.forbs = []
         self.deduce_forbs_(domain)
         # deduce forbs gives the forbs with true/false variables,
@@ -1352,7 +1352,7 @@ class SFT:
                     #print("nvec", nvec, "nvars", local_alph.node_vars, "nvals", nvals, "sym", local_alph.model_to_sym(nvals))
                 #print("new_forb", new_forb)
                 if all(forb != new_forb for forb in self.forbs):
-                    #print("added")
+                    print("added new forb", new_forb)
                     self.forbs.append(new_forb)
                     new_forb_found = True
             #if not new_forb_found:

@@ -488,21 +488,21 @@ class DischargingArgument:
                     summa += TOLERANCE
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
-                    if summa + self.weights[orig_val] >= self.bound + TOLERANCE:
+                    if summa + self.weights[orig_val] > self.bound + (TOLERANCE if type(summa) == float else 0):
                         excess_pats.append(the_bigpat)
                 else:
                     good = summa >= 0
-                    if summa >= TOLERANCE:
+                    if summa > (TOLERANCE if type(summa) == float else 0):
                         #print("excess", the_bigpat)
                         excess_pats.append(the_bigpat)
                 if not good:
                     if give_reason:
-                        return False, (the_bigpat, orig_nodes,
-                                       [(pat, vec, away,
-                                         self.trans_rules[pat][vec]
-                                         if pat in self.trans_rules and vec in self.trans_rules[pat]
+                        return False, (the_bigpat, orig_val,
+                                       [(source, pat, nvec, away,
+                                         self.trans_rules[node][pat][nvec]
+                                         if pat in self.trans_rules[node] and nvec in self.trans_rules[node][pat]
                                          else None)
-                                        for (pat, vec, away) in surr],
+                                        for (source, pat, nvec, away) in surr],
                                        summa,
                                        self.bound)
                     elif ret_excess:
@@ -522,13 +522,18 @@ class DischargingArgument:
             else:
                 return True, "valid"
         elif ret_excess:
-            return True, excess_pats
+            # generate symmetric excess patterns
+            return True, {fd.frozendict({aut(nvec) : sym for (nvec, sym) in fpat.items()})
+                          for fpat in excess_pats
+                          for aut in self.symmetries}
         else:
             return True
 
     def try_rationalize(self, verbose=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
-        for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]:
+        for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]:
+            if verbose:
+                print("Attempting to rationalize with denominator {}.".format(n))
             rat_ok = self.rationalize(n)
             if rat_ok:
                 if verbose:
@@ -547,14 +552,18 @@ class DischargingArgument:
         old_bound = self.bound
         self.bound = Fraction(self.bound).limit_denominator(denom_bound)
         old_rules = self.trans_rules
-        self.trans_rules = {fpat : {vec : Fraction(num).limit_denominator(denom_bound)
-                                    for (vec, num) in vecs.items()}
-                            for (fpat, vecs) in self.trans_rules.items()}
+        self.trans_rules = {node :
+                            {fpat :
+                             {nvec : Fraction(num).limit_denominator(denom_bound)
+                              for (nvec, num) in nvecs.items()}
+                             for (fpat, nvecs) in rules.items()}
+                            for (node, rules) in self.trans_rules.items()}
         valid, reason = self.is_valid(give_reason=True)
         if valid:
             return True
         else:
-            if verbose:
+            if False:#verbose:
+                # TODO: update
                 print("Could not rationalize with denominator <= {}, reason:".format(denom_bound))
                 bigpat, orig_nodes, rules, summa, bound = reason
                 old_summa = 0
@@ -707,20 +716,29 @@ class DischargingArgument:
 
         if load_constr is not None:
             # load bigpats from a file
-            self.bigdomain = []
-            self.bigpats = []
+            print("loading")
             with open(load_constr + '.output', 'r') as f:
-                strs = f.readline().split()
-                nvec_len = self.sft.dim+1
-                for coords in [strs[i*nvec_len:(i+1)*nvec_len] for i in range(len(strs)//nvec_len)]:
-                    #print("got coords", coords, coords[-1].split('.'))
-                    self.bigdomain.append((tuple(int(c) for c in coords[:-1]),
-                                           tuple(s for s in coords[-1].split('.') if s)))
-                #print("bigdomain", self.bigdomain)
-                for line in f.readlines():
-                    if line:
-                        self.bigpats.append({nvec : sym
-                                             for (nvec, sym) in zip(self.bigdomain, line.split())})
+                bigdomain = dict()
+                bigpats = dict()
+                while True:
+                    line = f.readline()
+                    if line.strip() == "#bigdomain":
+                        continue
+                    elif line.strip() == "#bigpats":
+                        break
+                    else:
+                        node, domain = eval(line)
+                        bigdomain[node] = domain
+                while True:
+                    line = f.readline()
+                    if line.strip() == "#end":
+                        break
+                    elif line.strip() == "#node":
+                        node = eval(f.readline())
+                        bigpats[node] = []
+                    else:
+                        bigpats[node].append(eval(line))
+            print("done")
 
         if verbose:
             print("Computing pattern variables")
@@ -817,13 +835,16 @@ class DischargingArgument:
         if save_constr is not None:
             # save bigpats to file
             with open(save_constr + '.output', 'w') as f:
-                bigdomain = list(self.bigdomain)
-                bigdomain_line = " ".join(" ".join(str(c) for c in vec) + " ." + ".".join(node)
-                                          for (vec, node) in bigdomain)
-                f.write(bigdomain_line+"\n")
-                for bigpat in self.bigpats:
-                    bigpat_line = " ".join(bigpat[nvec] for nvec in bigdomain)
-                    f.write(bigpat_line+"\n")
+                f.write("#bigdomain\n")
+                for p in self.bigdomain.items():
+                    f.write(str(p)+"\n")
+                f.write("#bigpats\n")
+                for (node, pats) in self.bigpats.items():
+                    f.write("#node\n")
+                    f.write(str(node)+"\n")
+                    for pat in pats:
+                        f.write(str(dict(pat))+"\n")
+                f.write("#end")
 
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))

@@ -792,6 +792,7 @@ class Griddy:
                 save_rules = kwds.get("save_rules", None)
                 load_rules = kwds.get("load_rules", None)
                 forbid_excess = kwds.get("forbid_excess", None)
+                save_excess_pats = kwds.get("save_excess_pats", None)
                 simplify = "simplify" in flags
                 simp_mode = kwds.get("simp_mode", "minimize")
                 if simp_mode not in ["minimize", "recompute"]:
@@ -880,12 +881,19 @@ class Griddy:
                     disc_arg.save_transfer_rules(save_rules)
                     if verb:
                         print(" done")
-                if forbid_excess is not None:
+                        
+                if forbid_excess is not None or save_excess_pats is not None:
                     _, excess_pats = disc_arg.is_valid(ret_excess=True)
                     if verb:
-                        print("Found {} patterns with excess charge; forming SFT".format(len(excess_pats)))
-                    no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
-                    self.SFTs[forbid_excess] = sft.intersection(the_sft, no_excess)
+                        print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
+                        #for p in excess_pats: print(p)
+                    if forbid_excess is not None:
+                        no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
+                        self.SFTs[forbid_excess] = sft.intersection(the_sft, no_excess)
+                    if save_excess_pats is not None:
+                        with open(save_excess_pats+".output", 'w') as f:
+                            f.write(str(excess_pats))
+                            
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)
@@ -1131,6 +1139,7 @@ class Griddy:
                 name = args[0]
                 the_sft = self.SFTs[name]
                 rad = kwds.get("radius", 0)
+                approx_name, cap = kwds.get("approximation", (None, None))
                 filename = kwds.get("filename", None)
                 save_msg = " into {}.output".format(filename) if filename is not None else ""
                 if mode == "report":
@@ -1140,7 +1149,7 @@ class Griddy:
                         if mode != "silent": print("Computing forbidden patterns for {}{} using radius {}.".format(name, save_msg, rad))
                     if the_sft.forbs is not None:
                         if mode != "silent": print("It already had forbidden patterns; overwriting them.")
-                the_sft.deduce_forbs(rad)
+                the_sft.deduce_forbs(rad, cap=cap)
                 if mode != "silent": print("Found {} patterns.".format(len(the_sft.forbs)))
                 if "verbose" in flags:
                     for f in the_sft.forbs:
@@ -1149,17 +1158,26 @@ class Griddy:
                 if filename is not None:
                     with open(filename+".output", 'w') as f:
                         f.write(str(the_sft.forbs))
+
+                if cap is not None:
+                    approx_sft = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, forbs=the_sft.forbs)
+                    if len(the_sft.forbs) == cap:
+                        the_sft.forbs = None
                         
             elif cmd == "load_forbidden_patterns":
                 sft_name = args[0]
-                the_sft = self.SFTs[sft_name]
                 filename = args[1]
+                onesided = kwds.get("onesided", [])
                 if mode == "report":
                     if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
                 with open(filename+".output", 'r') as f:
                     contents = f.read()
                 forbs = eval(contents)
-                the_sft.forbs = forbs
+                try:
+                    the_sft = self.SFTs[sft_name]
+                    the_sft.forbs = forbs
+                except KeyError:
+                    the_sft = sft.SFT(self.dim, self.nodes, self.alph, self.topology, self.grahp, forbs=forbs, onesided=onesided)
 
             elif cmd == "set_weights":
                 self.weights = {arg[0] : w for (arg, w) in args[0].items()}

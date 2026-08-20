@@ -137,6 +137,7 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /save_rules/ "=" LABEL
               | /load_rules/ "=" LABEL
               | /forbid_excess/ "=" STRICT_LABEL
+              | /save_excess/ "=" LABEL
               | /simp_mode/ "=" LABEL
               | /trim_mode/ "=" LABEL
               | "@" (/simplify/ | /rationalize/ | /trim_rules/ | /trim_final_rules/ | /trim_initial_rules/ | /rationalize_intermediates/ | /minimize_all/ | /verbose/ | /show_rules/ )
