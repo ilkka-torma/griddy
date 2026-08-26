@@ -97,7 +97,7 @@ class AffineAutomorphism:
                     [(i==j)*vec[k] for i in range(dim) for k in range(dim)] +\
                     [(i==j)*int(n==node) for n in nodes for i in range(dim)])
                 res_vector.append(img_vec[j])
-        if len(coeff_matrix) < len(coeff_matrix[0]):
+        if numpy.linalg.matrix_rank(coeff_matrix) < len(coeff_matrix[0]):
             raise GriddyRuntimeError("Could not deduce affine automorphism: underdetermined")
         #print("dim", dim, "nodes", nodes, "matrix", coeff_matrix, "vec", res_vector)
         try:
@@ -144,7 +144,7 @@ class AffineAutomorphism:
         if type(arg) == tuple and len(arg) in [2,3]:
             # node vector
             vec, node = arg[:2]
-            vecmat = numpy.asmatrix([[i] for i in vec])
+            vecmat = numpy.array([[i] for i in vec])
             if inv:
                 new_node = self.inv_node_map[node]
                 new_vec = self.inv_matrix @ (vecmat - self.vectors[new_node])

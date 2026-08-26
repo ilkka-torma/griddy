@@ -842,19 +842,22 @@ class Griddy:
                     disc_arg.update_specs()
                     
                 if simplify:
-                    if save_rules is not None:
-                        if verb:
-                            print("Saving intermediate rules...", end='')
-                        disc_arg.save_transfer_rules(save_rules)
-                        if verb:
-                            print(" done")
+                    if load_rules is None:
+                        if rationalize_intermediates:
+                            disc_arg.try_rationalize(verbose=verb)
+                        if save_rules is not None:
+                            if verb:
+                                print("Saving intermediate rules...", end='')
+                            disc_arg.save_transfer_rules(save_rules)
+                            if verb:
+                                print(" done")
                     if verb:
                         print("Simplifying rules")
                     simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules or trim_initial)
                     while not simplifier.is_finished():
+                        simplifier.step(verbose=verb, print_freq=print_freq)
                         if rationalize_intermediates:
                             disc_arg.try_rationalize(verbose=verb)
-                        simplifier.step(verbose=verb, print_freq=print_freq)
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')

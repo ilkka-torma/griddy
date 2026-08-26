@@ -14,6 +14,8 @@ import random
 from enum import Enum
 
 TOLERANCE = 1e-6
+#DENOMINATORS = [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 3500, 5000, 7500,
+DENOMINATORS = [10000, 20000, 35000, 50000, 75000, 100000, 200000, 350000, 500000, 750000, 1000000, 2000000, 3500000, 5000000, 7500000, 10000000]#, 20000000, 35000000, 50000000, 75000000, 100000000, 200000000, 350000000, 500000000, 750000000, 1000000000, 2000000000, 3500000000, 5000000000, 7500000000, 10000000000]
 
 # A dict of solvers, type str -> ((solver, args), None | (solver, args))
 # The first component is used by default, the second when the first one fails
@@ -52,60 +54,72 @@ SOLVER_DICTS = {
                         }))
 }
 
-def rules_to_tree(alph, bigdomain, rule_pairs):
+def rules_to_tree(dim, alph, node, syms, bigdomain, rules):
     "Transform charge transfer rules into a decision tree, which can be used to extract constraints from bigpats."
-    # quads will store tuples (pat, vec, away, tr_pat) where:
+    # rules is a list of (node, pattern, nvec).
+    # tups will store tuples (source, pat, nvec, away, tr_pat) where:
+    # source is the source node,
     # pat is the original pattern,
-    # vec is the vector along which we transfer charge,
+    # nvec is the nodevector along which we transfer charge,
     # away is True if we transfer away from the origin,
-    # tr_pat is pat translated by -vec if away is False, and pat otherwise.
-    # We will look for tr_pat in the bigpats.
-    quads = []
-    for (pat, vec) in rule_pairs:
-        quads.append((pat, vec, True, pat))
-        quads.append((pat, vec, False,
-                      fd.frozendict({nvsub(nvec, vec) : sym
-                                     for (nvec, sym) in pat.items()})))
-    tree, size = quads_to_tree(alph, bigdomain, quads, [])
-    assert size == len(quads)
+    # tr_pat is the pattern we should look for in a bigpat.
+    # It may be transformed by a symmetry.
+    tups = []
+    for (source, fpat, tr_nvec) in rules:
+        for aut in syms:
+            (aut_orig_vec, aut_source) = aut(((0,)*dim, source))
+            aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
+            #aut_fpat = fd.frozendict({aut(nvec) : sym for (nvec, sym) in fpat.items()})
+            if aut_source == node:
+                tups.append((source, fpat, tr_nvec, True,
+                             fd.frozendict({nvsub(aut(nvec), aut_orig_vec) : sym
+                                            for (nvec, sym) in fpat.items()})))
+            if aut_target == node:
+                tups.append((source, fpat, tr_nvec, False,
+                             fd.frozendict({nvsub(aut(nvec), aut_trvec) : sym
+                                            for (nvec, sym) in fpat.items()})))
+    tree, size = tups_to_tree(alph, bigdomain, tups, [])
+    assert size == len(tups)
     #print("tree", size, len(tree), [p[:2] for p in tree])
     return tree
 
-def quads_to_tree(alph, bigdomain, quads, tree):
-    # tree is a list of triples: tree := [(nvec, sym, [tree]) | (pat, vec, bool)].
+def tups_to_tree(alph, bigdomain, tups, tree):
+    # tree is a list of tuples: tree := [(nvec, sym, [tree]) | (node, pat, nvec, bool, tr_pat)].
     # the idea is that we iterate the list and test whether bigpat[nvec] = sym.
     # at each match, if the third item is a list we recurse,
-    # and otherwise we add (pat, vec, away) to the constraint.
+    # and otherwise we add the quintuple to the constraint.
     #print("call", quads, tree)
     sumsizes = 0
-    while quads:
-        #print("lq", len(quads))
-        old_len = len(quads)
-        if all(q[3] == quads[0][3] for q in quads[1:]):
-            #print("eq")
-            for quad in quads:
-                tree.append(quad)
+    while tups:
+        #print("tups", len(tups))
+        old_len = len(tups)
+        if all(tup[4] == tups[0][4] for tup in tups[1:]):
+            # all test patterns are equal, cannot differentiate
+            for tup in tups:
+                tree.append(tup)
                 sumsizes += 1
             break
         else:
-            # greedily choose nvec and sym that split quads the most evenly
+            # greedily choose nvec and sym that split tups the most evenly
             pair = max(((nvec, sym) for nvec in bigdomain for sym in alph[nvec[1]]
-                        if any(q[3].get(nvec, None) == sym for q in quads)),
-                       key = lambda p: min(n := sum(1 for q in quads
-                                                    if q[3].get(p[0], None) == p[1]),
-                                           len(quads) - n))
+                        if any(tup[4].get(nvec, None) == sym for tup in tups)),
+                       key = lambda p: min(n := sum(1 for tup in tups
+                                                    if tup[4].get(p[0], None) == p[1]),
+                                           len(tups) - n))
             nvec, sym = pair
-            chosen = [(pat, vec, away, tr_pat.delete(nvec))
-                      for (pat, vec, away, tr_pat) in quads
-                      if tr_pat.get(nvec, None) == sym]
+            chosen = []
+            chosen = [(source, pat, tr_nvec, away, testpat.delete(nvec))
+                      for (source, pat, tr_nvec, away, testpat) in tups
+                      if testpat.get(nvec, None) == sym]
             #print("pair", nvec, sym, old_len, len(chosen))
             #print("lc", len(chosen))
-            assert len(chosen) != len(quads)
-            subtree, subsize = quads_to_tree(alph, bigdomain, chosen, [])
+            assert 0 < len(chosen) < len(tups)
+            subtree, subsize = tups_to_tree(alph, bigdomain, chosen, [])
             sumsizes += subsize
             tree.append((nvec, sym, subtree))
-            quads = [q for q in quads if q[3].get(nvec, None) != sym]
-            assert old_len == len(quads) + len(chosen)
+            tups = [tup for tup in tups if tup[4].get(nvec, None) != sym]
+            #print("lens", old_len, len(tups), len(chosen))
+            assert old_len == len(tups) + len(chosen)
     #print("ret", tree[::-1])
     return tree[::-1], sumsizes
 
@@ -153,14 +167,14 @@ class DischargingSimplifier:
         self.history.append((self.status, self.disc_arg.trans_rules, self.disc_arg.score))
         if verbose:
             print("Simplification step; number of rules now {} (total {})".format(self.disc_arg.score, sum(self.disc_arg.score)))
-        print("state", self.status)
+        #print("state", self.status)
 
         # Choose action based on internal state
         if self.status == SimplifierState.SIMPLIFY_PHASE1:
             if verbose:
                 print("Splitting rules")
             if self.simp_mode == "minimize":
-                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=random.randint(0,1) or (self.max_split is not None and next((s for s in self.disc_arg.score if s), 0) <= self.max_split))
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=True)
                 if self.trim_mode is not None:
                     self.status = SimplifierState.TRIM_PHASE1
                 elif self.disc_arg.score >= self.history[-1][2]:
@@ -205,7 +219,7 @@ class DischargingSimplifier:
         elif self.status == SimplifierState.TRIM_FINAL:
             if verbose:
                 print("Trimming final rules")
-            #self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
+            self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
             self.status = SimplifierState.FINISHED
             
 
@@ -273,6 +287,7 @@ class DischargingArgument:
         self.bigpats = {node : None for node in self.sym_nodes}
         self.bigdomain = {node : None for node in self.sym_nodes}
         self.score = None
+        self.saved_surroundings = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
@@ -283,19 +298,19 @@ class DischargingArgument:
                 # Fraction
                 num, den = self.bound.as_integer_ratio()
                 f.write(str(num) + '/' + str(den) + '\n')
-            for (fpat, vecs) in self.trans_rules.items():
-                for ((vec, node), sym) in fpat.items():
-                    f.write(" ".join(str(c) for c in vec) + " ." + ".".join(node) + " " + sym + " ")
-                f.write(':')
-                for (vec, amount) in vecs.items():
-                    f.write(" " + " ".join(str(c) for c in vec) + " ")
-                    if type(amount) == float:
-                        f.write(str(amount))
-                    else:
-                        # Fraction
-                        num, den = amount.as_integer_ratio()
-                        f.write(str(num) + '/' + str(den))
-                f.write('\n')
+            for (source, rules) in self.trans_rules.items():
+                for (fpat, nvecs) in rules.items():
+                    for (nvec, amount) in nvecs.items():
+                        f.write(str(source) + '\n')
+                        f.write(str(dict(fpat)) + '\n')
+                        f.write(str(nvec) + '\n')
+                        if type(amount) == float:
+                            f.write(str(amount) + '\n')
+                        else:
+                            # Fraction
+                            num, den = amount.as_integer_ratio()
+                            f.write(str(num) + '/' + str(den) + '\n')
+            f.write("#end")
 
     def load_transfer_rules(self, filename):
         "Load transfer rules and bound from a file."
@@ -307,40 +322,26 @@ class DischargingArgument:
                 self.bound = Fraction(*(int(x) for x in boundln.split('/')))
             else:
                 self.bound = float(boundln)
-            for ln in f.readlines():
-                if ':' not in ln:
-                    continue
-                #print("ln", repr(ln))
-                patstr, rest = ln.split(':')
-                pat = dict()
-                items = patstr.split()
-                dim = self.sft.dim
-                for i in range(len(items)//(dim+2)):
-                    vec = tuple(int(c) for c in items[(dim+2)*i : (dim+2)*(i+1)-2])
-                    #print("vec", vec)
-                    nodestr = items[(dim+2)*(i+1)-2]
-                    if nodestr == '.':
-                        node = ()
-                    else:
-                        node = tuple(nodestr[1:].split('.'))
-                    #print("node", node)
-                    pat[vec, node] = items[(dim+2)*(i+1)-1]
-                    #print("sym", pat[vec, node])
-                fpat = fd.frozendict(pat)
-                if fpat not in self.trans_rules:
-                    self.trans_rules[fpat] = dict()
-                restitems = rest.split()
-                #print("restitems", restitems)
-                for i in range(len(restitems)//(dim+1)):
-                    vec = tuple(int(c) for c in restitems[(dim+1)*i : (dim+1)*(i+1)-1])
-                    #print("vec", vec)
-                    numstr = restitems[(dim+1)*(i+1)-1]
-                    #print("numstr", numstr)
-                    if '/' in numstr:
-                        num = Fraction(*(int(x) for x in numstr.split('/')))
-                    else:
-                        num = float(numstr)
-                    self.trans_rules[fpat][vec] = num
+            #print("loaded bound", self.bound)
+            while True:
+                source = f.readline()
+                if source[0] == '#':
+                    break
+                else:
+                    source = eval(source)
+                fpat = fd.frozendict(eval(f.readline()))
+                nvec = eval(f.readline())
+                amount = f.readline()
+                if '/' in amount:
+                    amount = Fraction(*(int(x) for x in amount.split('/')))
+                else:
+                    amount = float(amount)
+                if source not in self.trans_rules:
+                    self.trans_rules[source] = dict()
+                if fpat not in self.trans_rules[source]:
+                    self.trans_rules[source][fpat] = dict()
+                self.trans_rules[source][fpat][nvec] = amount
+                #print("loaded rule", source, fpat, nvec, amount)
 
     def bigdomain_from_spec(self, node):
         "Compute bigdomain of node from spec."
@@ -361,7 +362,15 @@ class DischargingArgument:
         return bigdomain
 
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, node, bigpat=None, ret_big=False, rule_pairs=None, verbose=False):
+    def surroundings(self, node, bigpat=None, ret_big=False, rules=None, verbose=False, shuffle=False):
+        if self.saved_surroundings is not None:
+            if shuffle:
+                random.shuffle(self.saved_surroundings[node])
+            return self.saved_surroundings[node]
+        else:
+            return self._surroundings(node, bigpat, ret_big, rules, verbose)
+
+    def _surroundings(self, node, bigpat, ret_big, rules, verbose):
         assert node in self.sym_nodes
         #print("node", node)
         #print("Spec len", len(self.specs))
@@ -380,7 +389,8 @@ class DischargingArgument:
             self.bigpats[node] = []
         else:
             bigpats = self.bigpats[node]
-        if rule_pairs is None or (len(rule_pairs) >= 2**sum(len(x) for (x,_) in self.specs)):
+        if rules is None or (len(rules) >= 2**sum(len(x) for x in self.specs.values())):
+            #print("DIRECT")
             for the_bigpat in bigpats:
                 #print("got bigpat", bigpat, len(bigpat), node)
                 if compute_bigpats:
@@ -429,33 +439,34 @@ class DischargingArgument:
                 else:
                     yield (orig_val, surr)
         else:
-            tree = rules_to_tree(self.sft.alph, self.bigdomain, rule_pairs)
-            for bigpat in bigpats:
+            #print("TREE")
+            tree = rules_to_tree(self.sft.dim, self.sft.alph, node, self.symmetries, self.bigdomain[node], rules)
+            for the_bigpat in bigpats:
                 #print("new bigpat", bigpat)
                 surr = []
-                orig_nodes = {node : bigpat[((0,)*self.sft.dim, node)] for node in self.sft.nodes}
+                orig_val = the_bigpat[((0,)*self.sft.dim, node)]
                 curr_tree = tree.copy()
                 while curr_tree:
                     #print("popping", curr_tree[-1])
                     item = curr_tree.pop()
-                    # item is either (nvec, sym, subtree) or (pat, vec, away, tr_pat)
-                    if len(item) == 4:
-                        if all(bigpat[nvec] == sym for (nvec, sym) in item[3].items()):
+                    # item is either (nvec, sym, subtree) or (source, pat, nvec, away, testpat)
+                    if len(item) == 5:
+                        if all(the_bigpat[nvec] == sym for (nvec, sym) in item[4].items()):
                             # a rule that matches
-                            surr.append(item[:3])
-                    elif bigpat[item[0]] == item[1]:
+                            surr.append(item[:4])
+                    elif the_bigpat[item[0]] == item[1]:
                         # a subtree that matches
                         curr_tree.extend(item[2])
                 #print("surr", surr)
                 if compute_bigpats:
-                    self.bigpats.append(bigpat)
+                    self.bigpats[node].append(the_bigpat)
                 if ret_big:
-                    yield (orig_nodes, surr, bigpat)
+                    yield (orig_val, surr, the_bigpat)
                 else:
-                    yield (orig_nodes, surr)
+                    yield (orig_val, surr)
     
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, shuffle=False):
         "Check that the argument is valid."
         bigpat_given = bigpat is not None
         if self.bound is None:
@@ -464,11 +475,15 @@ class DischargingArgument:
             else:
                 return True
         # list all legal combinations of patterns around origin
-        excess_pats = []
+        excess_pats = dict()
         i = 0
+        rules = [(source, fpat, nvec)
+                 for (source, node_rules) in self.trans_rules.items()
+                 for (fpat, nvecs) in node_rules.items()
+                 for nvec in nvecs]
         for node in self.sym_nodes:
-            #rule_pairs = [(fpat, vec) for (fpat, vecs) in self.trans_rules.items() for vec in vecs]
-            for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat):#, rule_pairs=rule_pairs):
+            excess_pats[node] = []
+            for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat, rules=rules, shuffle=shuffle):
                 # for each legal combo, sum the contributions from each -v
                 if isinstance(self.bound, Fraction):
                     summa = Fraction(0)
@@ -489,26 +504,27 @@ class DischargingArgument:
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
                     if summa + self.weights[orig_val] > self.bound + (TOLERANCE if type(summa) == float else 0):
-                        excess_pats.append(the_bigpat)
+                        excess_pats[node].append(the_bigpat)
                 else:
                     good = summa >= 0
                     if summa > (TOLERANCE if type(summa) == float else 0):
                         #print("excess", the_bigpat)
-                        excess_pats.append(the_bigpat)
+                        excess_pats[node].append(the_bigpat)
                 if not good:
                     if give_reason:
-                        return False, (the_bigpat, orig_val,
+                        return False, (node, the_bigpat, orig_val,
                                        [(source, pat, nvec, away,
                                          self.trans_rules[node][pat][nvec]
                                          if pat in self.trans_rules[node] and nvec in self.trans_rules[node][pat]
                                          else None)
                                         for (source, pat, nvec, away) in surr],
-                                       summa,
-                                       self.bound)
+                                       summa + (self.weights[orig_val] if node in self.relevant_nodes else 0),
+                                       self.bound, i)
                     elif ret_excess:
                         return False, None
                     else:
                         return False
+                i += 1
         if give_reason:
             if bigpat_given:
                 return True, (the_bigpat, orig_nodes,
@@ -518,74 +534,172 @@ class DischargingArgument:
                                 else None)
                                for (pat, vec, away) in surr],
                               summa,
-                              self.bound)
+                              self.bound,
+                              0)
             else:
                 return True, "valid"
         elif ret_excess:
             # generate symmetric excess patterns
-            return True, {fd.frozendict({aut(nvec) : sym for (nvec, sym) in fpat.items()})
-                          for fpat in excess_pats
-                          for aut in self.symmetries}
+            # first for the representative nodes using their symmetries
+            ret_pats = dict()
+            for (node, syms) in self.sym_nodes.items():
+                ret_pats[node] = set()
+                for pat in excess_pats[node]:
+                    for aut in syms:
+                        ret_pats[node].add(fd.frozendict({aut(nvec) : sym
+                                                          for (nvec, sym) in pat.items()}))
+            # then for other nodes using the former
+            for node in self.sft.nodes:
+                if node not in self.sym_nodes:
+                    ret_pats[node] = set()
+                    for aut in self.symmetries:
+                        if aut.inv_node_map[node] in self.sym_nodes:
+                            the_aut = aut
+                            sym_node = aut.inv_node_map[node]
+                            break
+                    for pat in ret_pats[sym_node]:
+                        ret_pats[node].add(fd.frozendict({the_aut(nvec) : sym
+                                                          for (nvec, sym) in pat.items()}))
+
+            return True, set().union(*ret_pats.values())
+    
         else:
             return True
 
     def try_rationalize(self, verbose=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
-        for n in [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]:
-            if verbose:
-                print("Attempting to rationalize with denominator {}.".format(n))
-            rat_ok = self.rationalize(n)
+        if verbose:
+            print("Attempting to rationalize")
+        # compute surroundings
+        rules = [(source, fpat, nvec)
+                 for (source, node_rules) in self.trans_rules.items()
+                 for (fpat, nvecs) in node_rules.items()
+                 for nvec in nvecs]
+        saved_surrs = dict()
+        for node in self.sym_nodes:
+            saved_surrs[node] = [s for s in self.surroundings(node, ret_big=True, rules=rules)]
+        self.saved_surroundings = saved_surrs
+        ret = False
+        for den_ix in range(len(DENOMINATORS)):
+            #if verbose:
+            #    print("Attempting to rationalize with denominator {}.".format(DENOMINATORS[den_ix]))
+            rat_ok = self.rationalize(den_ix)
             if rat_ok:
                 if verbose:
                     print("Succesfully rationalized solution, bound {}".format(self.bound))
+                self.saved_surroundings = None
                 return True
+        #rat_ok = self.rationalize(len(DENOMINATORS)//2, attempt_fix=True)
+        #if rat_ok:
+        #    if verbose:
+        #        print("Succesfully rationalized solution, bound {}".format(self.bound))
+        #    self.saved_surroundings = None
+        #    return True
         if verbose:
-            valid = self.is_valid()
+            valid = self.is_valid(give_reason=True)
             if valid:
                 print("Could not rationalize solution, but it is approximately valid")
             else:
                 print("Could not rationalize solution and it seems to be invalid")
+                for r in reason:
+                    print(r)
+        self.saved_surroundings = None
         return False
     
-    def rationalize(self, denom_bound, verbose=False):
+    def rationalize(self, den_ix, verbose=False, attempt_fix=False):
         "Attempt to convert into rational numbers using given denominator bound. Return whether it was succesful."
         old_bound = self.bound
-        self.bound = Fraction(self.bound).limit_denominator(denom_bound)
+        self.bound = Fraction(self.bound).limit_denominator(DENOMINATORS[den_ix])
+        #print("denom", DENOMINATORS[den_ix], "bound", self.bound)
         old_rules = self.trans_rules
         self.trans_rules = {node :
                             {fpat :
-                             {nvec : Fraction(num).limit_denominator(denom_bound)
+                             {nvec : Fraction(num).limit_denominator(DENOMINATORS[den_ix])
                               for (nvec, num) in nvecs.items()}
                              for (fpat, nvecs) in rules.items()}
                             for (node, rules) in self.trans_rules.items()}
         valid, reason = self.is_valid(give_reason=True)
         if valid:
             return True
-        else:
-            if False:#verbose:
-                # TODO: update
-                print("Could not rationalize with denominator <= {}, reason:".format(denom_bound))
-                bigpat, orig_nodes, rules, summa, bound = reason
-                old_summa = 0
-                for node in self.relevant_nodes:
-                    old_summa += self.weights[orig_nodes[node]] / len(self.relevant_nodes)
-                for (pat, vec, away, _) in rules:
-                    if pat in old_rules and vec in old_rules[pat]:
-                        if away:
-                            old_summa -= old_rules[pat][vec]
-                        else:
-                            old_summa += old_rules[pat][vec]
-                print(bigpat,
-                      [(pat, vec, away, amount,
-                        old_rules[pat][vec]
-                        if pat in old_rules and vec in old_rules[pat]
-                        else None)
-                       for (pat, vec, away, amount) in rules],
-                      summa, bound,
-                      old_summa, old_bound)
-            self.bound = old_bound
-            self.trans_rules = old_rules
+        elif not attempt_fix:
             return False
+        count = 0
+        maxnum = 0
+        timer = 20
+        lastfew = []
+        for i in range(3*sum(self.score)):
+            if valid:
+                print("good count", count)
+                return True
+            count += 1
+            # Find reason for failure and try to fix it locally
+            node, bigpat, orig_val, rules, summa, bound, num = reason
+            lastfew = ([num]+lastfew)[:max(20, maxnum//10)]
+            if num > maxnum:
+                timer = maxnum//10
+            elif num == max(lastfew):
+                timer = max(0, timer-1)
+            elif timer == 0:
+                timer = maxnum//10
+            maxnum = max(maxnum, num)
+            if count % 100 == 0:
+                print("Round {}/{}, num {}, maxfew {}, maxnum {}".format(count, sum(self.score)*3, num, max(lastfew), maxnum))
+            float_summa = self.weights[orig_val] if node in self.relevant_nodes else 0
+            for (source, pat, nvec, away, rule) in rules:
+                if rule is not None:
+                    if away:
+                        float_summa -= old_rules[source][pat][nvec]
+                    else:
+                        float_summa += old_rules[source][pat][nvec]
+            upper_bound = self.bound if node in self.relevant_nodes else 0
+            """
+            print("new summa {} = {} < {}, float summa {} = {}".format(
+                " + ".join(str((-1)**away*self.trans_rules[source][pat][nvec])
+                           for (source, pat, nvec, away, rule) in rules
+                           if rule is not None),
+                summa,
+                self.bound,
+                " + ".join(str((-1)**away*old_rules[source][pat][nvec])
+                           for (source, pat, nvec, away, rule) in rules
+                           if rule is not None),
+                float_summa))
+            """
+            found = False
+            rules = rules[::1]
+            random.shuffle(rules)
+            for n in DENOMINATORS[den_ix:]:
+                try_charge = dict()
+                new_summa = summa
+                # try to re-approximate to match bound
+                for r in rules:
+                    num_r = rules.count(r)
+                    (source, pat, nvec, away, rule) = r
+                    if rule is not None:
+                        old_charge = old_rules[source][pat][nvec]
+                        new_charge = self.trans_rules[source][pat][nvec]
+                        try_charge[r] = Fraction(old_charge).limit_denominator(n)
+                        new_summa = new_summa + num_r*(new_charge - try_charge[r]) if away else new_summa - num_r*(new_charge + try_charge[r])
+                        if (new_summa == upper_bound):
+                            for r in try_charge:
+                                (source, pat, nvec, away, rule) = r
+                            self.trans_rules[source][pat][nvec] = try_charge[r]
+                            found = True
+                            break
+                if found:
+                    break
+            else:
+                # reset one rule to match bound
+                (source, pat, nvec, away, rule) = r = next(r for r in rules if r[-1] is not None)
+                num_r = rules.count(r)
+                self.trans_rules[source][pat][nvec] += (-1)**away*(upper_bound - summa)/num_r
+                found = True
+            if not found:
+                break
+            valid, reason = self.is_valid(give_reason=True, shuffle=True)
+        print("bad count", count)
+        self.bound = old_bound
+        self.trans_rules = old_rules
+        return False
 
     def update_specs(self, trans_rules=None, rules_only=False):
         "Update specs, bigdomain and score to match the current or given transition rules."
@@ -615,7 +729,7 @@ class DischargingArgument:
             for (fpat, nvecs) in rules.items():
                 self.score[-len(fpat)] += len(nvecs)
         #print("score", self.score)
-        if rules_only or self.bigpats is None:
+        if rules_only or None in self.bigpats.values():
             return
         #print("new specs", self.specs)
         bigdomain = dict()
@@ -632,13 +746,14 @@ class DischargingArgument:
 
     def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None, sort_rules=False):
         "Iteratively remove rules until each is essential, starting from the largest."
-        rule_pairs = [(fpat, vec)
-                      for (fpat, vecs) in self.trans_rules.items()
-                      if max_rounds is None or len(fpat) > 1
-                      for vec in vecs]
-        random.shuffle(rule_pairs)
+        rule_triples = [(source, fpat, nvec)
+                        for (source, rules) in self.trans_rules.items()
+                        for (fpat, nvecs) in rules.items()
+                        if max_rounds is None or len(fpat) > 1
+                        for nvec in nvecs]
+        random.shuffle(rule_triples)
         if sort_rules:
-            rule_pairs.sort(key=lambda p: -len(p[0]))
+            rule_triples.sort(key=lambda p: -len(p[1]))
         #valid, reason = self.is_valid(give_reason=True)
         #if not valid:
         #    print("Invalid")
@@ -647,27 +762,29 @@ class DischargingArgument:
         #old_rules = {fpat : vecs.copy() for (fpat, vecs) in  self.trans_rules.items()}
         if verbose:
             print("Minimizing rule count")
-        num_removed = max(1, len(rule_pairs)//10)
+        num_removed = max(1, len(rule_triples)//10)
         i = 0
-        while rule_pairs and (max_rounds in [None, "until_fail"] or i < max_rounds):
+        while rule_triples and (max_rounds in [None, "until_fail"] or i < max_rounds):
             i += 1
             # pick rules, remove them and check whether we can reach the same bound as before
-            removed_pairs = rule_pairs[:num_removed]
-            old_rules = {fpat : vecs.copy()
-                         for (fpat, vecs) in self.trans_rules.items()}
-            for (fpat, vec) in removed_pairs:
-                del self.trans_rules[fpat][vec]
-                if not self.trans_rules[fpat]:
-                    del self.trans_rules[fpat]
+            removed = rule_triples[:num_removed]
+            old_rules = {source : {fpat : vecs.copy()
+                                  for (fpat, vecs) in rules.items()}
+                         for (source, rules) in self.trans_rules.items()}
+            for (source, fpat, vec) in removed:
+                del self.trans_rules[source][fpat][vec]
+                if not self.trans_rules[source][fpat]:
+                    del self.trans_rules[source][fpat]
             if verbose:
-                print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(vecs) for vecs in old_rules.values()), sum(len(vecs) for vecs in self.trans_rules.values()), len(rule_pairs)))
+                print("Round {}: from {} to {} rules, {} left to check".format(i, sum(len(nvecs) for rules in old_rules.values() for nvecs in rules.values()), sum(len(nvecs) for rules in self.trans_rules.values() for nvecs in rules.values()), len(rule_triples)))
             same_bound = self.compute_bound(solver_str, verbose=verbose, print_freq=print_freq, ordered_split=ordered_split)
             #print("Changed:", same_bound)
             if same_bound:
                 # rule was not needed
-                rule_pairs = [(fpat, vec) for (fpat, vec) in rule_pairs[num_removed:]
-                              if fpat in self.trans_rules
-                              if vec in self.trans_rules[fpat]]
+                rule_triples = [(source, fpat, nvec)
+                                for (source, fpat, nvec) in rule_pairs[num_removed:]
+                                if fpat in self.trans_rules[source]
+                                if nvec in self.trans_rules[source][fpat]]
                 if save_rules is not None:
                     if verbose:
                         print("Saving intermediate rules...", end='')
@@ -681,11 +798,11 @@ class DischargingArgument:
                 if num_removed == 1:
                     if max_rounds == "until_fail":
                         break
-                    rule_pairs.pop(0)
+                    rule_triples.pop(0)
                 else:
                     num_removed = max(1, num_removed//2)
-                    random.shuffle(rule_pairs)
-                    rule_pairs.sort(key=lambda p: -len(p[0]))
+                    random.shuffle(rule_triples)
+                    rule_triples.sort(key=lambda p: -len(p[0]))
             #if valid:
             #    #self.try_rationalize()
             #    still_valid, reason = self.is_valid(give_reason=True)
@@ -754,13 +871,16 @@ class DischargingArgument:
                         total_vars += 1
                         if verbose and total_vars%print_freq == 0:
                             print("{} found so far".format(total_vars))
-        else: # TODO
+        else:
             i = 0
             splits = 0
-            for (fr_pat, vecs) in sorted(random.sample(list(self.trans_rules.items()),
-                                                       k=len(self.trans_rules)),
-                                         key=lambda p:-len(p[0])):
-                for vec in vecs:
+            triples = [(source, fr_pat, nvecs)
+                       for (source, rules) in self.trans_rules.items()
+                       for (fr_pat, nvecs) in rules.items()]
+            random.shuffle(triples)
+            triples.sort(key=lambda p: -len(p[1]))
+            for (source, fr_pat, nvecs) in triples:
+                for tr_nvec in nvecs:
                     if split and len(fr_pat) > 1 and (max_split is None or splits < max_split):
                         # replace pattern with smaller subpatterns
                         splits += 1
@@ -772,20 +892,20 @@ class DischargingArgument:
                             split_nvecs = random.sample(sorted(fr_pat), min(num_split, len(fr_pat)))
                         for nvec in split_nvecs:
                             new_fpat = fr_pat.delete(nvec)
-                            if (new_fpat, vec) not in send:
-                                send[new_fpat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
-                                send[new_fpat, vec].setInitialValue(0)
+                            if (source, new_fpat, tr_nvec) not in send:
+                                send[source, new_fpat, tr_nvec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                                send[source, new_fpat, tr_nvec].setInitialValue(0)
                                 i += 1
                                 total_vars += 1
                                 if verbose and total_vars%print_freq == 0:
                                     print("{} found so far".format(total_vars))
                     elif (not split) or all(any(fr_pat.get(nvec, None) != sym
                                                 for (nvec, sym) in fr_pat2.items())
-                                            for (fr_pat2, vec2) in send
-                                            if vec2 == vec):
+                                            for (source2, fr_pat2, tr_nvec2) in send
+                                            if source2 == source and tr_nvec2 == tr_nvec):
                         # keep original pattern
-                        send[fr_pat, vec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
-                        send[fr_pat, vec].setInitialValue(0)
+                        send[source, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                        send[source, fr_pat, tr_nvec].setInitialValue(0)
                         i += 1
                         total_vars += 1
                         if verbose and total_vars%print_freq == 0:
@@ -811,7 +931,7 @@ class DischargingArgument:
         # only handle one node from each symmetry orbit
         i = 0
         for node in self.sym_nodes:
-            for (orig_val, surr) in self.surroundings(node, rule_pairs=None if self.bound is None else send, verbose=verbose):
+            for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -992,7 +1112,7 @@ class DischargingArgument:
         # list all legal combinations of patterns around origin
         i = 0
         for node in self.sym_nodes:
-            for (orig_val, surr) in self.surroundings(node):#rule_pairs=[p[:2] for p in send if p[2] != False]):
+            for (orig_val, surr) in self.surroundings(node, rules=[p[:3] for p in send if p[3] != False]):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -1018,7 +1138,7 @@ class DischargingArgument:
                     summa += self.weights[orig_val]
                     constr = summa >= self.bound
                 else:
-                    constr = summe >= 0
+                    constr = summa >= 0
                 #print("constr", constr)
                 #if constr == False:
                 #    raise GriddyRuntimeError("Unable to optimize invalid discharging argument")
