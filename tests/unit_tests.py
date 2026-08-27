@@ -817,8 +817,11 @@ unit_tests.append(("sofic from regexp", code))
 code = """
 %SFT x Ao #p[o:1] p=1 >= 2
 %density_lower_bound x (1,0) (0,1); (0,0) (0,1) (1,0) (0,-1) (-1,0)
-%density_lower_bound x [[(1,0)] [(0,0) (0,1) (1,0)]] [[(0,1)] [(0,0) (0,-1) (-1,0)]]
-%density_lower_bound x [(1,0)] [(0,0) (0,1) (1,0)]; [(0,1)] [(0,0) (0,-1) (-1,0)]
+%nodes a b
+%SFT y ACo (o.a=1 -> o.b=1) & (o.a=0 -> o.(1,0).a=1 | o.(0,1).b=1)
+%density_lower_bound y
+a (1,0;a) (0,1;a); (0,0;a) (0,0;b) (1,0;a) (1,0;b) (0,1;a) (0,1;b)
+b (0,-1;a); (0,0;b) (0,-1;a)
 """
 unit_tests.append(("density linear program syntax", code))
 
@@ -1122,6 +1125,31 @@ code = """
 %equal expect=T d d2
 """
 unit_tests.append(("Node and numeric lets", code))
+
+code = """
+%sft a Ao o=1 -> o.rt=1
+%transform a2 rot90 a
+%sft b Ao o=1 -> o.up=1
+%equal a2 b expect=T
+%sft c Ao o=o.up=o.rt
+%closure_under_autos a3 a rot90
+%equal expect=T a3 c
+"""
+unit_tests.append(("Built-in symmetries", code))
+
+code = """
+%alphabet 0 1 2 3
+%sft a Ao o=3 -> o.rt=1 & o.up=2
+%affine_automorphism t matrix=[[1 1] [-1 0]]
+%transform a2 t a
+%sft b Ao o=3 -> o.dn.rt=1 & o.rt=2
+%equal expect=T a2 b
+%affine_automorphism t2 examples={(0,0):(0,0) (1,0):(1,-1) (0,1):(1,0)}
+%transform a3 t2 a
+%equal expect=T a3 b
+"""
+unit_tests.append(("Custom automorphisms", code))
+
 
 
 
