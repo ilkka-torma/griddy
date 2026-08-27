@@ -783,7 +783,7 @@ class DischargingArgument:
             if same_bound:
                 # rule was not needed
                 rule_triples = [(source, fpat, nvec)
-                                for (source, fpat, nvec) in rule_pairs[num_removed:]
+                                for (source, fpat, nvec) in rule_triples[num_removed:]
                                 if fpat in self.trans_rules[source]
                                 if nvec in self.trans_rules[source][fpat]]
                 if save_rules is not None:

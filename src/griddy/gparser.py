@@ -385,13 +385,13 @@ class GriddyTransformer(Transformer_NonRecursive):
         return (qtype, var, finset, formula)
 
     def set_short_ball(self, finset):
-        return ("SET_BALL", [], finset[1], ("SET_LITERAL", [finset[0]]))
+        return ("SET_BALL", (), finset[1], ("SET_LITERAL", (finset[0],)))
 
     def set_literal(self, nodes):
-        return ("SET_LITERAL", nodes)
+        return ("SET_LITERAL", tuple(nodes))
 
     def set_node_nhood(self, args):
-        return ("SET_NHOOD", args[0], ("SET_LITERAL", [args[1]]))
+        return ("SET_NHOOD", args[0], ("SET_LITERAL", (args[1],)))
 
     def set_set_nhood(self, args):
         return ("SET_NHOOD", args[0], args[1])
@@ -401,7 +401,7 @@ class GriddyTransformer(Transformer_NonRecursive):
             ball = "SET_BALL"
         elif args[0] == "S":
             ball = "SET_SPHERE"
-        return (ball, args[1], args[2], ("SET_LITERAL", [args[3]]))
+        return (ball, args[1], args[2], ("SET_LITERAL", (args[3],)))
 
     def set_set_ball(self, args):
         if args[0] == "B":
@@ -419,7 +419,7 @@ class GriddyTransformer(Transformer_NonRecursive):
                 ret.append("POSITIVE")
             if item == "n":
                 ret.append("NEGATIVE")
-        return ret
+        return tuple(ret)
 
     def set_diff(self, args):
         return ("SETMINUS", *args)

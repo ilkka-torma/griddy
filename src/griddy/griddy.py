@@ -1266,7 +1266,7 @@ class Griddy:
                                 val, typ = compiler.eval_posexpr_to_circ(self.graph, dom_top, dom_nodes, dom_alph, self.externals, variables, {}, [], val)
                                 if typ == "list":
                                     for (circ2, (val2, typ2)) in val:
-                                        pairs.append((AND(circ, circ2), val2))
+                                        pairs.append((circuit.AND(circ, circ2), val2))
                                 else:
                                     # circuits
                                     pairs.append((circ, val))
@@ -1310,7 +1310,7 @@ class Griddy:
             elif cmd == "compose":
                 name = args[0]
                 composands = args[1]
-                if mode != "silent": print("Composing block maps %s." % composands)#, self.CAs)
+                if mode != "silent": print("Composing block maps %s." % [str(c) for c in composands])#, self.CAs)
                 """
                 result_CA = self.CAs[composands[1]]
                 for name in composands[2:]:

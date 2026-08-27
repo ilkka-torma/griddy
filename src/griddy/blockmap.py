@@ -1,7 +1,7 @@
 from circuit import *
 from mocircuits import *
 from general import *
-from sft import *
+import sft
 from alphabet import node_constraints
 import time
 
@@ -554,7 +554,7 @@ class BlockMap:
             #print(bm_circ.get_variables())
             transform(bm_circ, lambda var2: (vadd(vec, var2[0]),) + var2[1:])
             substitute(sft_circ, var, bm_circ)
-        return SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, self.graph, circuit=sft_circ)
+        return sft.SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, self.graph, circuit=sft_circ)
 
     def relation(self, tracks=None):
         "The relation defining this block map (as an SFT), i.e. its graph"

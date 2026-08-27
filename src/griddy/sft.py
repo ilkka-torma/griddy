@@ -1352,7 +1352,7 @@ class SFT:
                     #print("nvec", nvec, "nvars", local_alph.node_vars, "nvals", nvals, "sym", local_alph.model_to_sym(nvals))
                 #print("new_forb", new_forb)
                 if all(forb != new_forb for forb in self.forbs):
-                    print("added new forb", new_forb)
+                    #print("added new forb", new_forb)
                     self.forbs.append(new_forb)
                     new_forb_found = True
             #if not new_forb_found:
