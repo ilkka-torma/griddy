@@ -960,6 +960,14 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables,
             #print("mos")
             res, typ = op_of_circs(op, val1, val2)
 
+    elif expr[0] == "SETNUM":
+        # A numeric let expression -> update variables and recurse
+        var = expr[1]
+        num_circ = numexpr_to_circuit(graph, topology, nodes, alphabet, expr[2], variables, subst, externals, global_restr)
+        variables_new = dict(variables)
+        variables_new[var] = num_circ
+        res, typ = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables_new, subst, global_restr, expr[3])
+
     else:
         # Check if we have a position
         # horrible hack

@@ -56,11 +56,8 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "set_weights" cmd_opts dict_pair_of{node_name, fraction} (cmd_opts dict_pair_of{node_name, fraction})* cmd_opts -> cmd_set_weights_open
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts -> cmd_density_bound_single_default
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{list_of{vector}} cmd_dlb_opts -> cmd_density_bound_multi_default
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts vector (cmd_opts vector)* /;/ cmd_dlb_opts vector (cmd_dlb_opts vector)* cmd_dlb_opts -> cmd_density_bound_single_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts (list_of{list_of{vector}} cmd_dlb_opts)+ -> cmd_density_bound_multi_open
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} (";" cmd_dlb_opts list_of{vector} cmd_dlb_opts list_of{vector} cmd_dlb_opts)* -> cmd_density_bound_multi_open_open
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"? -> cmd_density_bound_single
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts ";"? (node_name ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"?)+ -> cmd_density_bound_multi
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
@@ -108,6 +105,10 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "destroy_circuit_store" cmd_opts -> cmd_destroy_circuit_store
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts list_of{vector} cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open
        | "polyomino_sft" cmd_polyomino_opts STRICT_LABEL cmd_polyomino_opts (LABEL cmd_polyomino_opts (vector cmd_polyomino_opts)* cmd_polyomino_opts ";"?)+ -> cmd_polyomino_sft_open_open
+       | "transform" STRICT_LABEL STRICT_LABEL STRICT_LABEL -> cmd_transform
+       | ("affine_automorphism" | "aff_aut") cmd_aff_aut_opts STRICT_LABEL cmd_aff_aut_opts -> cmd_aff_aut
+       | "closure_under_autos" STRICT_LABEL STRICT_LABEL list_of{STRICT_LABEL} -> cmd_closure_autos_closed
+       | "closure_under_autos" STRICT_LABEL STRICT_LABEL STRICT_LABEL* -> cmd_closure_autos_open
 
 top_edge: LABEL vector~1..3
 
@@ -135,16 +136,23 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /load_constr/ "=" LABEL
               | /save_rules/ "=" LABEL
               | /load_rules/ "=" LABEL
+              | /forbid_excess/ "=" STRICT_LABEL
+              | /save_excess/ "=" LABEL
               | /simp_mode/ "=" LABEL
               | /trim_mode/ "=" LABEL
               | "@" (/simplify/ | /rationalize/ | /trim_rules/ | /trim_final_rules/ | /trim_initial_rules/ | /rationalize_intermediates/ | /minimize_all/ | /verbose/ | /show_rules/ )
               | /solver/ "=" LABEL
               | /print_freq/ "=" NAT
               | /expect/ "=" fraction
-              | /relevant_nodes/ "=" list_of{node_name} )*
+              | /relevant_nodes/ "=" list_of{node_name}
+              | /symmetries/ "=" list_of{STRICT_LABEL})*
 cmd_polyomino_opts: ( /null/ "=" LABEL
                     | /onesided/ "=" list_of{NAT}
                     | /encoding/ "=" LABEL )*
+cmd_aff_aut_opts: ( /matrix/ "=" list_of{list_of{INT}}
+                  | /node_map/ "=" dict_of{node_name, node_name}
+                  | /shift/ "=" (dict_of{node_name, vector} | vector)
+                  | /examples/ "=" dict_of{vector, vector} )*
               
 
 ### FORMULA GRAMMAR
@@ -377,13 +385,13 @@ class GriddyTransformer(Transformer_NonRecursive):
         return (qtype, var, finset, formula)
 
     def set_short_ball(self, finset):
-        return ("SET_BALL", [], finset[1], ("SET_LITERAL", [finset[0]]))
+        return ("SET_BALL", (), finset[1], ("SET_LITERAL", (finset[0],)))
 
     def set_literal(self, nodes):
-        return ("SET_LITERAL", nodes)
+        return ("SET_LITERAL", tuple(nodes))
 
     def set_node_nhood(self, args):
-        return ("SET_NHOOD", args[0], ("SET_LITERAL", [args[1]]))
+        return ("SET_NHOOD", args[0], ("SET_LITERAL", (args[1],)))
 
     def set_set_nhood(self, args):
         return ("SET_NHOOD", args[0], args[1])
@@ -393,7 +401,7 @@ class GriddyTransformer(Transformer_NonRecursive):
             ball = "SET_BALL"
         elif args[0] == "S":
             ball = "SET_SPHERE"
-        return (ball, args[1], args[2], ("SET_LITERAL", [args[3]]))
+        return (ball, args[1], args[2], ("SET_LITERAL", (args[3],)))
 
     def set_set_ball(self, args):
         if args[0] == "B":
@@ -411,7 +419,7 @@ class GriddyTransformer(Transformer_NonRecursive):
                 ret.append("POSITIVE")
             if item == "n":
                 ret.append("NEGATIVE")
-        return ret
+        return tuple(ret)
 
     def set_diff(self, args):
         return ("SETMINUS", *args)
@@ -855,11 +863,46 @@ class GriddyTransformer(Transformer_NonRecursive):
         (name, pos_args, opts, flags) = self.cmd_default("minimum_density", args)
         return (name, [pos_args[0], pos_args[1:]], opts, flags)
 
-    def cmd_density_bound_single_default(self, args):
-        return self.cmd_default("density_lower_bound", args)
+    def cmd_density_bound_single(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label = pos_args.pop(0)
+        trans_nvecs = []
+        while pos_args:
+            arg = pos_args.pop(0)
+            if arg == ";":
+                break
+            else:
+                trans_nvecs.append(arg)
+        nhood_nvecs = pos_args
+        return (name, [label, {() : [(nvec, nhood_nvecs) for nvec in trans_nvecs]}], opts, flags)
 
-    def cmd_density_bound_multi_default(self, args):
-        return self.cmd_default("density_lower_bound", args)
+    def cmd_density_bound_multi(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
+        label = pos_args.pop(0)
+        specs = dict()
+        arg = pos_args.pop(0)
+        while pos_args:
+            node_name = arg
+            trans_nvecs = []
+            while pos_args:
+                arg = pos_args.pop(0)
+                if arg == ";":
+                    break
+                else:
+                    trans_nvecs.append(arg)
+            nhood_nvecs = []
+            while pos_args:
+                arg = pos_args.pop(0)
+                if isinstance(arg[0], str):
+                    # we read a node name
+                    break
+                else:
+                    nhood_nvecs.append(arg)
+            if node_name not in specs:
+                specs[node_name] = []
+            for tr_nvec in trans_nvecs:
+                specs[node_name].append((tr_nvec, nhood_nvecs))
+        return (name, [label, specs], opts, flags)
 
     def cmd_density_bound_single_open(self, args):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
@@ -1069,6 +1112,26 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def cmd_destroy_circuit_store(self, args):
         return self.cmd_default("destroy_circuit_store", args)
+
+    def cmd_transform(self, args):
+        return self.cmd_default("transform", args)
+
+    def cmd_closure_autos_closed(self, args):
+        return self.cmd_default("closure_under_autos", args)
+
+    def cmd_closure_autos_open(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("closure_under_autos", args)
+        return (name, [pos_args[0], pos_args[1], pos_args[2:]], opts, flags)
+
+    def cmd_aff_aut(self, args):
+        return self.cmd_default("affine_automorphism", args)
+
+    def cmd_aff_aut_opts(self, items):
+        opts = []
+        while items:
+            opts.append(tuple(items[:2]))
+            items = items[2:]
+        return Opts(opts)
 
     def start(self, cmds):
         return list(cmds)

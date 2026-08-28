@@ -1,7 +1,7 @@
 from circuit import *
 from mocircuits import *
 from general import *
-from sft import *
+import sft
 from alphabet import node_constraints
 import time
 
@@ -554,7 +554,7 @@ class BlockMap:
             #print(bm_circ.get_variables())
             transform(bm_circ, lambda var2: (vadd(vec, var2[0]),) + var2[1:])
             substitute(sft_circ, var, bm_circ)
-        return SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, self.graph, circuit=sft_circ)
+        return sft.SFT(self.dimension, self.from_nodes, self.from_alphabet, self.from_topology, self.graph, circuit=sft_circ)
 
     def relation(self, tracks=None):
         "The relation defining this block map (as an SFT), i.e. its graph"
@@ -565,7 +565,7 @@ class BlockMap:
         cod_alph = self.to_alphabet
         cod_nodes = self.to_nodes
         dim = self.dimension
-        nodes = Nodes({tr:nodes for (tr, nodes) in zip(tracks, (dom_nodes, cod_nodes))})
+        nodes = sft.Nodes({tr:nodes for (tr, nodes) in zip(tracks, (dom_nodes, cod_nodes))})
         alph = {(tr,)+node : alph[node]
                 for (tr, nodes, alph) in zip(tracks, (dom_nodes, cod_nodes), (dom_alph, cod_alph))
                 for node in nodes}
@@ -595,7 +595,7 @@ class BlockMap:
                 topology.append(t[:2] + tuple(((tr,) + n) for n in t[2:]))
         #print(topology)
         
-        return SFT(dim, nodes, alph, topology, self.graph, circuit=AND(*anded))
+        return sft.SFT(dim, nodes, alph, topology, self.graph, circuit=AND(*anded))
 
     def is_CA(self):
         return self.to_alphabet == self.from_alphabet and self.to_nodes == self.from_nodes # and self.to_topology == self.from_topology
@@ -613,7 +613,7 @@ class BlockMap:
             in_vars = [V(((0,)*dim, node, l)) for l in alph[node].node_vars]
             out_vars = [self.circuits[node, l].copy() for l in alph[node].node_vars]
             anded.append(alph[node].node_eq_node(in_vars, out_vars))
-        return SFT(dim, nodes, alph, self.from_topology, self.graph, circuit=AND(*anded))
+        return sft.SFT(dim, nodes, alph, self.from_topology, self.graph, circuit=AND(*anded))
 
     def spacetime_diagram(self, onesided=True, time_axis=None):
         "The SFT of spacetime diagrams of this CA"
@@ -647,7 +647,7 @@ class BlockMap:
             topology.append(("fut", ((0,)*time_axis + (1,) + (0,)*(dim-time_axis)), n, n))
             topology.append(("past", ((0,)*time_axis + (-1,) + (0,)*(dim-time_axis)), n, n))
             
-        return SFT(dim+1, nodes, alph, topology, self.graph, circuit=AND(*anded), onesided=[time_axis] if onesided else [])
+        return sft.SFT(dim+1, nodes, alph, topology, self.graph, circuit=AND(*anded), onesided=[time_axis] if onesided else [])
 
     def get_neighborhood(self, only_cells):
         if not only_cells:

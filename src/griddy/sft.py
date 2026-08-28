@@ -3,6 +3,7 @@ from circuit import *
 from configuration import *
 from itertools import chain
 from alphabet import node_constraints
+from node_automorphism import AffineAutomorphism
 import automatic_conf
 import graphs
 
@@ -1147,10 +1148,21 @@ class SFT:
             yield pat
     
     # domain is a collection of nodevectors
-    def all_patterns(self, domain, existing=None, extra_rad=0):
+    # if mod_symmetries are given, only generate one pattern in each equivalence class
+    # mod_symmetries is assumed to be a finite group
+    def all_patterns(self, domain, existing=None, extra_rad=0, mod_symmetries=None):
 
         if existing is None:
             existing = dict()
+        id_sym = AffineAutomorphism(dim=self.dim, nodes=self.nodes)
+        if mod_symmetries is None:
+            mod_symmetries = [id_sym]
+        domain = list(domain)
+        nontriv_symmetries = []
+        for aut in mod_symmetries:
+            if aut != id_sym and set(domain) == {aut(nvec) for nvec in domain} and aut not in nontriv_symmetries:
+                nontriv_symmetries.append(aut)
+            
 
         #print("domain", domain)
         
@@ -1179,9 +1191,28 @@ class SFT:
         #for c in circuits:
         #    print (c.get_variables())
 
+        # add constraints that pick the lex minimal pattern from each orbit
+        same_so_far = [T for _ in nontriv_symmetries]
+        greater = [F for _ in nontriv_symmetries]
+        for nvec in domain:
+            node_alph = self.alph[nvec[1]]
+            nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+            new_same = []
+            new_gt = []
+            for (aut, same, greater) in zip(nontriv_symmetries, same_so_far, greater):
+                img = aut(nvec)
+                # img must have the same alphabet since we have an automorphism
+                img_nvars = [V(img+(l,)) for l in node_alph.node_vars]
+                new_gt.append(OR(greater, AND(same, NOT(node_alph.node_leq_node(nvars, img_nvars)))))
+                new_same.append(AND(same, node_alph.node_eq_node(nvars, img_nvars)))
+            same_so_far = new_same
+            greater = new_gt
+        circuits.append(AND(*(NOT(gt) for gt in greater)))
+
         circuits.append(node_constraints(self.alph)(circuits))
 
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in domain for l in self.alph[nvec[1]].node_vars]):
+            #print("model", model)
             pat = dict()
             for nvec in domain:
                 node_alph = self.alph[nvec[1]]
@@ -1211,7 +1242,7 @@ class SFT:
                 anded.append(OR(*ored))
             self.circuit = AND(*anded)
 
-    def deduce_forbs(self, domain=None):
+    def deduce_forbs(self, domain=None, cap=None):
         self.forbs = []
         self.deduce_forbs_(domain)
         # deduce forbs gives the forbs with true/false variables,
@@ -1321,7 +1352,7 @@ class SFT:
                     #print("nvec", nvec, "nvars", local_alph.node_vars, "nvals", nvals, "sym", local_alph.model_to_sym(nvals))
                 #print("new_forb", new_forb)
                 if all(forb != new_forb for forb in self.forbs):
-                    #print("added")
+                    #print("added new forb", new_forb)
                     self.forbs.append(new_forb)
                     new_forb_found = True
             #if not new_forb_found:

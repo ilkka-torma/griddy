@@ -26,6 +26,7 @@ import finite_automata
 import configuration
 import circuit
 import abstract_SAT_simplify
+import node_automorphism
 
 import period_automaton
 import density_linear_program
@@ -72,6 +73,7 @@ class Griddy:
                          for node in self.nodes}
         self.dim = 2
         self.topology = grid
+        self.automorphisms = grid_symmetries
         self.graph = graphs.AbelianGroup([0,1]) #None
         #self.tiler_skew = 1 # actually skew is completely useless
         self.tiler_gridmoves = [(1,0), (0,1)]
@@ -123,7 +125,7 @@ class Griddy:
             if mode == "assert" or mode == "silent":
                 raise Exception("Parse error")
             return None
-        #print (parsed)
+        #print ("parsed", parsed)
         #a = bbb
         for parsed_line in parsed:
             cmd, args, kwds, flags = parsed_line
@@ -236,6 +238,7 @@ class Griddy:
                 if top in ["line"]:
                     self.dim = 1
                     self.topology = line
+                    self.automorphisms = line_symmetries
                     self.nodes = sft.Nodes()
                     # only the first will be used
                     self.tiler_gridmoves = [(1, 0), (0, 1)]
@@ -244,6 +247,7 @@ class Griddy:
                 elif top in ["square", "grid", "squaregrid"]:
                     self.dim = 2
                     self.topology = grid
+                    self.automorphisms = grid_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (0,1)]
                     #self.tiler_skew = 1
@@ -251,6 +255,7 @@ class Griddy:
                 elif top in ["hex", "hexgrid"]:
                     self.dim = 2
                     self.topology = hexgrid
+                    self.automorphisms = hex_symmetries
                     # hex grid is currently implemented with nodes, instead of directly as a graph, so we cannot use nodes with it
                     self.nodes = sft.Nodes(['0','1'])
                     self.tiler_gridmoves = [(1,0), (-0.5,0.8)]
@@ -259,6 +264,7 @@ class Griddy:
                 elif top in ["king", "kinggrid"]:
                     self.dim = 2
                     self.topology = kinggrid
+                    self.automorphisms = king_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (0,1)]
                     #self.tiler_skew = 1
@@ -267,6 +273,8 @@ class Griddy:
                     dim = int(top[4:])
                     self.dim = dim                    
                     self.topology = []
+                    # TODO: generate symmetries?
+                    self.automorphisms = {}
                     for w in words(dim, "MZP"):
                         if w != "Z"*dim:
                             v = ()
@@ -282,6 +290,7 @@ class Griddy:
                 elif top in ["triangle", "trianglegrid"]:
                     self.dim = 2
                     self.topology = trianglegrid
+                    self.automorphisms = triangle_symmetries
                     self.nodes = sft.Nodes()
                     self.tiler_gridmoves = [(1,0), (-0.5,0.6)]
                     #self.tiler_skew = 1
@@ -289,12 +298,14 @@ class Griddy:
                 elif top in ["CR"]:
                     self.dim = 2
                     self.topology = CR4d8e2_topology
+                    self.automorphisms = {}
                     self.nodes = CR4d8e2_nodes
                     self.tiler_gridmoves = [(1,0), (-0.5,0.5)]
                     #self.tiler_skew = 1
                     self.tiler_nodeoffsets = {"big" : (0,0), "small" : (0.5,0)}
                 else:
                     self.topology = []
+                    self.automorphisms = {}
                     legacy = None
                     for edge in top:
                         if legacy == None:
@@ -326,7 +337,6 @@ class Griddy:
                 """
                 self.graph = graphs.AbelianGroup(range(self.dim))
                 #print("ki", self.topology)
-                
 
             elif cmd == "save_environment":
                 name = args[0]
@@ -768,6 +778,9 @@ class Griddy:
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
                 relevant_nodes = kwds.get("relevant_nodes", None)
+                symmetries = kwds.get("symmetries", [])
+                symmetries = [self.automorphisms[label] for label in symmetries]
+                symmetries = node_automorphism.AffineAutomorphism.generate_group(symmetries, dim=the_sft.dim, nodes=the_sft.nodes)
                 rad = kwds.get("radius", 0)
                 max_split = kwds.get("max_split", None)
                 max_split_simp = kwds.get("max_split_simp", max_split)
@@ -778,6 +791,8 @@ class Griddy:
                 load_constr = kwds.get("load_constr", None)
                 save_rules = kwds.get("save_rules", None)
                 load_rules = kwds.get("load_rules", None)
+                forbid_excess = kwds.get("forbid_excess", None)
+                save_excess_pats = kwds.get("save_excess_pats", None)
                 simplify = "simplify" in flags
                 simp_mode = kwds.get("simp_mode", "minimize")
                 if simp_mode not in ["minimize", "recompute"]:
@@ -795,15 +810,16 @@ class Griddy:
                 minimize_all = "minimize_all" in flags
                 solver = kwds.get("solver", "CBC")
                 specs = args[1]
+                #print("specs", specs)
                 if not specs:
                     raise Exception("@density_lower_bound requires nonempty specs")
-                if type(specs[0][0]) == tuple:
-                    # single spec
-                    specs = [specs]
-                specs = [(dirs, [self.process_nvec(nvec) for nvec in nhood])
-                         for [dirs, nhood] in specs]
+                specs = {node : [(self.process_nvec(tr_nvec),
+                                  [self.process_nvec(nvec) for nvec in nhood_nvecs])
+                                 for (tr_nvec, nhood_nvecs) in node_specs]
+                         for (node, node_specs) in specs.items()}
+                #print("specs", specs)
                 if add_singletons:
-                    # add all singletons to the specs
+                    # add all singletons to the specs [TODO: update]
                     spec_pairs = {(d, nvec)
                                   for (dirs, nvecs) in specs
                                   for d in dirs
@@ -814,9 +830,9 @@ class Griddy:
                 verb = "verbose" in flags
                 show_rules = "show_rules" in flags
                 if mode != "silent":
-                    print("Computing lower bound for density in {} using specs {} and additional radius {}".format(sft_name, specs, rad))
+                    print("Computing lower bound for density in {}".format(sft_name))
 
-                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes)
+                disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes, symmetries=symmetries)
                 if load_rules is None:
                     disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
                 else:
@@ -826,19 +842,22 @@ class Griddy:
                     disc_arg.update_specs()
                     
                 if simplify:
-                    if save_rules is not None:
-                        if verb:
-                            print("Saving intermediate rules...", end='')
-                        disc_arg.save_transfer_rules(save_rules)
-                        if verb:
-                            print(" done")
+                    if load_rules is None:
+                        if rationalize_intermediates:
+                            disc_arg.try_rationalize(verbose=verb)
+                        if save_rules is not None:
+                            if verb:
+                                print("Saving intermediate rules...", end='')
+                            disc_arg.save_transfer_rules(save_rules)
+                            if verb:
+                                print(" done")
                     if verb:
                         print("Simplifying rules")
                     simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules or trim_initial)
                     while not simplifier.is_finished():
+                        simplifier.step(verbose=verb, print_freq=print_freq)
                         if rationalize_intermediates:
                             disc_arg.try_rationalize(verbose=verb)
-                        simplifier.step(verbose=verb, print_freq=print_freq)
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
@@ -851,11 +870,12 @@ class Griddy:
                             
                 if show_rules:
                     if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
-                    for (fr_pat, amounts) in sorted(disc_arg.trans_rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
-                        if amounts:
-                            if mode != "silent": print("on {}:".format(dict(fr_pat)))
-                            for (vec, amount) in sorted(amounts.items()):
-                                if amount and mode != "silent": print("  send {} to {}".format(amount, vec))
+                    for (node, rules) in disc_arg.trans_rules.items():
+                        for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
+                            if amounts:
+                                if mode != "silent": print("on {}:".format(dict(fr_pat)))
+                                for (nvec, amount) in sorted(amounts.items()):
+                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, node, nvec))
                 elif mode != "silent":
                     print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:
@@ -864,6 +884,19 @@ class Griddy:
                     disc_arg.save_transfer_rules(save_rules)
                     if verb:
                         print(" done")
+                        
+                if forbid_excess is not None or save_excess_pats is not None:
+                    _, excess_pats = disc_arg.is_valid(ret_excess=True)
+                    if verb:
+                        print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
+                        #for p in excess_pats: print(p)
+                    if forbid_excess is not None:
+                        no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
+                        self.SFTs[forbid_excess] = sft.intersection(the_sft, no_excess)
+                    if save_excess_pats is not None:
+                        with open(save_excess_pats+".output", 'w') as f:
+                            f.write(str(excess_pats))
+                            
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
                     if mode != "silent": print(disc_arg.bound, "=", expect)
@@ -1038,7 +1071,11 @@ class Griddy:
                     aut1 = self.automata[name1]
                     aut2 = self.automata[name2]
                     report_aut_equal((name1, aut1), (name2, aut2), mode=mode, truth=expect, verbose=verb)
-                
+                elif name1 in self.automorphisms and name2 in self.automorphisms:
+                    aut1 = self.automorphisms[name1]
+                    aut2 = self.automorphisms[name2]
+                    report_automorphisms_equal((name1, aut1), (name2, aut2), mode=mode, truth=expect, verbose=verb)
+                    
                 else:
                     raise Exception("%s and %s are not comparable." % (name1, name2))
                 
@@ -1109,6 +1146,7 @@ class Griddy:
                 name = args[0]
                 the_sft = self.SFTs[name]
                 rad = kwds.get("radius", 0)
+                approx_name, cap = kwds.get("approximation", (None, None))
                 filename = kwds.get("filename", None)
                 save_msg = " into {}.output".format(filename) if filename is not None else ""
                 if mode == "report":
@@ -1118,7 +1156,7 @@ class Griddy:
                         if mode != "silent": print("Computing forbidden patterns for {}{} using radius {}.".format(name, save_msg, rad))
                     if the_sft.forbs is not None:
                         if mode != "silent": print("It already had forbidden patterns; overwriting them.")
-                the_sft.deduce_forbs(rad)
+                the_sft.deduce_forbs(rad, cap=cap)
                 if mode != "silent": print("Found {} patterns.".format(len(the_sft.forbs)))
                 if "verbose" in flags:
                     for f in the_sft.forbs:
@@ -1127,17 +1165,26 @@ class Griddy:
                 if filename is not None:
                     with open(filename+".output", 'w') as f:
                         f.write(str(the_sft.forbs))
+
+                if cap is not None:
+                    approx_sft = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, forbs=the_sft.forbs)
+                    if len(the_sft.forbs) == cap:
+                        the_sft.forbs = None
                         
             elif cmd == "load_forbidden_patterns":
                 sft_name = args[0]
-                the_sft = self.SFTs[sft_name]
                 filename = args[1]
+                onesided = kwds.get("onesided", [])
                 if mode == "report":
                     if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
                 with open(filename+".output", 'r') as f:
                     contents = f.read()
                 forbs = eval(contents)
-                the_sft.forbs = forbs
+                try:
+                    the_sft = self.SFTs[sft_name]
+                    the_sft.forbs = forbs
+                except KeyError:
+                    the_sft = sft.SFT(self.dim, self.nodes, self.alph, self.topology, self.grahp, forbs=forbs, onesided=onesided)
 
             elif cmd == "set_weights":
                 self.weights = {arg[0] : w for (arg, w) in args[0].items()}
@@ -1223,7 +1270,7 @@ class Griddy:
                                 val, typ = compiler.eval_posexpr_to_circ(self.graph, dom_top, dom_nodes, dom_alph, self.externals, variables, {}, [], val)
                                 if typ == "list":
                                     for (circ2, (val2, typ2)) in val:
-                                        pairs.append((AND(circ, circ2), val2))
+                                        pairs.append((circuit.AND(circ, circ2), val2))
                                 else:
                                     # circuits
                                     pairs.append((circ, val))
@@ -1267,7 +1314,7 @@ class Griddy:
             elif cmd == "compose":
                 name = args[0]
                 composands = args[1]
-                if mode != "silent": print("Composing block maps %s." % composands)#, self.CAs)
+                if mode != "silent": print("Composing block maps %s." % [str(c) for c in composands])#, self.CAs)
                 """
                 result_CA = self.CAs[composands[1]]
                 for name in composands[2:]:
@@ -1491,6 +1538,59 @@ class Griddy:
                     self.destroy_store()
                 else:
                     print("Add the @imsure flag to actually destroy the circuit store.")
+
+            elif cmd == "transform":
+                name, aut_name, arg_name = args
+                try:
+                    the_sft = self.SFTs[arg_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No set named {}".format(arg_name))
+                try:
+                    aut = self.automorphisms[aut_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No automorphism named {}".format(aut_name))
+                self.SFTs[name] = aut(the_sft)
+
+            elif cmd == "closure_under_autos":
+                name, arg_name, aut_names = args
+                try:
+                    the_sft = self.SFTs[arg_name]
+                except KeyError:
+                    raise GriddyRuntimeError("No set named {}".format(arg_name))
+                if isinstance(aut_names, str):
+                    aut_names = [aut_names]
+                auts = []
+                for aut_name in aut_names:
+                    try:
+                        auts.append(self.automorphisms[aut_name])
+                    except KeyError:
+                        raise GriddyRuntimeError("No automorphism named {}".format(aut_name))
+                group = node_automorphism.AffineAutomorphism.generate_group(auts)
+                self.SFTs[name] = sft.intersection(*(aut(the_sft) for aut in group))
+                    
+
+            elif cmd == "affine_automorphism":
+                name = args[0]
+                matrix = kwds.get("matrix", None)
+                node_map = kwds.get("node_map", None)
+                vectors = kwds.get("shift", None)
+                examples = kwds.get("examples", None)
+                if type(vectors) == tuple:
+                    # single vector for unnamed node
+                    vectors = {node : vectors for node in self.nodes}
+                if examples is not None:
+                    examples = {self.process_nvec(nvec) : self.process_nvec(img)
+                                for (nvec, img) in examples.items()}
+                    aut = node_automorphism.AffineAutomorphism.from_examples(examples, nodes=self.nodes)
+                    # TODO: check that aut aligns with other data if given
+                    self.automorphisms[name] = aut
+                else:
+                    self.automorphisms[name] = node_automorphism.AffineAutomorphism(
+                        dim=self.dim,
+                        matrix=matrix,
+                        node_map=node_map,
+                        vectors=vectors)
+                
                                         
             elif mode == "report":
                 raise Exception("Unknown command %s." % cmd)
@@ -1897,6 +1997,20 @@ def report_aut_equal(a, b, mode="report", truth=True, verbose=False): # verbose 
         print(res, "=", (truth == "T"))
         assert res == (truth == "T")
 
+def report_automorphisms_equal(a, b, mode="report", truth=True, verbose=False): # verbose does nothing here
+    aname, aaut = a
+    bname, baut = b
+    res = aaut == baut
+    if mode != "silent":
+        if res:
+            print("Automorphisms {} and {} are EQUAL.".format(aname, bname))
+        else:
+            print("Automorphisms {} and {} are DIFFERENT.".format(aname, bname))
+        print()
+    if mode == "assert":
+        print(res, "=", (truth == "T"))
+        assert res == (truth == "T")
+
 def fix_filename(filename):
     if "." not in filename:
         return filename + ".griddy"
@@ -1927,11 +2041,26 @@ def modernize_topology(topology, dim = None):
 line = [("rt", (0,()), (1,())),
         ("lt", (0,()), (-1,()))]
 line = modernize_topology(line)
+line_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=1),
+    "flip" : node_automorphism.AffineAutomorphism(matrix=[[-1]])
+}
+
 grid = [("up", (0,0,()), (0,1,())),
         ("dn", (0,0,()), (0,-1,())),
         ("rt", (0,0,()), (1,0,())),
         ("lt", (0,0,()), (-1,0,()))]
 grid = modernize_topology(grid)
+grid_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2),
+    "rot90" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[1,0]]),
+    "rot180" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,-1]]),
+    "rot270" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[-1,0]]),
+    "refl0" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,1]]),
+    "refl90" : node_automorphism.AffineAutomorphism(matrix=[[1,0],[0,-1]]),
+    "refl45" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[1,0]]),
+    "refl135" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[-1,0]])
+}
 
 """
 hexgrid = [("up", (0,0,0), (0,1,1)),
@@ -1948,6 +2077,50 @@ hexgrid = [("N", (0,0,('0',)), (0,1,('1',))),
            ("nE", (0,0,('1',)), (1,0,('0',))),
            ("nW", (0,0,('1',)), (0,0,('0',)))]
 hexgrid = modernize_topology(hexgrid)
+hex_nodes = sft.Nodes(['0', '1'])
+# symmetries are centered on the face between (0,0) and (1,1)
+hex_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2, nodes=hex_nodes),
+    "rot60" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,-1],[1,0]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,0), ('1',) : (1,0)}),
+    "rot120" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,-1],[1,-1]],
+        vectors={('0',) : (1,0), ('1',) : (1,1)}),
+    "rot180" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,0],[0,-1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (1,1), ('1',) : (1,1)}),
+    "rot240" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,1],[-1,0]],
+        vectors={('0',) : (1,1), ('1',) : (0,1)}),
+    "rot300" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,1],[-1,1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,1), ('1',) : (0,0)}),
+    "refl0" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,-1],[0,-1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,1), ('1',) : (1,1)}),
+    "refl30" : node_automorphism.AffineAutomorphism(
+        matrix=[[1,0],[1,-1]],
+        vectors={('0',) : (0,0), ('1',) : (0,1)}),
+    "refl60" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,1],[1,0]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (0,0), ('1',) : (0,0)}),
+    "refl90" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,1],[0,1]],
+        vectors={('0',) : (1,0), ('1',) : (0,0)}),
+    "refl120" : node_automorphism.AffineAutomorphism(
+        matrix=[[-1,0],[-1,1]],
+        node_map={('0',) : ('1',), ('1',) : ('0',)},
+        vectors={('0',) : (1,1), ('1',) : (1,0)}),
+    "refl150" : node_automorphism.AffineAutomorphism(
+        matrix=[[0,-1],[-1,0]],
+        vectors={('0',) : (1,1), ('1',) : (1,1)})
+}
 
 kinggrid = [("E", (0,0,()), (1,0,())),
             ("NW", (0,0,()), (1,1,())),
@@ -1957,14 +2130,30 @@ kinggrid = [("E", (0,0,()), (1,0,())),
             ("SW", (0,0,()), (-1,-1,())),
             ("S", (0,0,()), (0,-1,())),
             ("SE", (0,0,()), (1,-1,()))]
-kinggrid = modernize_topology(kinggrid)           
+kinggrid = modernize_topology(kinggrid)
+king_symmetries = grid_symmetries
+
 trianglegrid = [("E", (0,0,()), (1,0,())),
             ("Ne", (0,0,()), (1,1,())),
             ("Nw", (0,0,()), (0,1,())),
             ("W", (0,0,()), (-1,0,())),
             ("Sw", (0,0,()), (-1,-1,())),
             ("Se", (0,0,()), (0,-1,()))]
-trianglegrid = modernize_topology(trianglegrid) 
+trianglegrid = modernize_topology(trianglegrid)
+triangle_symmetries = {
+    "id" : node_automorphism.AffineAutomorphism(dim=2),
+    "rot60" : node_automorphism.AffineAutomorphism(matrix=[[1,-1],[1,0]]),
+    "rot120" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[1,-1]]),
+    "rot180" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[0,-1]]),
+    "rot240" : node_automorphism.AffineAutomorphism(matrix=[[-1,1],[-1,0]]),
+    "rot300" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[-1,1]]),
+    "refl0" : node_automorphism.AffineAutomorphism(matrix=[[1,-1],[0,-1]]),
+    "refl30" : node_automorphism.AffineAutomorphism(matrix=[[1,0],[1,-1]]),
+    "refl60" : node_automorphism.AffineAutomorphism(matrix=[[0,1],[1,0]]),
+    "refl90" : node_automorphism.AffineAutomorphism(matrix=[[-1,1],[0,-1]]),
+    "refl120" : node_automorphism.AffineAutomorphism(matrix=[[-1,0],[-1,1]]),
+    "refl150" : node_automorphism.AffineAutomorphism(matrix=[[0,-1],[-1,0]])
+}
 
 Wang_nodes = ["E", "N", "W", "S"]
 Wang_topology = [("up", (0,0,"N"), (0,1,"S")),
@@ -1988,7 +2177,7 @@ CR4d8e2_topology = [('N', (0, 0, 'big'), (0, 1, 'small')),
                     ('E', (0, 0, 'small'), (1, 0, 'big')),
                     ('S', (0, 0, 'small'), (0, -1, 'big')),
                     ('W', (0, 0, 'small'), (0, 0, 'big'))]
-CR4d8e2_topology = modernize_topology(CR4d8e2_topology)                    
+CR4d8e2_topology = modernize_topology(CR4d8e2_topology)
 
 
 # You can toggle this to run a REPL without sending command line arguments.
