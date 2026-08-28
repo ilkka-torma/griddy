@@ -1147,6 +1147,13 @@ code = """
 %affine_automorphism t2 examples={(0,0):(0,0) (1,0):(1,-1) (0,1):(1,0)}
 %transform a3 t2 a
 %equal expect=T a3 b
+
+%nodes a b
+%affine_automorphism s matrix=[[1 0] [0 1]] shift={a:(0,1) b:(0,-1)} node_map={a:b b:a}
+%affine_automorphism s2 examples={(0,0;a):(0,1;b) (0,1;b):(0,0;a) (1,0;a):(1,1;b) (0,1;a):(0,2;b)}
+%equal expect=T s s2
+%affine_automorphism i
+%equal expect=F s i
 """
 unit_tests.append(("Custom automorphisms", code))
 

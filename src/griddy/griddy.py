@@ -1071,7 +1071,11 @@ class Griddy:
                     aut1 = self.automata[name1]
                     aut2 = self.automata[name2]
                     report_aut_equal((name1, aut1), (name2, aut2), mode=mode, truth=expect, verbose=verb)
-                
+                elif name1 in self.automorphisms and name2 in self.automorphisms:
+                    aut1 = self.automorphisms[name1]
+                    aut2 = self.automorphisms[name2]
+                    report_automorphisms_equal((name1, aut1), (name2, aut2), mode=mode, truth=expect, verbose=verb)
+                    
                 else:
                     raise Exception("%s and %s are not comparable." % (name1, name2))
                 
@@ -1987,6 +1991,20 @@ def report_aut_equal(a, b, mode="report", truth=True, verbose=False): # verbose 
             print("They are EQUAL (time %s)." % (tim))
         else:
             print("They are DIFFERENT (time %s)." % (tim))
+        print()
+    if mode == "assert":
+        print(res, "=", (truth == "T"))
+        assert res == (truth == "T")
+
+def report_automorphisms_equal(a, b, mode="report", truth=True, verbose=False): # verbose does nothing here
+    aname, aaut = a
+    bname, baut = b
+    res = aaut == baut
+    if mode != "silent":
+        if res:
+            print("Automorphisms {} and {} are EQUAL.".format(aname, bname))
+        else:
+            print("Automorphisms {} and {} are DIFFERENT.".format(aname, bname))
         print()
     if mode == "assert":
         print(res, "=", (truth == "T"))
