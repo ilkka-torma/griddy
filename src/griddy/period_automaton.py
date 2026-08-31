@@ -12,6 +12,7 @@ import fractions
 import frozendict as fd
 from sft import *
 from general import *
+import configuration
 
 class CompMode(Enum):
     SQUARE_CYCLE = 0 # don't recompute, use O(n^2) space, return cycle
@@ -207,7 +208,7 @@ class PeriodAutomaton:
         #print("frontier is", self.frontier)
         #print("frontier is", self.node_frontier)
 
-    def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000):
+    def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000, ret_loop=False):
         debug_verbose = False
         if debug_verbose: print("asdf")
         self.s2idict = {}
@@ -233,7 +234,7 @@ class PeriodAutomaton:
         alph = {node:list(self.sft.alph[node]) for node in self.sft.alph}
         processes = [mp.Process(target=populate_worker,
                                 args=(self.pmat, alph, self.border_forbs, self.node_frontier, self.sym_bound, self.rotate,
-                                      task_q, res_q, self.weight_numerators, chunk_size))
+                                      task_q, res_q, self.weight_numerators, chunk_size, ret_loop))
                      for _ in range(num_threads)]
         if debug_verbose: print("processes built")
         for pr in processes:
@@ -244,6 +245,8 @@ class PeriodAutomaton:
             task_q.put([state])
 
         assert len(self.states) == 1 # the above for loop is over singleton
+        if ret_loop:
+            parents = {st : None for st in self.states}
 
         qq = []
         while undone:
@@ -253,7 +256,9 @@ class PeriodAutomaton:
             if type(res) == int: 
                 undone -= res
                 continue
-            for (state, weight, new_state) in res:
+            for (state, sym_or_weight, new_state) in res:
+                if ret_loop:
+                    parents[new_state] = (sym_or_weight, state)
                 if new_state not in self.states:
                     self.states.add(new_state)
                     if report and verbose and (len(self.states) - undone)%report == 0:
@@ -263,22 +268,35 @@ class PeriodAutomaton:
                         task_q.put(qq)
                         undone += len(qq)
                         qq = []
-                        
+
+                elif ret_loop:
+                    # Found loop = periodic configuration, reconstruct and return it
+                    # Loop contains the symbols, starting from state -sym-> new_state
+                    for pr in processes:
+                        pr.terminate()
+                    loop = []
+                    first = True
+                    while first or state != new_state:
+                        first = False
+                        sym, state = parents[state]
+                        loop.append(sym)
+                    return loop
                     
                 state_idx = state_to_idx(state)
                 new_state_idx = state_to_idx(new_state)
-                if state_idx not in self.trans:
-                    self.trans[state_idx] = dict()
-                try:
-                    if self.all_labels:
-                        self.trans[state_idx][new_state_idx].add(weight)
-                    else:
-                        self.trans[state_idx][new_state_idx] = min(self.trans[state_idx][new_state_idx], weight)
-                except KeyError:
-                    if self.all_labels:
-                        self.trans[state_idx][new_state_idx] = set([weight])
-                    else:
-                        self.trans[state_idx][new_state_idx] = weight
+                if not ret_loop:
+                    if state_idx not in self.trans:
+                        self.trans[state_idx] = dict()
+                    try:
+                        if self.all_labels:
+                            self.trans[state_idx][new_state_idx].add(sym_or_weight)
+                        else:
+                            self.trans[state_idx][new_state_idx] = min(self.trans[state_idx][new_state_idx], sym_or_weight)
+                    except KeyError:
+                        if self.all_labels:
+                            self.trans[state_idx][new_state_idx] = set([sym_or_weight])
+                        else:
+                            self.trans[state_idx][new_state_idx] = weight
             if qq != []:
                 task_q.put(qq)
                 undone += len(qq)
@@ -778,6 +796,32 @@ class PeriodAutomaton:
                 raise Exception("bad cycle, no transition")
             s += 1
 
+    def cycle_to_conf(self, cyc):
+        cycpat = dict()
+        for (tr, subpat) in enumerate(cyc):
+            for (nvec, sym) in subpat.items():
+                nvec = (((nvec[0][0]+tr)%len(cyc),) + nvec[0][1:], nvec[1])
+                cycpat[nvec] = sym
+        conf_periods = []
+        for i in reversed(range(1, self.sft.dim)):
+            running_lcm = math.lcm(len(cyc), self.pmat[i-1][i])
+            for (j, per) in enumerate(conf_periods, start=1):
+                running_lcm = math.lcm(running_lcm, per, self.pmat[i-1][self.sft.dim-j])
+            conf_periods.append(running_lcm)
+        conf_periods = [len(cyc)] + conf_periods[::-1]
+        pat = dict()
+        for vec in hyperrect([(0,per) for per in conf_periods]):
+            patvec = vec
+            for i in range(1, self.sft.dim):
+                nper = vec[i]//self.pmat[i-1][i]
+                vec = tuple(a-nper*c for (a,c) in zip(vec, self.pmat[i-1]))
+            #print(vec[0])
+            vec = (vec[0]%len(cyc),) + vec[1:]
+            #print("patvec", patvec, "into vec", vec)
+            for node in self.sft.nodes:
+                pat[(patvec, node)] = cycpat[(vec, node)]
+        return configuration.RecognizableConf(conf_periods, pat, self.sft.nodes)
+                        
 
     def compute_i2sdict(self):
         self.i2sdict = {}
@@ -870,7 +914,7 @@ def border_at(pmat, vec):
     return 0 # TODO: change
 
 def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
-                    rotate, task_queue, res_queue, weights, chunk_size):
+                    rotate, task_queue, res_queue, weights, chunk_size, ret_syms):
     #print("populating", border_forbs)
     numf = len(border_forbs)
     #border_sets = [set(forb) for forb in border_forbs]
@@ -953,7 +997,10 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                                 sym_pairs[ix%(numf//2), tr] = 1 - sym_pairs.get((ix%(numf//2), tr), 0)
                             new_state += 2**(numf*tr + ix)
                     if sym_bound is None or sum(sym_pairs.values()) <= sym_bound:
-                        ret.append((state, weighted_sum(weights, new_front.values()), new_state))
+                        if ret_syms:
+                            ret.append((state, new_front.copy(), new_state))
+                        else:
+                            ret.append((state, weighted_sum(weights, new_front.values()), new_state))
                         if len(ret) >= chunk_size:
                             res_queue.put(ret)
                             ret = []

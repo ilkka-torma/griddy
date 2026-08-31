@@ -109,6 +109,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | ("affine_automorphism" | "aff_aut") cmd_aff_aut_opts STRICT_LABEL cmd_aff_aut_opts -> cmd_aff_aut
        | "closure_under_autos" STRICT_LABEL STRICT_LABEL list_of{STRICT_LABEL} -> cmd_closure_autos_closed
        | "closure_under_autos" STRICT_LABEL STRICT_LABEL STRICT_LABEL* -> cmd_closure_autos_open
+       | "find_periodic_conf" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts (vector cmd_opts)+ -> cmd_find_periodic
 
 top_edge: LABEL vector~1..3
 
@@ -1132,6 +1133,10 @@ class GriddyTransformer(Transformer_NonRecursive):
             opts.append(tuple(items[:2]))
             items = items[2:]
         return Opts(opts)
+
+    def cmd_find_periodic(self, args):
+        (name, pos_args, opts, flags) = self.cmd_default("find_periodic_conf", args)
+        return (name, [pos_args[0], pos_args[1], pos_args[2:]], opts, flags)
 
     def start(self, cmds):
         return list(cmds)

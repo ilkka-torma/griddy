@@ -737,31 +737,7 @@ class Griddy:
                     if conf_name is None:
                         if mode != "silent": print([(nvadd(nvec,(tr,)+(0,)*(the_sft.dim-1)),c) for (tr,pat) in enumerate(cyc) for (nvec,c) in sorted(pat.items())])
                     else:
-                        # TODO: this should be in period_automaton
-                        cycpat = dict()
-                        for (tr, subpat) in enumerate(cyc):
-                            for (nvec, sym) in subpat.items():
-                                nvec = (((nvec[0][0]+tr)%len(cyc),) + nvec[0][1:], nvec[1])
-                                cycpat[nvec] = sym
-                        conf_periods = []
-                        for i in reversed(range(1, the_sft.dim)):
-                            running_lcm = math.lcm(len(cyc), pmat[i-1][i])
-                            for (j, per) in enumerate(conf_periods, start=1):
-                                running_lcm = math.lcm(running_lcm, per, pmat[i-1][the_sft.dim-j])
-                            conf_periods.append(running_lcm)
-                        conf_periods = [len(cyc)] + conf_periods[::-1]
-                        pat = dict()
-                        for vec in hyperrect([(0,per) for per in conf_periods]):
-                            patvec = vec
-                            for i in range(1, the_sft.dim):
-                                nper = vec[i]//pmat[i-1][i]
-                                vec = tuple(a-nper*c for (a,c) in zip(vec, pmat[i-1]))
-                            #print(vec[0])
-                            vec = (vec[0]%len(cyc),) + vec[1:]
-                            #print("patvec", patvec, "into vec", vec)
-                            for node in the_sft.nodes:
-                                pat[(patvec, node)] = cycpat[(vec, node)]
-                        self.confs[conf_name] = configuration.RecognizableConf(conf_periods, pat, the_sft.nodes)
+                        self.confs[conf_name] = min_aut.cycle_to_conf(cyc)
                 else:
                     dens, minlen, _ = min_data
                     if mode != "silent": print("Density", dens/(border_size*min_aut.weight_denominator), "realized by cycle of length", minlen, "in minimized automaton")
@@ -892,7 +868,10 @@ class Griddy:
                         #for p in excess_pats: print(p)
                     if forbid_excess is not None:
                         no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
-                        self.SFTs[forbid_excess] = sft.intersection(the_sft, no_excess)
+                        no_excess = sft.intersection(the_sft, no_excess)
+                        if the_sft.forbs is not None:
+                            no_excess.forbs = list(the_sft.forbs) + list(excess_pats)
+                        self.SFTs[forbid_excess] = no_excess
                     if save_excess_pats is not None:
                         with open(save_excess_pats+".output", 'w') as f:
                             f.write(str(excess_pats))
@@ -930,6 +909,29 @@ class Griddy:
                     conf = automatic_learn.learn_lex_min_gold(struct, the_sft, builder, verbose=verb, print_freq=print_freq, infer_print_freq=infer_print_freq, buffer_rad=buffer_rad, backtrack_depth=backtrack_depth)
                 self.confs[conf_name] = conf
                 if mode != "silent": print("Calculation took", time.time()-tim, "seconds")
+
+            elif cmd == "find_periodic_conf":
+                conf_name = args[0]
+                sft_name = args[1]
+                periods = args[2]
+                threads = kwds.get("threads", 1)
+                chunk_size = kwds.get("chunk_size", 200)
+                print_freq = kwds.get("print_freq", 5000) if (mode != "silent") else 0
+                verb = kwds.get("verbose", False)
+                if mode != "silent":
+                    print("Finding configuration in {} with periods {}".format(sft_name, " ".join(str(vec) for vec in periods)))
+                tim = time.time()
+                aut = period_automaton.PeriodAutomaton(the_sft, periods, verbose=verb)
+                maybe_cyc = aut.populate(verbose=verb, num_threads=threads, ret_loop=True)
+                if maybe_cyc is None:
+                    if mode != "silent":
+                        print("No such configuration")
+                else:
+                    self.confs[conf_name] = aut.cycle_to_conf(maybe_cyc)
+                    if mode != "silent":
+                        print("Configuration saved as {}".format(conf_name))
+                if mode != "silent":
+                    print("Calculation took {} seconds".format(time.time()-tim))
 
             elif cmd == "show_formula" and mode == "report":
                 name = args[0]
