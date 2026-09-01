@@ -52,15 +52,15 @@ class AffineAutomorphism:
             raise GriddyRuntimeError("Affine node automorphism needs matrix of determinant 1 or -1")
         self.inv_matrix = numpy.linalg.inv(self.matrix).astype(int)
         if vectors is None:
-            self.vectors = {node : numpy.zeros((dim, 1)).astype(int)
+            self.vectors = {node : numpy.zeros(dim).astype(int)
                             for node in self.nodes}
         else:
             self.vectors = {node :
-                            numpy.array([[i] for i in vec]).astype(int)
+                            numpy.array(vec).astype(int)
                             if type(vec) == tuple
                             else vec
                             for (node, vec) in vectors.items()}
-        self._hash = hash((tuple(self.matrix.flat), tuple((node, tuple(vec.flat)) for (node, vec) in self.vectors.items()), tuple(self.node_map.items())))
+        self._hash = hash((tuple(int(n) for n in self.matrix.flat), tuple((node, tuple(int(n) for n in vec)) for (node, vec) in sorted(self.vectors.items())), tuple(sorted(self.node_map.items()))))
         #print("made", self.matrix, self.vectors, self.node_map)
 
     @classmethod
@@ -101,7 +101,7 @@ class AffineAutomorphism:
             raise GriddyRuntimeError("Could not deduce affine automorphism: underdetermined")
         #print("dim", dim, "nodes", nodes, "matrix", coeff_matrix, "vec", res_vector)
         try:
-            res = numpy.linalg.lstsq(numpy.array(coeff_matrix), numpy.array(res_vector))
+            res = numpy.linalg.lstsq(coeff_matrix, res_vector)
         except numpy.linalg.LinAlgError:
             raise GriddyRuntimeError("Could not deduce affine automorphism: unsolvable")
         res2 = []
@@ -144,14 +144,13 @@ class AffineAutomorphism:
         if type(arg) == tuple and len(arg) in [2,3]:
             # node vector
             vec, node = arg[:2]
-            vecmat = numpy.array([[i] for i in vec])
             if inv:
                 new_node = self.inv_node_map[node]
-                new_vec = self.inv_matrix @ (vecmat - self.vectors[new_node])
+                new_vec = self.inv_matrix @ (vec - self.vectors[new_node])
                 ret = (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
             else:
-                new_vec = self.matrix @ vecmat + self.vectors[node]
-                ret = (tuple(int(x) for x in new_vec.flat), self.node_map[node]) + arg[2:]
+                new_vec = self.matrix @ vec + self.vectors[node]
+                ret = (tuple(int(x) for x in new_vec), self.node_map[node]) + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
             circuit.transform(circ, lambda var: self(var))
@@ -197,7 +196,7 @@ class AffineAutomorphism:
         img_vec, img_node = self(source)
         if img_node != target[1]:
             return None
-        tr_vec = numpy.array([[i] for i in vsub(target[0], img_vec)]).astype(int)
+        tr_vec = vsub(target[0], img_vec)
         new_vecs = {node : vec + tr_vec for (node, vec) in self.vectors.items()}
         ret = AffineAutomorphism(
             dim=self.dim, nodes=self.nodes, node_map=self.node_map, matrix=self.matrix,

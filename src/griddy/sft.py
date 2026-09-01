@@ -1,3 +1,4 @@
+import frozendict as fd
 from general import *
 from circuit import *
 from configuration import *
@@ -1602,8 +1603,14 @@ def intersection(*sfts):
 
     # since for now SFTs have much more functionality, return them when possible
     if actually_clopens == []:
-        return SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
-                              sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided)
+        ret = SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
+                  sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided)
+        if all(the_sft.forbs is not None for the_sft in actually_sfts):
+            ret.forbs = list(dict(forb) for forb in
+                             set(fd.frozendict(forb)
+                                 for the_sft in actually_sfts
+                                 for forb in the_sft.forbs))
+        return ret
     
     #print(sft_circuit)
     #print(clopen_circuit)

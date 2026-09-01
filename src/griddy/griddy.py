@@ -13,6 +13,7 @@ except ImportError as error:
         
 import sys
 import random
+import ast
 
 from general import *
 
@@ -866,15 +867,16 @@ class Griddy:
                     if verb:
                         print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
                         #for p in excess_pats: print(p)
+                    if save_excess_pats is not None:
+                        with open(save_excess_pats+".output", 'w') as f:
+                            for pat in excess_pats:
+                                f.write(str(dict(pat)) + '\n')
+                        if verb:
+                            print("Patterns saved")
                     if forbid_excess is not None:
                         no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
                         no_excess = sft.intersection(the_sft, no_excess)
-                        if the_sft.forbs is not None:
-                            no_excess.forbs = list(the_sft.forbs) + list(excess_pats)
                         self.SFTs[forbid_excess] = no_excess
-                    if save_excess_pats is not None:
-                        with open(save_excess_pats+".output", 'w') as f:
-                            f.write(str(excess_pats))
                             
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
@@ -1166,12 +1168,14 @@ class Griddy:
                 
                 if filename is not None:
                     with open(filename+".output", 'w') as f:
-                        f.write(str(the_sft.forbs))
+                        for forb in the_sft.forbs:
+                            f.write(str(forb) + '\n')
 
                 if cap is not None:
                     approx_sft = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, the_sft.topology, the_sft.graph, forbs=the_sft.forbs)
                     if len(the_sft.forbs) == cap:
                         the_sft.forbs = None
+                    self.SFTs[approx_name] = approx_sft
                         
             elif cmd == "load_forbidden_patterns":
                 sft_name = args[0]
@@ -1179,14 +1183,17 @@ class Griddy:
                 onesided = kwds.get("onesided", [])
                 if mode == "report":
                     if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
+                forbs = []
                 with open(filename+".output", 'r') as f:
-                    contents = f.read()
-                forbs = eval(contents)
+                    for pat_line in f:
+                        forb = ast.literal_eval(pat_line.strip())
+                        forbs.append(forb)
                 try:
                     the_sft = self.SFTs[sft_name]
                     the_sft.forbs = forbs
                 except KeyError:
-                    the_sft = sft.SFT(self.dim, self.nodes, self.alph, self.topology, self.grahp, forbs=forbs, onesided=onesided)
+                    the_sft = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
+                    self.SFTs[sft_name] = the_sft
 
             elif cmd == "set_weights":
                 self.weights = {arg[0] : w for (arg, w) in args[0].items()}

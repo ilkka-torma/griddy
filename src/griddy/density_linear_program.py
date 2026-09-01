@@ -12,6 +12,7 @@ from fractions import Fraction
 from node_automorphism import AffineAutomorphism
 import random
 from enum import Enum
+import ast
 
 TOLERANCE = 1e-6
 DENOMINATORS = [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 3500, 5000, 7500, 10000, 20000, 35000, 50000, 75000, 100000, 200000, 350000, 500000, 750000, 1000000, 2000000, 3500000, 5000000, 7500000, 10000000, 20000000, 35000000, 50000000, 75000000, 100000000, 200000000, 350000000, 500000000, 750000000, 1000000000, 2000000000, 3500000000, 5000000000, 7500000000, 10000000000]
@@ -327,9 +328,9 @@ class DischargingArgument:
                 if source[0] == '#':
                     break
                 else:
-                    source = eval(source)
-                fpat = fd.frozendict(eval(f.readline()))
-                nvec = eval(f.readline())
+                    source = ast.literal_eval(source)
+                fpat = fd.frozendict(ast.literal_eval(f.readline()))
+                nvec = ast.literal_eval(f.readline())
                 amount = f.readline()
                 if '/' in amount:
                     amount = Fraction(*(int(x) for x in amount.split('/')))
@@ -834,7 +835,8 @@ class DischargingArgument:
 
         if load_constr is not None:
             # load bigpats from a file
-            print("loading")
+            if verbose:
+                print("Loading constraints...", end="")
             with open(load_constr + '.output', 'r') as f:
                 bigdomain = dict()
                 bigpats = dict()
@@ -845,18 +847,19 @@ class DischargingArgument:
                     elif line.strip() == "#bigpats":
                         break
                     else:
-                        node, domain = eval(line)
+                        node, domain = ast.literal_eval(line)
                         bigdomain[node] = domain
                 while True:
                     line = f.readline()
                     if line.strip() == "#end":
                         break
                     elif line.strip() == "#node":
-                        node = eval(f.readline())
+                        node = ast.literal_eval(f.readline())
                         bigpats[node] = []
                     else:
-                        bigpats[node].append(eval(line))
-            print("done")
+                        bigpats[node].append(ast.literal_eval(line))
+            if verbose:
+                print(" done")
 
         if verbose:
             print("Computing pattern variables")
