@@ -195,7 +195,8 @@ def nonnegative_patterns(dim, tr_dims, patterns):
 
 # tr_dims are the dimensions translated to nonnegative (usually one-sided directions)
 def nonnegative_circuit(dim, tr_dims, circ):
-
+    if not tr_dims:
+        return circ
     circ = circ.copy()
     variables = circ.get_variables()
     #print(variables," kikkoman")
@@ -1581,7 +1582,7 @@ class SFT:
         
 
 # intersection allows clopen sets and other intersection objects
-def intersection(*sfts):
+def intersection(*sfts, destructive=False):
     #print("making inter", [(sft.circuit, type(sft)) for sft in sfts])
     actually_sfts = []
     actually_clopens = []
@@ -1598,18 +1599,21 @@ def intersection(*sfts):
     first_nodes = sfts[0].nodes
     
     assert all(node in first_nodes for other in sfts[1:] for node in other.nodes)
-    sft_circuit = AND(*(sft.circuit.copy() for sft in actually_sfts))
-    clopen_circuit = AND(*(sft.circuit.copy() for sft in actually_clopens))
+    if destructive:
+        sft_circuit = AND(*(sft.circuit for sft in actually_sfts))
+        clopen_circuit = AND(*(sft.circuit for sft in actually_clopens))
+    else:
+        sft_circuit = AND(*(sft.circuit.copy() for sft in actually_sfts))
+        clopen_circuit = AND(*(sft.circuit.copy() for sft in actually_clopens))
 
     # since for now SFTs have much more functionality, return them when possible
     if actually_clopens == []:
         ret = SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
                   sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided)
         if all(the_sft.forbs is not None for the_sft in actually_sfts):
-            ret.forbs = list(dict(forb) for forb in
-                             set(fd.frozendict(forb)
-                                 for the_sft in actually_sfts
-                                 for forb in the_sft.forbs))
+            ret.forbs = [forb
+                         for the_sft in actually_sfts
+                         for forb in the_sft.forbs]
         return ret
     
     #print(sft_circuit)

@@ -55,7 +55,7 @@ class Circuit:
     global_set = None
     #internal_sweep_int = 1
     verbose = False
-    def __init__(self, op, *inputs):
+    def __init__(self, op, *inputs, force_hash=None):
         self.op = op
         self.inputs = inputs
         #self.isi = 0
@@ -67,6 +67,10 @@ class Circuit:
         self.TAUTO = None
         if Circuit.smart_simplify:
             self.simplify()
+        if force_hash:
+            self._hash = force_hash
+        else:
+            self._hash = hash((op, *inputs))
             
     def simplify(self):
         if self.op in "FT":
@@ -177,7 +181,7 @@ class Circuit:
             inputcopies = []
             for q in self.inputs:
                 inputcopies.append(q.copy(copies))
-            ret = Circuit(self.op, *inputcopies)
+            ret = Circuit(self.op, *inputcopies, force_hash=self._hash)
             copies[id(self)] = ret
             return ret
     def get_variables(self):
@@ -192,8 +196,8 @@ class Circuit:
             return id(self)
     #def __eq__(self, other):
     #    return models(self, other) and models(other, self)
-    #def __hash__(self):
-    #    return 0
+    def __hash__(self):
+        return self._hash
 
     def nice_str(self, tab = 4, depth = 0, suppress_first = False, values = None):
         value = ""
@@ -1026,18 +1030,15 @@ def AND(*inputs):
     #print(Circuit.smart_simplify)
     #print("making ADN", list(map(str, inputs)))
     #print("res", Circuit("&", *inputs))
-    andeds = []
+    andeds = set()
     for inp in inputs:
         if inp == T:
             continue
-        if inp == F:
-            return F
         if inp.op == "&":
-            andeds.extend(inp.inputs)
-        elif inp not in andeds:
-            andeds.append(inp)
+            andeds.update(inp.inputs)
+        andeds.add(inp)
     if len(andeds) == 1:
-        return andeds[0]
+        return next(iter(andeds))
     return circuit("&", *andeds)
 
 def OR(*inputs):
@@ -1052,19 +1053,17 @@ def OR(*inputs):
         return F
     if None in inputs:
         return None
-    oreds = []
+    oreds = set()
     for inp in inputs:
-        if inp == T:
-            return T
         if inp == F:
             continue
         if inp.op == "|":
-            oreds.extend(inp.inputs)
-        elif inp not in oreds:
-            oreds.append(inp)
+            oreds.update(inp.inputs)
+        oreds.add(inp)
     if len(oreds) == 1:
-        return oreds[0]
+        return next(iter(oreds))
     return circuit("|", *oreds)
+
 def NOT(*inputs):
     #print(inputs)
     assert len(inputs) == 1

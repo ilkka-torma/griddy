@@ -487,6 +487,7 @@ class Griddy:
             elif cmd == "intersection":
                 isect_name = args[0]
                 names = args[1]
+                destructive = "destructive" in flags
                 #print("intersection", names)
                 if not names:
                     raise Exception("Empty intersection")
@@ -507,7 +508,7 @@ class Griddy:
                     if first.onesided != other.onesided:
                         raise Exception("Cannot intersect onesided and twosided SFT")
                 if isinstance(first, sft.SFT) or isinstance(first, sft.Clopen) or isinstance(first, sft.CSIntersection):
-                    self.SFTs[isect_name] = sft.intersection(*sfts)
+                    self.SFTs[isect_name] = sft.intersection(*sfts, destructive=destructive)
                 else:
                     self.SFTs[isect_name] = sofic1d.intersection(*sfts)
                 
@@ -919,7 +920,7 @@ class Griddy:
                 threads = kwds.get("threads", 1)
                 chunk_size = kwds.get("chunk_size", 200)
                 print_freq = kwds.get("print_freq", 5000) if (mode != "silent") else 0
-                verb = kwds.get("verbose", False)
+                verb = "verbose" in flags
                 if mode != "silent":
                     print("Finding configuration in {} with periods {}".format(sft_name, " ".join(str(vec) for vec in periods)))
                 tim = time.time()
@@ -1193,6 +1194,8 @@ class Griddy:
                     the_sft = self.SFTs[sft_name]
                     the_sft.forbs = forbs
                 except KeyError:
+                    if mode != "silent":
+                        print("Forming SFT")
                     the_sft = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
                     self.SFTs[sft_name] = the_sft
 
