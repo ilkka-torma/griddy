@@ -270,17 +270,23 @@ class PeriodAutomaton:
                         qq = []
 
                 elif ret_loop:
-                    # Found loop = periodic configuration, reconstruct and return it
+                    # Possible loop = periodic configuration, reconstruct and return it
                     # Loop contains the symbols, starting from state -sym-> new_state
-                    for pr in processes:
-                        pr.terminate()
                     loop = []
                     first = True
-                    while first or state != new_state:
+                    original = new_state
+                    while first or new_state != original:
                         first = False
-                        sym, state = parents[state]
+                        try:
+                            sym, new_state = parents[new_state]
+                        except TypeError:
+                            break
                         loop.append(sym)
-                    return loop
+                    else:
+                        # Loop found
+                        for pr in processes:
+                            pr.terminate()
+                        return loop
                     
                 state_idx = state_to_idx(state)
                 new_state_idx = state_to_idx(new_state)
