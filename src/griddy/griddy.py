@@ -925,7 +925,7 @@ class Griddy:
                     print("Finding configuration in {} with periods {}".format(sft_name, " ".join(str(vec) for vec in periods)))
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
-                aut = period_automaton.PeriodAutomaton(the_sft, periods, verbose=verb)
+                aut = period_automaton.PeriodAutomaton(the_sft, periods, verbose=verb, all_labels=False)
                 maybe_cyc = aut.populate(verbose=verb, num_threads=threads, ret_loop=True)
                 if maybe_cyc is None:
                     if mode != "silent":

@@ -246,20 +246,30 @@ class PeriodAutomaton:
 
         assert len(self.states) == 1 # the above for loop is over singleton
         if ret_loop:
-            parents = {st : None for st in self.states}
+            assert not self.all_labels
+            # We maintain three pieces of data:
+            # 1) a list of nodes in DFS order (edges are in order of creation),
+            # 2) a dict of "pushing times" into the DFS stack (i.e. index in above list),
+            # 3) a dict of "popping times" from the DFS stack: index of first element pushed after this is popped.
+            # Several elements may have equal popping times, and the last one is len(list).
+            # These are updated as new edges are found.
+            dfs_order = list(self.states)
+            pushed = {st : 0 for st in self.states}
+            popped = {st : 1 for st in self.states}
 
         qq = []
         while undone:
-            if debug_verbose: print("undoine")
+            #if debug_verbose: print("undoine")
             res = res_q.get()
-            if debug_verbose: print("gottends")
+            #if debug_verbose: print("gottends")
             if type(res) == int: 
                 undone -= res
                 continue
             for (state, sym_or_weight, new_state) in res:
-                if ret_loop:
-                    parents[new_state] = (sym_or_weight, state)
-                if new_state not in self.states:
+                if new_state in self.states:
+                    existed = True
+                else:
+                    existed = False
                     self.states.add(new_state)
                     if report and verbose and (len(self.states) - undone)%report == 0:
                         print("states processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
@@ -268,41 +278,118 @@ class PeriodAutomaton:
                         task_q.put(qq)
                         undone += len(qq)
                         qq = []
-
-                elif ret_loop:
-                    # Possible loop = periodic configuration, reconstruct and return it
-                    # Loop contains the symbols, starting from state -sym-> new_state
-                    loop = []
-                    first = True
-                    original = new_state
-                    while first or new_state != original:
-                        first = False
-                        try:
-                            sym, new_state = parents[new_state]
-                        except TypeError:
-                            break
-                        loop.append(sym)
-                    else:
-                        # Loop found
-                        for pr in processes:
-                            pr.terminate()
-                        return loop
                     
-                state_idx = state_to_idx(state)
-                new_state_idx = state_to_idx(new_state)
-                if not ret_loop:
-                    if state_idx not in self.trans:
-                        self.trans[state_idx] = dict()
-                    try:
-                        if self.all_labels:
-                            self.trans[state_idx][new_state_idx].add(sym_or_weight)
-                        else:
-                            self.trans[state_idx][new_state_idx] = min(self.trans[state_idx][new_state_idx], sym_or_weight)
-                    except KeyError:
-                        if self.all_labels:
-                            self.trans[state_idx][new_state_idx] = set([sym_or_weight])
-                        else:
-                            self.trans[state_idx][new_state_idx] = weight
+                st_idx = state_to_idx(state)
+                new_st_idx = state_to_idx(new_state)
+                
+                if debug_verbose:
+                    print()
+                    print("order", dfs_order)
+                    print("pushed", pushed)
+                    print("popped", popped)
+                    print("got edge", st_idx, new_st_idx)
+                    if any(pushed[ix] < pushed[ix2] < popped[ix] < popped[ix2]
+                           for ix in dfs_order for ix2 in dfs_order):
+                        raise Exception("Bad pop")
+                    if any(popped[ix] > len(dfs_order) for ix in dfs_order):
+                        raise Exception("Bad push/pop")
+                    if any(pushed[ix] != i for (i, ix) in enumerate(dfs_order)):
+                        raise Exception("Bad push")
+                if st_idx not in self.trans:
+                    self.trans[st_idx] = dict()
+                if new_st_idx not in self.trans:
+                    self.trans[new_st_idx] = dict()
+                try:
+                    if self.all_labels:
+                        self.trans[st_idx][new_st_idx].add(sym_or_weight)
+                    elif not ret_loop:
+                        self.trans[st_idx][new_st_idx] = min(self.trans[st_idx][new_st_idx], sym_or_weight)
+                    else:
+                        self.trans[st_idx][new_st_idx] = sym_or_weight
+                except KeyError:
+                    if self.all_labels:
+                        self.trans[st_idx][new_st_idx] = set([sym_or_weight])
+                    else:
+                        self.trans[st_idx][new_st_idx] = sym_or_weight
+
+                if ret_loop:
+                    if existed:
+                        if debug_verbose: print("existed")
+                        # If the states are equal, return the singleton cycle immediately
+                        if st_idx == new_st_idx:
+                            for pr in processes:
+                                pr.terminate()
+                            return [sym_or_weight]
+                        # There are four possibilities:
+                        # 1) old[ new[ new] old] -> new was already in subtree, do nothing
+                        # 2) old[ old] new[ new] -> subtree of new is moved to right before old is popped
+                        # 3) new[ old[ old] new] -> back-edge, loop has been formed
+                        # 4) new[ new] old[ old] -> new was handled before old, do nothing
+                        if popped[st_idx] <= pushed[new_st_idx]:
+                            if debug_verbose: print("move branch")
+                            # Case 2
+                            # Split the list into four parts, swap the middle two
+                            befores = dfs_order[:popped[st_idx]]
+                            middle = dfs_order[popped[st_idx]:pushed[new_st_idx]]
+                            subtree = dfs_order[pushed[new_st_idx]:popped[new_st_idx]]
+                            afters = dfs_order[popped[new_st_idx]:]
+                            if debug_verbose: print("split", befores, middle, subtree, afters)
+                            dfs_order = befores + subtree + middle + afters
+                            # Adjust push and pop times:
+                            # if pushed before old is popped, but popped 
+                            for idx in befores:
+                                if pushed[st_idx] < popped[idx] <= pushed[new_st_idx]:
+                                    popped[idx] += len(subtree)
+                            for idx in subtree:
+                                pushed[idx] -= len(middle)
+                                popped[idx] -= len(middle)
+                            for idx in middle:
+                                pushed[idx] += len(subtree)
+                                if popped[idx] <= pushed[new_st_idx]:
+                                    popped[idx] += len(subtree)
+                        if pushed[new_st_idx] < pushed[st_idx] < popped[new_st_idx]:
+                            if debug_verbose: print("loop found")
+                            # Case 3
+                            # Loop detected, find it with BFS starting from new_st_idx
+                            for pr in processes:
+                                pr.terminate()
+                            parents = {new_st_idx : (sym_or_weight, st_idx)}
+                            frontier = set([new_st_idx])
+                            while frontier:
+                                if debug_verbose: print("frontier", frontier)
+                                new_frontier = set()
+                                for idx in frontier:
+                                    if idx == st_idx:
+                                        # Loop formed
+                                        loop = [sym_or_weight]
+                                        while idx != new_st_idx:
+                                            sym, idx = parents[idx]
+                                            loop.append(sym)
+                                        return loop[::-1]
+                                    if debug_verbose: print("handling", idx, self.trans[idx])
+                                    for (new_idx, sym) in self.trans[idx].items():
+                                        # NB. self.all_labels is False
+                                        if new_idx not in parents:
+                                            parents[new_idx] = (sym, idx)
+                                            new_frontier.add(new_idx)
+                                frontier = new_frontier
+                            raise Exception("This should not happen")
+                    else:
+                        if debug_verbose: print("new")
+                        # Totally new state -> no loops formed
+                        # Insert into the DFS list as the last child of state
+                        befores, afters = dfs_order[:popped[st_idx]], dfs_order[popped[st_idx]:]
+                        pushed[new_st_idx] = popped[st_idx]
+                        popped[new_st_idx] = popped[st_idx]+1
+                        for idx in befores:
+                            if pushed[idx] <= pushed[st_idx] and popped[st_idx] <= popped[idx]:
+                                popped[idx] += 1
+                        for idx in afters:
+                            pushed[idx] += 1
+                            popped[idx] += 1
+                        dfs_order = befores + [new_st_idx] + afters
+                        
+                    
             if qq != []:
                 task_q.put(qq)
                 undone += len(qq)
