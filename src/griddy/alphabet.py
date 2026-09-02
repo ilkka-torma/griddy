@@ -12,6 +12,15 @@ def is_nat(string):
         return True
     return False
 
+def node_constraints_nvecs(alphabets, nvecs):
+    "Give all node constaints for a list of nvecs."
+    anded = []
+    for node in nvecs:
+        alph = alphabets[node[1]]
+        nvars = [V(node+(l,)) for l in alph.node_vars]
+        anded.append(alph.node_constraint(nvars))
+    return AND(*anded)
+
 def node_constraints(alphabets):
     "Give all node constaints for a circuit or list of circuits."
     def func(circuits):

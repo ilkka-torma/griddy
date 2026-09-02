@@ -3,7 +3,7 @@ from general import *
 from circuit import *
 from configuration import *
 from itertools import chain
-from alphabet import node_constraints
+from alphabet import node_constraints, node_constraints_nvecs
 from node_automorphism import AffineAutomorphism
 import automatic_conf
 import graphs
@@ -1247,9 +1247,14 @@ class SFT:
                 anded.append(OR(*ored))
             self.circuit = AND(*anded)
 
-    def deduce_forbs(self, domain=None, cap=None):
+    def deduce_forbs(self, domain=None, cap=None, use_forb_shape=False):
+        if use_forb_shape:
+            assert self.forbs is not None
+            nvecs = set(nvec for forb in self.forbs for nvec in forb)
+        else:
+            nvecs = None
         self.forbs = []
-        self.deduce_forbs_(domain)
+        self.deduce_forbs_(domain, nvecs)
         # deduce forbs gives the forbs with true/false variables,
         # we want to simplify them into an alphabet size independent form
         # self.clean_forbs()
@@ -1271,10 +1276,13 @@ class SFT:
         self.forbs = new_forbs
 
     # domain_or_rad is a collection of vectors OR an integer
-    def deduce_forbs_(self, domain_or_rad=None):
+    def deduce_forbs_(self, domain_or_rad=None, nvecs=None):
         #print("alph", self.alph)
         verbose_deb = True
-        var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
+        if nvecs is None:
+            var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
+        else:
+            var_nvecs = nvecs
         #print("var_nvecs", len(var_nvecs))
         if domain_or_rad is None:
             domain_or_rad = 0
@@ -1320,9 +1328,14 @@ class SFT:
 
             #forb_here_circuits.append(node_constraints(self.alph, forb_here_circuits))
 
-            final_circ = AND(*forb_circuits)
-            #print("final circ", final_circ)
-            m = SAT_under(final_circ, node_constraints(self.alph), True)
+            if nvecs is None:
+                forb_circuits.append(node_constraints_nvecs(self.alph, all_positions))
+                final_circ = AND(*forb_circuits)
+                #print("final circ", final_circ)
+                m = SAT(final_circ, True)
+            else:
+                final_circ = AND(*forb_circuits)
+                m = SAT_under(final_circ, node_constraints(self.alph), True)
             if m == False:
                 break
 

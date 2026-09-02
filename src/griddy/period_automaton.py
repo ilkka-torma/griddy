@@ -216,7 +216,7 @@ class PeriodAutomaton:
 
     def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000, ret_loop=False):
         debug_verbose = False
-        if debug_verbose: print("asdf")
+        #if debug_verbose: print("asdf")
         self.s2idict = {}
         self.running = 0
         def state_to_idx(s):
@@ -278,7 +278,7 @@ class PeriodAutomaton:
                     existed = False
                     self.states.add(new_state)
                     if report and verbose and (len(self.states) - undone)%report == 0:
-                        print("states processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
+                        print("States processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
                     qq.append(new_state)
                     if len(qq) >= chunk_size:
                         task_q.put(qq)
@@ -1014,29 +1014,30 @@ def border_at(pmat, vec):
 
 def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                     rotate, task_queue, res_queue, weights, chunk_size, ret_syms):
-    #print("populating", border_forbs)
+    #print("populating with", len(border_forbs), "forbs")
     numf = len(border_forbs)
     #border_sets = [set(forb) for forb in border_forbs]
     if rotate:
         heights = [pmat[i][i+1] for i in range(len(pmat))]
     while True:
         states = task_queue.get()
+        #print("got", len(states), "states")
         ret = []
         for state in states:
             # state is a number encoding a set of shifted forbs
-            shifted = [(f,0) for f in border_forbs]
+            shifted = [(ix, f,0) for (ix, f) in enumerate(border_forbs)]
             i = 0
             n = state
             while n:
                 if n%2:
                     ix = i%numf
                     tr = i//numf
-                    shifted.append((border_forbs[ix], tr+1))
+                    shifted.append((ix, border_forbs[ix], tr+1))
                 n = n//2
                 i += 1
             #print(shifted)
             pat_forbs = set()
-            for (forb, tr) in shifted:
+            for (_, forb, tr) in shifted:
                 pat_forb = dict()
                 for (nvec, c) in forb.items():
                     #print(nvec, c)
@@ -1053,7 +1054,7 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                 new_pairs = []
                 sym_pairs = dict()
                 for pair in shifted:
-                    forb, tr = pair
+                    ix, forb, tr = pair
                     over = False
                     for (nvec, c) in forb.items():
                         x = nvec[0][0]
@@ -1080,7 +1081,7 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                         min_state = math.inf
                         for rots in hyperrectangle(heights):
                             new_state = 0
-                            for (forb, tr) in new_pairs:
+                            for (_, forb, tr) in new_pairs:
                                 ix = border_forbs.index({((nvec[0][0],) + vrot(nvec[0][1:], rots, heights), nvec[1]) : c for (nvec, c) in forb.items()})
                                 # symmetry only available along first non-horizontal coordinate
                                 if sym_bound is not None:
@@ -1090,8 +1091,8 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                         new_state = min_state
                     else:
                         new_state = 0
-                        for (forb, tr) in new_pairs:
-                            ix = border_forbs.index(forb)
+                        for (ix, forb, tr) in new_pairs:
+                            #ix = border_forbs.index(forb)
                             if sym_bound is not None:
                                 sym_pairs[ix%(numf//2), tr] = 1 - sym_pairs.get((ix%(numf//2), tr), 0)
                             new_state += 2**(numf*tr + ix)
