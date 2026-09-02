@@ -926,7 +926,7 @@ class Griddy:
                 tim = time.time()
                 the_sft = self.SFTs[sft_name]
                 aut = period_automaton.PeriodAutomaton(the_sft, periods, verbose=verb, all_labels=False)
-                maybe_cyc = aut.populate(verbose=verb, num_threads=threads, ret_loop=True)
+                maybe_cyc = aut.populate(verbose=verb, num_threads=threads, ret_loop=True, report=print_freq, chunk_size=chunk_size)
                 if maybe_cyc is None:
                     if mode != "silent":
                         print("No such configuration")
@@ -1183,6 +1183,7 @@ class Griddy:
                 sft_name = args[0]
                 filename = args[1]
                 onesided = kwds.get("onesided", [])
+                no_circuit = "no_circuit" in flags
                 if mode == "report":
                     if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
                 forbs = []
@@ -1195,8 +1196,8 @@ class Griddy:
                     the_sft.forbs = forbs
                 except KeyError:
                     if mode != "silent":
-                        print("Forming SFT")
-                    the_sft = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided)
+                        print("Forming SFT" + ("; warning: its circuit will be inconsistent" if no_circuit else ""))
+                    the_sft = sft.SFT(self.dim, self.nodes, self.alphabet, self.topology, self.graph, forbs=forbs, onesided=onesided, make_circuit=not no_circuit)
                     self.SFTs[sft_name] = the_sft
 
             elif cmd == "set_weights":

@@ -135,24 +135,29 @@ class PeriodAutomaton:
 
     def __init__(self, sft, periods, rotate=False, sym_bound=None, verbose=False, immediately_relabel=True, check_periods=True, all_labels=True, weights=None):
         if verbose:
-            print("constructing period automaton with periods", periods, "no symmetry" if sym_bound is None else "symmetry %s"%sym_bound, "rotated" if rotate else "not rotated")
+            print("Constructing period automaton with periods", periods, "no symmetry" if sym_bound is None else "symmetry %s"%sym_bound, "rotated" if rotate else "not rotated")
         self.sft = sft
         if check_periods:
             if len(periods) != sft.dim-1:
                 raise Exception("periods must form a rational basis with (1,0...0)")
             pmat = normalize_periods(periods)
             if verbose:
-                print("normalized periods", pmat)
+                print("Normalized periods", pmat)
         else:
             pmat = periods
         self.pmat = pmat
         self.frontier = set()
-        self.border_forbs = []
+        self.border_forbs = set()
         heights = [pmat[i][i+1] for i in range(sft.dim-1)]
+        num_forbs = len(heights)*len(sft.forbs)
+        i = 0
         for vec in hyperrectangle(heights):
             x = self.border_at(vec)
             self.frontier.add((x,) + vec)
             for forb in sft.forbs:
+                i += 1
+                if verbose and i%50000 == 0:
+                    print("Handling pattern {}/{}, {} forbs found so far".format(i, num_forbs, len(self.border_forbs)))
                 #print("derp frob", forb)
                 new_forb = dict()
                 good = True
@@ -173,13 +178,14 @@ class PeriodAutomaton:
                     while all(nvec[0][0]+tr > self.border_at(nvec[0][1:]) for nvec in new_forb):
                         tr -= 1
                     new_forb = {((nvec[0][0]+tr,)+nvec[0][1:], nvec[1]) : c for (nvec, c) in new_forb.items()}
-                if good and new_forb not in self.border_forbs:
-                    self.border_forbs.append(new_forb)
+                if good:
+                    self.border_forbs.add(fd.frozendict(new_forb))
+        self.border_forbs = [dict(forb) for forb in self.border_forbs]
         self.node_frontier = list(sorted((vec, q) for vec in self.frontier for q in self.sft.nodes))
         self.states = set([0])
         self.trans = dict()
         if verbose:
-            print("done with #forbs", len(self.border_forbs), "#nodefrontier", len(self.node_frontier))
+            print("Done with #forbs", len(self.border_forbs), "#nodefrontier", len(self.node_frontier))
         self.immediately_relabel = immediately_relabel
         self.sym_bound = sym_bound
         self.rotate = rotate
@@ -226,7 +232,7 @@ class PeriodAutomaton:
         
         # populate states and transitions
         if verbose:
-            print("populating period automaton")
+            print("Populating period automaton")
         n = 0
         task_q = mp.Queue()
         res_q = mp.Queue()
@@ -404,7 +410,7 @@ class PeriodAutomaton:
         for st in news:
             self.trans[st] = dict()
         if verbose:
-            print("done with #states", len(self.states))
+            print("Done with #states", len(self.states))
             
     def minimize(self, verbose=False):
         """Minimize using Moore's algorithm.

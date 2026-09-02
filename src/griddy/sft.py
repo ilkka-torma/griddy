@@ -653,7 +653,7 @@ class SFT:
 
     # Onesided is a list of dimensions
     # In a onesided SFT, the set of forbidden patterns and the circuit are translated so that the onesided coordinates are nonnegative and start at 0
-    def __init__(self, dim, nodes, alph, topology, graph, forbs=None, circuit=None, formula=None, onesided=None):
+    def __init__(self, dim, nodes, alph, topology, graph, forbs=None, circuit=None, formula=None, onesided=None, make_circuit=True):
         #print("making sft with forbs", forbs)
         self.dim = dim
         self.nodes = nodes
@@ -670,8 +670,11 @@ class SFT:
             self.forbs = nonnegative_patterns(self.dim, self.onesided, forbs)
         self.formula = formula # just for display, not actually used in computations
         if circuit is None:
-            self.circuit = None
-            self.deduce_circuit()
+            if make_circuit:
+                self.circuit = None
+                self.deduce_circuit()
+            else:
+                self.circuit = T
         else:
             if isinstance(self.graph, graphs.AbelianGroup):
                 self.circuit = nonnegative_circuit(self.dim, self.onesided, circuit)
@@ -1272,7 +1275,7 @@ class SFT:
         #print("alph", self.alph)
         verbose_deb = True
         var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
-        #print("var_nvecs", var_nvecs)
+        #print("var_nvecs", len(var_nvecs))
         if domain_or_rad is None:
             domain_or_rad = 0
         if type(domain_or_rad) == int:
@@ -1292,7 +1295,7 @@ class SFT:
 
         # we want to tile domain so that it has no existing forbos, but
         # the circuit fails at the origin
-        complemented = NOT(self.circuit.copy())
+        complemented = NOT(self.circuit)
 
         #i = 0
         while True:
@@ -1357,6 +1360,8 @@ class SFT:
                     #print("added new forb", new_forb)
                     self.forbs.append(new_forb)
                     new_forb_found = True
+                    #if len(self.forbs)%5000 == 0:
+                    #    print("{} found so far, average size {}".format(len(self.forbs), sum(len(f) for f in self.forbs)/len(self.forbs)))
             #if not new_forb_found:
             #    print("something's wrong here")
             #    1/0
@@ -1610,10 +1615,16 @@ def intersection(*sfts, destructive=False):
     if actually_clopens == []:
         ret = SFT(sfts[0].dim, sfts[0].nodes, sfts[0].alph, sfts[0].topology,
                   sfts[0].graph, circuit=sft_circuit, onesided=sfts[0].onesided)
-        if all(the_sft.forbs is not None for the_sft in actually_sfts):
-            ret.forbs = [forb
-                         for the_sft in actually_sfts
-                         for forb in the_sft.forbs]
+        if all(the_sft.forbs is not None for the_sft in sfts):
+            if destructive:
+                ret.forbs = sfts[0].forbs
+                sfts[0].forbs = None
+                for the_sft in sfts[1:]:
+                    ret.forbs.extend(the_sft.forbs)
+            else:
+                ret.forbs = [forb
+                             for the_sft in actually_sfts
+                             for forb in the_sft.forbs]
         return ret
     
     #print(sft_circuit)

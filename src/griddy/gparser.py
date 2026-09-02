@@ -85,7 +85,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "tiler" cmd_tiler_opts STRICT_LABEL cmd_tiler_opts -> cmd_tiler
        | "graph" STRICT_LABEL -> cmd_graph
        | "run" LABEL -> cmd_run
-       | "load_forbidden_patterns" STRICT_LABEL STRICT_LABEL -> cmd_load_forbs
+       | "load_forbidden_patterns" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_load_forbs
        | "image_intersects" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts -> cmd_image_intersects
        | ("show_conf" | "print_conf") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_conf
        | ("show_parsed" | "print_parsed") cmd_opts STRICT_LABEL cmd_opts -> cmd_show_parsed
