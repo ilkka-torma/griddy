@@ -147,7 +147,7 @@ def forced_by(circuit, vals_as_list):
 
 # we have a circuit and some values
 # minimize the dict of values so that stays tautology
-def minimize_solution(circuit, vals, necessary_vals = None, sort_by_dist=False):
+def minimize_solution(min_process, vals, necessary_vals = None, sort_by_dist=False):
 
     #print("minimizing")
     #print(circuit)
@@ -156,7 +156,7 @@ def minimize_solution(circuit, vals, necessary_vals = None, sort_by_dist=False):
     #print(sort_by_dist)
     
     if necessary_vals == None:
-        assert evaluate(circuit, vals)
+        #assert evaluate(circuit, vals)
         necessary_vals = []
 
     assert type(vals) == dict
@@ -164,23 +164,24 @@ def minimize_solution(circuit, vals, necessary_vals = None, sort_by_dist=False):
         vals = list(sorted(vals.items(), key=lambda v: -sum(abs(i) for i in v[0][0])))
     else:
         vals = list(vals.items())
-    mini = minimize_solution_(circuit, vals, necessary_vals)
+    mini = minimize_solution_(min_process, vals, necessary_vals)
     as_dict = {}
     for (var, val) in mini:
         as_dict[var] = val
     return as_dict
         
 
-def minimize_solution_(circuit, vals, necessary_vals):
-    #print("juli", vals, necessary_vals)
+def minimize_solution_(min_process, vals, necessary_vals):
+    #print("min_sol", vals, necessary_vals)
     if len(vals) == 0:
         return necessary_vals
 
     first, rest = vals[0], vals[1:]
-    if forced_by(circuit, rest + necessary_vals):
-        return minimize_solution_(circuit, rest, necessary_vals)
+    if min_process.send({var : val for (var, val) in rest + necessary_vals}):
+        return minimize_solution_(min_process, rest, necessary_vals + [first])
+    return minimize_solution_(min_process, rest, necessary_vals)
 
-    return minimize_solution_(circuit, rest, necessary_vals + [first])
+    
 
 def nonnegative_patterns(dim, tr_dims, patterns):
     "Translate the pattern to have nonnegative coordinates along the specified dimensions"
@@ -1236,16 +1237,60 @@ class SFT:
             yield tuple(s)
 
     def deduce_circuit(self):
-        if self.circuit is None:
-            anded = []
-            for forb in self.forbs:
-                ored = []
-                for (nvec, sym) in forb.items():
-                    local_alph = self.alph[nvec[1]]
-                    nvars = [V(nvec+(l,)) for l in local_alph.node_vars]
-                    ored.append(NOT(local_alph.node_eq_sym(nvars, sym)))
-                anded.append(OR(*ored))
-            self.circuit = AND(*anded)
+        assert self.forbs is not None
+        forb_domain = set(nvec for forb in self.forbs for nvec in forb)
+        self.circuit = self.deduce_circuit_from(self.forbs, forb_domain)
+        #if self.circuit is None:
+        #    anded = []
+        #    for forb in self.forbs:
+        #        ored = []
+        #        for (nvec, sym) in forb.items():
+        #            local_alph = self.alph[nvec[1]]
+        #            nvars = [V(nvec+(l,)) for l in local_alph.node_vars]
+        #            ored.append(NOT(local_alph.node_eq_sym(nvars, sym)))
+        #        anded.append(OR(*ored))
+        #    self.circuit = AND(*anded)
+
+    def deduce_circuit_from(self, forbs, domain):
+        if not forbs:
+            ret = T
+        elif len(forbs) == 1:
+            forb = forbs[0]
+            oreds = []
+            for nvec in domain:
+                if nvec not in forb:
+                    continue
+                node_alph = self.alph[nvec[1]]
+                nvec_vars = [V(nvec + (var,)) for var in node_alph.node_vars]
+                oreds.append(NOT(node_alph.node_eq_sym(nvec_vars, forb[nvec])))
+            ret = OR(*oreds)
+        else:
+            counts = {nvec : {sym : 0 for sym in self.alph[nvec[1]]}
+                      for nvec in domain}
+            for forb in forbs:
+                for nvec in domain:
+                    try:
+                        counts[nvec][forb[nvec]] += 1
+                    except KeyError:
+                        pass
+            split_nvec = max(counts.items(), key=lambda pair: min(pair[1]))[0]
+            new_domain = set(nvec for
+                             (nvec, syms) in counts.items()
+                             if nvec != split_nvec
+                             if any(syms.values()))
+            andeds = []
+            node_alph = self.alph[split_nvec[1]]
+            nvec_vars = [V(split_nvec + (var,)) for var in node_alph.node_vars]
+            for sym in node_alph:
+                circ = self.deduce_circuit_from([forb for forb in forbs
+                                                 if forb.get(split_nvec, None) == sym],
+                                                new_domain)
+                andeds.append(IMP(node_alph.node_eq_sym(nvec_vars, sym), circ))
+            andeds.append(self.deduce_circuit_from([forb for forb in forbs
+                                                    if split_nvec not in forb],
+                                                   new_domain))
+            ret = AND(*andeds)
+        return ret
 
     def deduce_forbs(self, domain=None, cap=None, use_forb_shape=False):
         if use_forb_shape:
@@ -1254,7 +1299,7 @@ class SFT:
         else:
             nvecs = None
         self.forbs = []
-        self.deduce_forbs_(domain, nvecs)
+        self.deduce_forbs_(domain_or_rad=domain, nvecs=nvecs)
         # deduce forbs gives the forbs with true/false variables,
         # we want to simplify them into an alphabet size independent form
         # self.clean_forbs()
@@ -1277,13 +1322,13 @@ class SFT:
 
     # domain_or_rad is a collection of vectors OR an integer
     def deduce_forbs_(self, domain_or_rad=None, nvecs=None):
-        #print("alph", self.alph)
+        #print("nvecs", nvecs)
         verbose_deb = True
         if nvecs is None:
             var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
         else:
             var_nvecs = nvecs
-        #print("var_nvecs", len(var_nvecs))
+            #print("var_nvecs", len(var_nvecs))
         if domain_or_rad is None:
             domain_or_rad = 0
         if type(domain_or_rad) == int:
@@ -1294,8 +1339,10 @@ class SFT:
         all_positions = set(nvadd(nvec, vec)
                             for nvec in var_nvecs
                             for vec in vec_domain)
-        #vec_domain = set(var[:-2] for var in domain)
-        #print("nvec_domain", vec_domain)
+            #vec_domain = set(var[:-2] for var in domain)
+        #if nvecs is None:
+        #    print("circ", self.circuit)
+        #print("vec_domain", vec_domain)
         #print("var_nvecs", var_nvecs)
         #print("all pos", all_positions)
         #assert len(self.alph) == 2
@@ -1304,6 +1351,9 @@ class SFT:
         # we want to tile domain so that it has no existing forbos, but
         # the circuit fails at the origin
         complemented = NOT(self.circuit)
+
+        min_process = solver_process(self.circuit)
+        _ = next(min_process)
 
         #i = 0
         while True:
@@ -1329,13 +1379,19 @@ class SFT:
             #forb_here_circuits.append(node_constraints(self.alph, forb_here_circuits))
 
             if nvecs is None:
-                forb_circuits.append(node_constraints_nvecs(self.alph, all_positions))
-                final_circ = AND(*forb_circuits)
-                #print("final circ", final_circ)
-                m = SAT(final_circ, True)
-            else:
+                #print("A")
                 final_circ = AND(*forb_circuits)
                 m = SAT_under(final_circ, node_constraints(self.alph), True)
+            else:
+                #print("B")
+                #print("NC", node_constraints_nvecs(self.alph, all_positions))
+                forb_circuits.append(node_constraints_nvecs(self.alph, all_positions))
+                final_circ = AND(*forb_circuits)
+                all_vars = [nvec+(var,)
+                            for nvec in all_positions
+                            for var in self.alph[nvec[1]].node_vars]
+                #print("final circ", final_circ)
+                m = SAT(final_circ, True, all_vars=all_vars)
             if m == False:
                 break
 
@@ -1345,10 +1401,10 @@ class SFT:
             for nvec in var_nvecs:
                 for l in self.alph[nvec[1]].node_vars:
                     minimal[nvec+(l,)] = m[nvec+(l,)]
-            #print("minimizing", minimal)
+                    #print("minimizing", minimal)
             comp = [complemented]
             #comp.append(node_constraints(self.alph, comp))
-            minimal = minimize_solution(complemented, minimal, sort_by_dist=True)
+            minimal = minimize_solution(min_process, minimal, sort_by_dist=True)
             #a = bbb
             #print("got", minimal)
 
@@ -1358,7 +1414,7 @@ class SFT:
             proj_circs = [final_circ]
             for (var, val) in minimal.items():
                 proj_circs.append(V(var) if val else NOT(V(var)))
-            new_forb_found = False
+                new_forb_found = False
             constr = node_constraints(self.alph)(proj_circs)
             for model in projections(AND(constr, *proj_circs), support_vars):
                 #print("model", model)
@@ -1368,9 +1424,9 @@ class SFT:
                     nvals = [model[nvec+(l,)] for l in local_alph.node_vars]
                     new_forb[nvec] = local_alph.model_to_sym(nvals)
                     #print("nvec", nvec, "nvars", local_alph.node_vars, "nvals", nvals, "sym", local_alph.model_to_sym(nvals))
-                #print("new_forb", new_forb)
+                    #print("new_forb", new_forb)
                 if all(forb != new_forb for forb in self.forbs):
-                    #print("added new forb", new_forb)
+                    print("added new forb", new_forb)
                     self.forbs.append(new_forb)
                     new_forb_found = True
                     #if len(self.forbs)%5000 == 0:

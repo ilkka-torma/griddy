@@ -70,7 +70,7 @@ class Circuit:
         if force_hash:
             self._hash = force_hash
         else:
-            self._hash = hash((op, *inputs))
+            self._hash = hash(id(self))
             
     def simplify(self):
         if self.op in "FT":
@@ -181,7 +181,7 @@ class Circuit:
             inputcopies = []
             for q in self.inputs:
                 inputcopies.append(q.copy(copies))
-            ret = Circuit(self.op, *inputcopies, force_hash=self._hash)
+            ret = Circuit(self.op, *inputcopies)#, force_hash=self._hash)
             copies[id(self)] = ret
             return ret
     def get_variables(self):
@@ -535,7 +535,11 @@ def int_nodes_(c, dealts, vars_too):
         #c.isi = isi
     
         if c.op != "V":
+            #i=0
             for t in c.inputs:
+                #i+= 1
+                #if top<=3:
+                #    print("{}input {}/{}".format(" "*top, i, len(c.inputs)))
                 for node in int_nodes_(t, dealts, vars_too):
                     yield node
             yield c
@@ -628,7 +632,7 @@ def last_diff_and_count2(circs, count):
 
 # copied from models
 # TODO: rewrite
-def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
+def circuit_to_sat_instance_good(circ, var_to_name, next_name=None, variables=None):
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
     if next_name is None:
@@ -639,7 +643,8 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
         # I wouldn't trust it was incremented correctly
         assert next_name > 0
 
-    variables = circ.get_variables()
+    if variables is None:
+        variables = circ.get_variables()
     
     for v in variables:
         if v not in var_to_name:
@@ -651,7 +656,12 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
 
     clauses = []
     # NB. it's a children-before-parents ordering
+    #print("complexity", circ.complexity)
+    #n=0
     for q in circ.internal_nodes():
+        #n+=1
+        #if n%20000 == 0:
+        #    print("internal node", n)
         assert q.op != "V"
         if id(q) in var_to_name: continue
         # we usually use a new name, although ! will cancel
@@ -659,6 +669,7 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None):
         inps = []
         for i in q.inputs:
             if i.op == "V":
+                #print("q", q)
                 inps.append(var_to_name[i.inputs[0]])
             else:
                 inps.append(var_to_name[id(i)])
@@ -762,6 +773,7 @@ def solver_process(circ, ret_assignment=False):
             assum = [(-1)**(1-val) * var_to_name[var]
                      for (var, val) in values.items()
                      if var in var_to_name]
+            #print("assum", assum)
             res = solver.solve(assumptions=assum)
             if res:
                 if ret_assignment:
@@ -846,7 +858,7 @@ Finally, we force that the variables corresponding
 to top levels of C1 circuits have value 1, but
 some C2 value has 0...
 """
-def models(C1, C2, return_sep = False):
+def models(C1, C2, return_sep = False, all_vars=None):
     sm = Circuit.smart_simplify
     Circuit.smart_simplify = False
     if type(C1) != Circuit:
@@ -855,8 +867,12 @@ def models(C1, C2, return_sep = False):
         C2 = AND(*C2)
         
     Circuit.smart_simplify = sm
-    variables = set(C1.get_variables())
-    variables.update(set(C2.get_variables()))
+    if all_vars is None:
+        #print("vars none")
+        variables = set(C1.get_variables())
+        variables.update(set(C2.get_variables()))
+    else:
+        variables = all_vars
     """
     next_name = 1
     var_to_name = {}
@@ -906,9 +922,9 @@ def models(C1, C2, return_sep = False):
     """
 
     var_to_name = {}
-    clauses, next_name = circuit_to_sat_instance_good(C1, var_to_name)
+    clauses, next_name = circuit_to_sat_instance_good(C1, var_to_name, variables=None if all_vars is None else variables)
     clauses.append([var_to_name[id(C1)]])
-    clauses2, _ = circuit_to_sat_instance_good(C2, var_to_name, abs(next_name) + 1)
+    clauses2, _ = circuit_to_sat_instance_good(C2, var_to_name, abs(next_name) + 1, variables=None if all_vars is None else variables)
     clauses.extend(clauses2)
     clauses.append([-var_to_name[id(C2)]])
     
@@ -956,8 +972,8 @@ def UNSAT_under(C, under, return_sep = False):
         else:
             return m
 
-def UNSAT(C, return_sep = False):
-    m = models(C, F, return_sep)
+def UNSAT(C, return_sep = False, all_vars=None):
+    m = models(C, F, return_sep, all_vars=all_vars)
     if not return_sep:
         return m
     else:
@@ -975,11 +991,11 @@ def SAT_under(C, under, return_model = False):
             return False
         return m
         
-def SAT(C, return_model = False):
+def SAT(C, return_model = False, all_vars=None):
     if not return_model:
-        return not UNSAT(C)
+        return not UNSAT(C, all_vars=all_vars)
     else:
-        m = UNSAT(C, True)
+        m = UNSAT(C, True, all_vars=all_vars)
         if m == True:
             return False
         return m
