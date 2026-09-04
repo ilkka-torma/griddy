@@ -466,7 +466,7 @@ class DischargingArgument:
                     yield (orig_val, surr)
     
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, shuffle=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False):
         "Check that the argument is valid."
         bigpat_given = bigpat is not None
         if self.bound is None:
@@ -482,7 +482,7 @@ class DischargingArgument:
                  for (fpat, nvecs) in node_rules.items()
                  for nvec in nvecs]
         for node in self.sym_nodes:
-            excess_pats[node] = []
+            excess_pats[node] = set()
             for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat, rules=rules, shuffle=shuffle):
                 # for each legal combo, sum the contributions from each -v
                 if isinstance(self.bound, Fraction):
@@ -504,12 +504,20 @@ class DischargingArgument:
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
                     if summa + self.weights[orig_val] > self.bound + (TOLERANCE if type(summa) == float else 0):
-                        excess_pats[node].append(the_bigpat)
+                        fpat = fd.frozendict(the_bigpat)
+                        for nvec in the_bigpat:
+                            if len(self.sft.alph[nvec[1]]) == 1:
+                                fpat = fpat.delete(nvec)
+                        excess_pats[node].add(fpat)
                 else:
                     good = summa >= 0
                     if summa > (TOLERANCE if type(summa) == float else 0):
                         #print("excess", the_bigpat)
-                        excess_pats[node].append(the_bigpat)
+                        fpat = fd.frozendict(the_bigpat)
+                        for nvec in the_bigpat:
+                            if len(self.sft.alph[nvec[1]]) == 1:
+                                fpat = fpat.delete(nvec)
+                        excess_pats[node].add(fpat)
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -539,29 +547,81 @@ class DischargingArgument:
             else:
                 return True, "valid"
         elif ret_excess:
-            # generate symmetric excess patterns
-            # first for the representative nodes using their symmetries
-            ret_pats = dict()
-            for (node, syms) in self.sym_nodes.items():
-                ret_pats[node] = set()
-                for pat in excess_pats[node]:
-                    for aut in syms:
-                        ret_pats[node].add(fd.frozendict({aut(nvec) : sym
-                                                          for (nvec, sym) in pat.items()}))
-            # then for other nodes using the former
-            for node in self.sft.nodes:
-                if node not in self.sym_nodes:
-                    ret_pats[node] = set()
-                    for aut in self.symmetries:
-                        if aut.inv_node_map[node] in self.sym_nodes:
-                            the_aut = aut
-                            sym_node = aut.inv_node_map[node]
+            if simplify_excess:
+                for node in self.sym_nodes:
+                    print("node", node)
+                    i=0
+                    while True:
+                        found = None
+                        i+=1
+                        if i%1000 == 0:
+                            print("round", i, "has", len(excess_pats[node]), "pats")
+                        for pat in excess_pats[node]:
+                            for (nvec, sym) in pat.items():
+                                if all(sym2 == sym or\
+                                       pat.set(nvec, sym2) in excess_pats[node]
+                                       for sym2 in self.sft.alph[nvec[1]]):
+                                    found = (pat, nvec)
+                                    break
+                            else:
+                                continue
                             break
-                    for pat in ret_pats[sym_node]:
-                        ret_pats[node].add(fd.frozendict({the_aut(nvec) : sym
-                                                          for (nvec, sym) in pat.items()}))
+                        else:
+                            break
+                        found_pat, found_nvec = found
+                        for sym in self.sft.alph[found_nvec[1]]:
+                            excess_pats[node].remove(found_pat.set(found_nvec, sym))
+                        excess_pats[node].add(found_pat.delete(nvec))
 
-            return True, set().union(*ret_pats.values())
+            if len(self.symmetries) > 1:
+                # generate symmetric excess patterns
+                # first for the representative nodes using their symmetries
+                ret_pats = dict()
+                for (node, syms) in self.sym_nodes.items():
+                    ret_pats[node] = set()
+                    for pat in excess_pats[node]:
+                        for aut in syms:
+                            ret_pats[node].add(fd.frozendict({aut(nvec) : sym
+                                                              for (nvec, sym) in pat.items()}))
+                # then for other nodes using the former
+                for node in self.sft.nodes:
+                    if node not in self.sym_nodes:
+                        ret_pats[node] = set()
+                        for aut in self.symmetries:
+                            if aut.inv_node_map[node] in self.sym_nodes:
+                                the_aut = aut
+                                sym_node = aut.inv_node_map[node]
+                                break
+                        for pat in ret_pats[sym_node]:
+                            ret_pats[node].add(fd.frozendict({the_aut(nvec) : sym
+                                                              for (nvec, sym) in pat.items()}))
+
+                excess_pats = set().union(*ret_pats.values())
+                if simplify_excess:
+                    i=0
+                    while True:
+                        i+=1
+                        if i%1000 == 0:
+                            print("round", i, "has", len(excess_pats), "pats")
+                        found = None
+                        for pat in excess_pats:
+                            for (nvec, sym) in pat.items():
+                                if all(sym2 == sym or pat.set(nvec, sym2) in excess_pats
+                                       for sym2 in self.sft.alph[nvec[1]]):
+                                    found_pat, found_nvec = pat, nvec
+                                    break
+                            else:
+                                continue
+                            break
+                        else:
+                            break
+                        for sym in self.sft.alph[found_nvec[1]]:
+                            excess_pats.remove(found_pat.set(found_nvec, sym))
+                        excess_pats.add(found_pat.delete(nvec))
+            else:
+                excess_pats = set().union(*excess_pats.values())
+
+            return True, excess_pats
     
         else:
             return True

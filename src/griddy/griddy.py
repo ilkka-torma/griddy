@@ -771,6 +771,7 @@ class Griddy:
                 load_rules = kwds.get("load_rules", None)
                 forbid_excess = kwds.get("forbid_excess", None)
                 save_excess_pats = kwds.get("save_excess_pats", None)
+                simplify_excess = "simplify_excess" in flags
                 simplify = "simplify" in flags
                 simp_mode = kwds.get("simp_mode", "minimize")
                 if simp_mode not in ["minimize", "recompute"]:
@@ -864,7 +865,7 @@ class Griddy:
                         print(" done")
                         
                 if forbid_excess is not None or save_excess_pats is not None:
-                    _, excess_pats = disc_arg.is_valid(ret_excess=True)
+                    _, excess_pats = disc_arg.is_valid(ret_excess=True, simplify_excess=simplify_excess)
                     if verb:
                         print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
                         #for p in excess_pats: print(p)

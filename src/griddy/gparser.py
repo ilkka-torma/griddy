@@ -141,7 +141,7 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /save_excess_pats/ "=" LABEL
               | /simp_mode/ "=" LABEL
               | /trim_mode/ "=" LABEL
-              | "@" (/simplify/ | /rationalize/ | /trim_rules/ | /trim_final_rules/ | /trim_initial_rules/ | /rationalize_intermediates/ | /minimize_all/ | /verbose/ | /show_rules/ )
+              | "@" (/simplify/ | /simplify_excess/ | /rationalize/ | /trim_rules/ | /trim_final_rules/ | /trim_initial_rules/ | /rationalize_intermediates/ | /minimize_all/ | /verbose/ | /show_rules/ )
               | /solver/ "=" LABEL
               | /print_freq/ "=" NAT
               | /expect/ "=" fraction
@@ -932,7 +932,7 @@ class GriddyTransformer(Transformer_NonRecursive):
         opts = []
         while items:
             label = items.pop(0)
-            if label in ["simplify", "rationalize", "trim_rules", "trim_final_rules", "trim_initial_rules", "rationalize_intermediates", "minimize_all", "verbose", "show_rules"]:
+            if label in ["simplify", "simplify_excess", "rationalize", "trim_rules", "trim_final_rules", "trim_initial_rules", "rationalize_intermediates", "minimize_all", "verbose", "show_rules"]:
                 opts.append(label)
             else:
                 data = items.pop(0)
