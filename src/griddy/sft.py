@@ -1292,43 +1292,11 @@ class SFT:
             ret = AND(*andeds)
         return ret
 
-    def deduce_forbs(self, domain=None, cap=None, use_forb_shape=False):
-        if use_forb_shape:
-            assert self.forbs is not None
-            nvecs = set(nvec for forb in self.forbs for nvec in forb)
-        else:
-            nvecs = None
-        self.forbs = []
-        self.deduce_forbs_(domain_or_rad=domain, nvecs=nvecs)
-        # deduce forbs gives the forbs with true/false variables,
-        # we want to simplify them into an alphabet size independent form
-        # self.clean_forbs()
-
-    def clean_forbs(self):
-        new_forbs = []
-        for f in self.forbs:
-            new_forb = {}
-            for q in f:
-                if len(self.alph) == 2:
-                    if f[q]:
-                        new_forb[q] = self.alph[1]
-                    else:
-                        new_forb[q] = self.alph[0]
-                else:
-                    if f[q]:
-                        new_forb[q[:-1]] = q[-1]
-            new_forbs.append(new_forb)
-        self.forbs = new_forbs
-
     # domain_or_rad is a collection of vectors OR an integer
-    def deduce_forbs_(self, domain_or_rad=None, nvecs=None):
-        #print("nvecs", nvecs)
+    def deduce_forbs(self, domain_or_rad=None, cap=None, verbose=False, print_freq=10000):
+        self.forbs = []
         verbose_deb = True
-        if nvecs is None:
-            var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
-        else:
-            var_nvecs = nvecs
-            #print("var_nvecs", len(var_nvecs))
+        var_nvecs = set(var[:-1] for var in self.circuit.get_variables())
         if domain_or_rad is None:
             domain_or_rad = 0
         if type(domain_or_rad) == int:
@@ -1339,9 +1307,6 @@ class SFT:
         all_positions = set(nvadd(nvec, vec)
                             for nvec in var_nvecs
                             for vec in vec_domain)
-            #vec_domain = set(var[:-2] for var in domain)
-        #if nvecs is None:
-        #    print("circ", self.circuit)
         #print("vec_domain", vec_domain)
         #print("var_nvecs", var_nvecs)
         #print("all pos", all_positions)
@@ -1350,49 +1315,23 @@ class SFT:
 
         # we want to tile domain so that it has no existing forbos, but
         # the circuit fails at the origin
-        complemented = NOT(self.circuit)
+        if verbose:
+            print("Constructing SAT instance for finding patterns")
+        forb_process = solver_process(AND(NOT(self.circuit), node_constraints_nvecs(self.alph, all_positions)), ret_assignment=True)
+        _ = next(forb_process)
 
+        if verbose:
+            print("Constructing SAT instance for minimizing patterns")
         min_process = solver_process(self.circuit)
         _ = next(min_process)
 
-        #i = 0
+        start_time = time.time()
+        if verbose:
+            print("SAT instances constructed, now finding patterns")
+
         while True:
-            #i += 1
-            #print("round", i)
-            #print("complemented", complemented)
-            forb_circuits = [complemented]
-            #forb_here_circuits = [complemented]
-            # note: every forb is forbidden by the untranslated circuit, so it's safe to place anywhere
-            for vec in vec_domain:
-                #print("implementing forb", forb)
-                for forb in self.forbs:
-                    oreds = []
-                    for (forb_nvec, value) in forb.items():
-                        local_nvec = nvadd(forb_nvec, vec)
-                        local_alph = self.alph[local_nvec[1]]
-                        nvars = [V(local_nvec+(l,)) for l in local_alph.node_vars]
-                        oreds.append(NOT(local_alph.node_eq_sym(nvars, value)))
-                    forb_circuits.append(OR(*oreds))
-                    #if all(c == 0 for c in vec):
-                    #    forb_here_circuits.append(OR(*oreds))
-
-            #forb_here_circuits.append(node_constraints(self.alph, forb_here_circuits))
-
-            if nvecs is None:
-                #print("A")
-                final_circ = AND(*forb_circuits)
-                m = SAT_under(final_circ, node_constraints(self.alph), True)
-            else:
-                #print("B")
-                #print("NC", node_constraints_nvecs(self.alph, all_positions))
-                forb_circuits.append(node_constraints_nvecs(self.alph, all_positions))
-                final_circ = AND(*forb_circuits)
-                all_vars = [nvec+(var,)
-                            for nvec in all_positions
-                            for var in self.alph[nvec[1]].node_vars]
-                #print("final circ", final_circ)
-                m = SAT(final_circ, True, all_vars=all_vars)
-            if m == False:
+            m = forb_process.send(dict())
+            if m is None:
                 break
 
             # we now know that m is a forbidden thingy
@@ -1401,39 +1340,32 @@ class SFT:
             for nvec in var_nvecs:
                 for l in self.alph[nvec[1]].node_vars:
                     minimal[nvec+(l,)] = m[nvec+(l,)]
-                    #print("minimizing", minimal)
-            comp = [complemented]
-            #comp.append(node_constraints(self.alph, comp))
             minimal = minimize_solution(min_process, minimal, sort_by_dist=True)
-            #a = bbb
-            #print("got", minimal)
 
+            # extract the actual forbidden pattern
             support = set((nvec_sym[:-1]) for nvec_sym in minimal)
-            support_vars = [nvec+(l,) for nvec in support
-                            for l in self.alph[nvec[1]].node_vars]
-            proj_circs = [final_circ]
-            for (var, val) in minimal.items():
-                proj_circs.append(V(var) if val else NOT(V(var)))
-                new_forb_found = False
-            constr = node_constraints(self.alph)(proj_circs)
-            for model in projections(AND(constr, *proj_circs), support_vars):
-                #print("model", model)
-                new_forb = dict()
-                for nvec in support:
-                    local_alph = self.alph[nvec[1]]
-                    nvals = [model[nvec+(l,)] for l in local_alph.node_vars]
-                    new_forb[nvec] = local_alph.model_to_sym(nvals)
-                    #print("nvec", nvec, "nvars", local_alph.node_vars, "nvals", nvals, "sym", local_alph.model_to_sym(nvals))
-                    #print("new_forb", new_forb)
-                if all(forb != new_forb for forb in self.forbs):
-                    print("added new forb", new_forb)
-                    self.forbs.append(new_forb)
-                    new_forb_found = True
-                    #if len(self.forbs)%5000 == 0:
-                    #    print("{} found so far, average size {}".format(len(self.forbs), sum(len(f) for f in self.forbs)/len(self.forbs)))
-            #if not new_forb_found:
-            #    print("something's wrong here")
-            #    1/0
+            model = forb_process.send(minimal)
+            new_forb = dict()
+            for nvec in support:
+                assert nvec in all_positions
+                local_alph = self.alph[nvec[1]]
+                nvals = [model[nvec+(l,)] for l in local_alph.node_vars]
+                new_forb[nvec] = local_alph.model_to_sym(nvals)  
+            self.forbs.append(new_forb)
+
+            # forbid the new pattern from occurring
+            for vec in vec_domain:
+                oreds = []
+                for (forb_nvec, value) in new_forb.items():
+                    local_nvec = nvadd(forb_nvec, vec)
+                    assert local_nvec in all_positions
+                    local_alph = self.alph[local_nvec[1]]
+                    nvars = [V(local_nvec+(l,)) for l in local_alph.node_vars]
+                    oreds.append(NOT(local_alph.node_eq_sym(nvars, value)))
+                forb_process.send(OR(*oreds))
+                
+            if verbose and len(self.forbs)%print_freq == 0:
+                print("{} patterns found in {} seconds, average size {}".format(len(self.forbs), time.time()-start_time, sum(len(f) for f in self.forbs)/len(self.forbs)))
 
     def inconsistent_with(self, other, verbose=False):
         if verbose:

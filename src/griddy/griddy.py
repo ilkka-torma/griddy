@@ -1155,7 +1155,8 @@ class Griddy:
                 rad = kwds.get("radius", 0)
                 approx_name, cap = kwds.get("approximation", (None, None))
                 filename = kwds.get("filename", None)
-                use_forb_shape = "use_forb_shape" in flags
+                verb = "verbose" in flags
+                print_freq = kwds.get("print_freq", 10000)
                 save_msg = " into {}.output".format(filename) if filename is not None else ""
                 if mode == "report":
                     if rad is None:
@@ -1164,7 +1165,7 @@ class Griddy:
                         if mode != "silent": print("Computing forbidden patterns for {}{} using radius {}.".format(name, save_msg, rad))
                     if the_sft.forbs is not None:
                         if mode != "silent": print("It already had forbidden patterns; overwriting them.")
-                the_sft.deduce_forbs(rad, cap=cap, use_forb_shape=use_forb_shape)
+                the_sft.deduce_forbs(rad, cap=cap, verbose=verb, print_freq=print_freq)
                 if mode != "silent": print("Found {} patterns.".format(len(the_sft.forbs)))
                 if "verbose" in flags:
                     for f in the_sft.forbs:

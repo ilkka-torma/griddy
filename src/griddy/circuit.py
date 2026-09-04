@@ -762,32 +762,50 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
 def solver_process(circ, ret_assignment=False):
     "A generator for repeatedly checking satisfiability with different initial assignments"
     var_to_name = dict()
-    clauses, next_name = circuit_to_sat_instance(circ, var_to_name)
-    clauses.append([next_name])
+    clauses, next_name = circuit_to_sat_instance_good(circ, var_to_name)
+    clauses.append([var_to_name[id(circ)]])
+    #print("init clauses", clauses)
     # Get a first batch of values (dict of varname : bool)
     values = yield None
+    # Circuits are differentiated by ids, which can be reclaimed, so we need them to persist as long as the process runs
+    circ_store = []
     with Glucose4(bootstrap_with=clauses) as solver:
         while True:
             #print("solver got", values, "has var_to_name",
             #      {v : n for (v,n) in var_to_name.items() if type(v) != int})
-            assum = [(-1)**(1-val) * var_to_name[var]
-                     for (var, val) in values.items()
-                     if var in var_to_name]
-            #print("assum", assum)
-            res = solver.solve(assumptions=assum)
-            if res:
-                if ret_assignment:
-                    model = solver.get_model()
-                    out_values = {name : m[abs(var_to_name[var])-1] > 0
-                                  for (var, name) in var_to_name.items()}
-                    values = yield out_values
+            if type(values) == dict:
+                # Got new assumptions -> solve
+                assum = [(-1)**(1-val) * var_to_name[var]
+                         for (var, val) in values.items()
+                         if var in var_to_name]
+                res = solver.solve(assumptions=assum)
+                if res:
+                    if ret_assignment:
+                        model = solver.get_model()
+                        out_values = {var : model[abs(var_to_name[var])-1] > 0
+                                      for (var, name) in var_to_name.items()}
+                        values = yield out_values
+                    else:
+                        values = yield True
                 else:
-                    values = yield True
+                    if ret_assignment:
+                        values = yield None
+                    else:
+                        values = yield False
             else:
-                if ret_assignment:
-                    values = yield None
+                # Got circuit -> compile and add clauses
+                circ_store.append(values)
+                #print("values", values)
+                if id(values) in var_to_name:
+                    solver.add_clause([var_to_name[id(values)]])
+                    #print("existed", id(values), var_to_name[id(values)])
                 else:
-                    values = yield False
+                    #print("new")
+                    clauses, next_name = circuit_to_sat_instance_good(values, var_to_name, next_name=abs(next_name))
+                    for clause in clauses:
+                        solver.add_clause(clause)
+                    solver.add_clause([var_to_name[id(values)]])
+                values = yield None
 
 def projections(circ, the_vars):
     "All possible satisfiable values of the given variables"
@@ -1052,7 +1070,8 @@ def AND(*inputs):
             continue
         if inp.op == "&":
             andeds.update(inp.inputs)
-        andeds.add(inp)
+        else:
+            andeds.add(inp)
     if len(andeds) == 1:
         return next(iter(andeds))
     return circuit("&", *andeds)
@@ -1075,7 +1094,8 @@ def OR(*inputs):
             continue
         if inp.op == "|":
             oreds.update(inp.inputs)
-        oreds.add(inp)
+        else:
+            oreds.add(inp)
     if len(oreds) == 1:
         return next(iter(oreds))
     return circuit("|", *oreds)
