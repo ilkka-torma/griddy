@@ -865,20 +865,26 @@ class Griddy:
                         print(" done")
                         
                 if forbid_excess is not None or save_excess_pats is not None:
-                    _, excess_pats = disc_arg.is_valid(ret_excess=True, simplify_excess=simplify_excess)
-                    if verb:
-                        print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
-                        #for p in excess_pats: print(p)
-                    if save_excess_pats is not None:
-                        with open(save_excess_pats+".output", 'w') as f:
-                            for pat in excess_pats:
-                                f.write(str(dict(pat)) + '\n')
+                    _, excess = disc_arg.is_valid(ret_excess=True, simplify_excess=simplify_excess, verbose=verb)
+                    if excess is None:
                         if verb:
-                            print("Patterns saved")
-                    if forbid_excess is not None:
-                        no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
-                        no_excess = sft.intersection(the_sft, no_excess)
-                        self.SFTs[forbid_excess] = no_excess
+                            print("Could not compute excess patterns")
+                    else:
+                        excess_pats, excess_gap = excess
+                        if verb:
+                            print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
+                            print("Excess gap is {}".format(excess_gap))
+                            #for p in excess_pats: print(p)
+                        if save_excess_pats is not None:
+                            with open(save_excess_pats+".output", 'w') as f:
+                                for pat in excess_pats:
+                                    f.write(str(dict(pat)) + '\n')
+                            if verb:
+                                print("Patterns saved")
+                        if forbid_excess is not None:
+                            no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
+                            no_excess = sft.intersection(the_sft, no_excess)
+                            self.SFTs[forbid_excess] = no_excess
                             
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":
@@ -1167,9 +1173,9 @@ class Griddy:
                         if mode != "silent": print("It already had forbidden patterns; overwriting them.")
                 the_sft.deduce_forbs(rad, cap=cap, verbose=verb, print_freq=print_freq)
                 if mode != "silent": print("Found {} patterns.".format(len(the_sft.forbs)))
-                if "verbose" in flags:
+                if "show_patterns" in flags:
                     for f in the_sft.forbs:
-                        if mode != "silent": print(f)
+                        print(f)
                 
                 if filename is not None:
                     with open(filename+".output", 'w') as f:

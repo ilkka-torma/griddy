@@ -466,7 +466,7 @@ class DischargingArgument:
                     yield (orig_val, surr)
     
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False):
         "Check that the argument is valid."
         bigpat_given = bigpat is not None
         if self.bound is None:
@@ -481,6 +481,7 @@ class DischargingArgument:
                  for (source, node_rules) in self.trans_rules.items()
                  for (fpat, nvecs) in node_rules.items()
                  for nvec in nvecs]
+        excess_gap = None
         for node in self.sym_nodes:
             excess_pats[node] = set()
             for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat, rules=rules, shuffle=shuffle):
@@ -509,6 +510,10 @@ class DischargingArgument:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
                         excess_pats[node].add(fpat)
+                        if excess_gap is None:
+                            excess_gap = summa + self.weights[orig_val] - self.bound
+                        else:
+                            excess_gap = min(excess_gap, summa + self.weights[orig_val] - self.bound)
                 else:
                     good = summa >= 0
                     if summa > (TOLERANCE if type(summa) == float else 0):
@@ -518,6 +523,10 @@ class DischargingArgument:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
                         excess_pats[node].add(fpat)
+                        if excess_gap is None:
+                            excess_gap = summa
+                        else:
+                            excess_gap = min(excess_gap, summa)
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -549,13 +558,14 @@ class DischargingArgument:
         elif ret_excess:
             if simplify_excess:
                 for node in self.sym_nodes:
-                    print("node", node)
+                    if verbose:
+                        print("Simplifying excess patterns for node {}".format(node))
                     i=0
                     while True:
                         found = None
                         i+=1
-                        if i%1000 == 0:
-                            print("round", i, "has", len(excess_pats[node]), "pats")
+                        if verbose and i%1000 == 0:
+                            print("Round", i, "has", len(excess_pats[node]), "pats")
                         for pat in excess_pats[node]:
                             for (nvec, sym) in pat.items():
                                 if all(sym2 == sym or\
@@ -598,11 +608,13 @@ class DischargingArgument:
 
                 excess_pats = set().union(*ret_pats.values())
                 if simplify_excess:
+                    if verbose:
+                        print("Simplifying unified excess patterns")
                     i=0
                     while True:
                         i+=1
-                        if i%1000 == 0:
-                            print("round", i, "has", len(excess_pats), "pats")
+                        if verbose and i%1000 == 0:
+                            print("Round", i, "has", len(excess_pats), "pats")
                         found = None
                         for pat in excess_pats:
                             for (nvec, sym) in pat.items():
@@ -621,7 +633,7 @@ class DischargingArgument:
             else:
                 excess_pats = set().union(*excess_pats.values())
 
-            return True, excess_pats
+            return True, (excess_pats, excess_gap)
     
         else:
             return True

@@ -818,7 +818,7 @@ def projections(circ, the_vars):
     "All possible satisfiable values of the given variables"
     #print(circ)
     var_to_name = dict()
-    clauses, next_name = circuit_to_sat_instance(circ, var_to_name)
+    clauses, next_name = circuit_to_sat_instance_good(circ, var_to_name)
     clauses.append([next_name])
     circ_vars = circ.get_variables()
     used = [var for var in the_vars if var in circ_vars]
