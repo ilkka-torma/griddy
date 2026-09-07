@@ -1188,12 +1188,14 @@ class Griddy:
                 onesided = kwds.get("onesided", [])
                 no_circuit = "no_circuit" in flags
                 if mode == "report":
-                    if mode != "silent": print("Loading forbidden patterns of {} from {}.output.".format(sft_name, filename))
+                    if mode != "silent": print("Loading forbidden patterns of {} from {}.output...".format(sft_name, filename), end="")
                 forbs = []
                 with open(filename+".output", 'r') as f:
                     for pat_line in f:
                         forb = ast.literal_eval(pat_line.strip())
                         forbs.append(forb)
+                if mode != "silent":
+                    print(" loaded {} patterns".format(len(forbs)))
                 try:
                     the_sft = self.SFTs[sft_name]
                     the_sft.forbs = forbs

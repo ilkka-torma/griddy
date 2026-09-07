@@ -649,7 +649,7 @@ def circuit_to_sat_instance_good(circ, var_to_name, next_name=None, variables=No
     for v in variables:
         if v not in var_to_name:
             var_to_name[v] = next_name
-        next_name += 1
+            next_name += 1
     if circ.op == "V":
         if id(circ) not in var_to_name:
             var_to_name[id(circ)] = var_to_name[circ.inputs[0]]
@@ -759,6 +759,8 @@ def circuit_to_sat_instance(circ, var_to_name, next_name=None):
     Circuit.smart_simplify = sm
     return clauses, next_name-1
 
+#import ctypes
+
 def solver_process(circ, ret_assignment=False):
     "A generator for repeatedly checking satisfiability with different initial assignments"
     var_to_name = dict()
@@ -768,11 +770,15 @@ def solver_process(circ, ret_assignment=False):
     # Get a first batch of values (dict of varname : bool)
     values = yield None
     # Circuits are differentiated by ids, which can be reclaimed, so we need them to persist as long as the process runs
-    circ_store = []
+    circ_store = set()
     with Glucose4(bootstrap_with=clauses) as solver:
         while True:
-            #print("solver got", values, "has var_to_name",
-            #      {v : n for (v,n) in var_to_name.items() if type(v) != int})
+            #print("solver has var_to_name",
+            #      {v : n for (v,n) in var_to_name.items()})
+            #for (v,n) in var_to_name.items():
+            #    for (v2,n2) in var_to_name.items():
+            #        if v!=v2 and type(v)==tuple and n==n2:
+            #            print("same name", v,ctypes.cast(v2, ctypes.py_object).value,n)
             if type(values) == dict:
                 # Got new assumptions -> solve
                 assum = [(-1)**(1-val) * var_to_name[var]
@@ -794,14 +800,15 @@ def solver_process(circ, ret_assignment=False):
                         values = yield False
             else:
                 # Got circuit -> compile and add clauses
-                circ_store.append(values)
+                circ_store.add(values)
                 #print("values", values)
+                #print("circ store", circ_store)
                 if id(values) in var_to_name:
                     solver.add_clause([var_to_name[id(values)]])
                     #print("existed", id(values), var_to_name[id(values)])
                 else:
-                    #print("new")
-                    clauses, next_name = circuit_to_sat_instance_good(values, var_to_name, next_name=abs(next_name))
+                    clauses, next_name = circuit_to_sat_instance_good(values, var_to_name, next_name=abs(next_name)+1)
+                    #print("new", clauses + [[var_to_name[id(values)]]])
                     for clause in clauses:
                         solver.add_clause(clause)
                     solver.add_clause([var_to_name[id(values)]])

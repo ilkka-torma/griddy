@@ -1240,16 +1240,15 @@ class SFT:
         assert self.forbs is not None
         forb_domain = set(nvec for forb in self.forbs for nvec in forb)
         self.circuit = self.deduce_circuit_from(self.forbs, forb_domain)
-        #if self.circuit is None:
-        #    anded = []
-        #    for forb in self.forbs:
-        #        ored = []
-        #        for (nvec, sym) in forb.items():
-        #            local_alph = self.alph[nvec[1]]
-        #            nvars = [V(nvec+(l,)) for l in local_alph.node_vars]
-        #            ored.append(NOT(local_alph.node_eq_sym(nvars, sym)))
-        #        anded.append(OR(*ored))
-        #    self.circuit = AND(*anded)
+        #anded = []
+        #for forb in self.forbs:
+        #    ored = []
+        #    for (nvec, sym) in forb.items():
+        #        local_alph = self.alph[nvec[1]]
+        #        nvars = [V(nvec+(l,)) for l in local_alph.node_vars]
+        #        ored.append(NOT(local_alph.node_eq_sym(nvars, sym)))
+        #    anded.append(OR(*ored))
+        #self.circuit = AND(*anded)
 
     def deduce_circuit_from(self, forbs, domain):
         if not forbs:
@@ -1273,7 +1272,7 @@ class SFT:
                         counts[nvec][forb[nvec]] += 1
                     except KeyError:
                         pass
-            split_nvec = max(counts.items(), key=lambda pair: min(pair[1]))[0]
+            split_nvec = max(counts.items(), key=lambda pair: (min(pair[1].values())))[0]
             new_domain = set(nvec for
                              (nvec, syms) in counts.items()
                              if nvec != split_nvec
@@ -1352,9 +1351,11 @@ class SFT:
                 nvals = [model[nvec+(l,)] for l in local_alph.node_vars]
                 new_forb[nvec] = local_alph.model_to_sym(nvals)  
             self.forbs.append(new_forb)
+            #print("got forb", new_forb)
 
             # forbid the new pattern from occurring
             for vec in vec_domain:
+                #print("forbidding at", vec)
                 oreds = []
                 for (forb_nvec, value) in new_forb.items():
                     local_nvec = nvadd(forb_nvec, vec)
