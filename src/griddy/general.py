@@ -49,6 +49,18 @@ def hyperrect(bounds):
     else:
         yield ()
 
+def hypercube_shell(dim, rad):
+    if dim == 0:
+        yield ()
+    else:
+        for vec in centered_hypercube(dim-1, rad):
+            if max(abs(x) for x in vec) == rad:
+                for a in range(-rad, rad+1):
+                    yield vec + (a,)
+            else:
+                yield vec + (-rad,)
+                yield vec + (rad,)
+
 def vmod(m, vec):
     return tuple(a%m for a in vec)
 

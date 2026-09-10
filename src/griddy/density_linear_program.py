@@ -3,7 +3,7 @@ Functions for computing lower bounds for density by a discharging argument encod
 """
 
 import circuit
-from sft import SFT, centered_hypercube
+from sft import SFT, centered_hypercube, intersection, SFT
 from general import *
 import pulp
 import frozendict as fd
@@ -54,7 +54,7 @@ SOLVER_DICTS = {
                         }))
 }
 
-def rules_to_tree(dim, alph, node, syms, bigdomain, rules):
+def rules_to_tree(dim, alph, node, syms, rules):
     "Transform charge transfer rules into a decision tree, which can be used to extract constraints from bigpats."
     # rules is a list of (node, pattern, nvec).
     # tups will store tuples (source, pat, nvec, away, tr_pat) where:
@@ -65,19 +65,24 @@ def rules_to_tree(dim, alph, node, syms, bigdomain, rules):
     # tr_pat is the pattern we should look for in a bigpat.
     # It may be transformed by a symmetry.
     tups = []
+    bigdomain = set()
     for (source, fpat, tr_nvec) in rules:
         for aut in syms:
             (aut_orig_vec, aut_source) = aut(((0,)*dim, source))
             aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
             #aut_fpat = fd.frozendict({aut(nvec) : sym for (nvec, sym) in fpat.items()})
             if aut_source == node:
-                tups.append((source, fpat, tr_nvec, True,
-                             fd.frozendict({nvsub(aut(nvec), aut_orig_vec) : sym
-                                            for (nvec, sym) in fpat.items()})))
+                new_tup = (source, fpat, tr_nvec, True,
+                           fd.frozendict({nvsub(aut(nvec), aut_orig_vec) : sym
+                                          for (nvec, sym) in fpat.items()}))
+                tups.append(new_tup)
+                bigdomain.update(new_tup[4])
             if aut_target == node:
-                tups.append((source, fpat, tr_nvec, False,
-                             fd.frozendict({nvsub(aut(nvec), aut_trvec) : sym
-                                            for (nvec, sym) in fpat.items()})))
+                new_tup = (source, fpat, tr_nvec, False,
+                           fd.frozendict({nvsub(aut(nvec), aut_trvec) : sym
+                                          for (nvec, sym) in fpat.items()}))
+                tups.append(new_tup)
+                bigdomain.update(new_tup[4])
     tree, size = tups_to_tree(alph, bigdomain, tups, [])
     assert size == len(tups)
     #print("tree", size, len(tree), [p[:2] for p in tree])
@@ -88,7 +93,9 @@ def tups_to_tree(alph, bigdomain, tups, tree):
     # the idea is that we iterate the list and test whether bigpat[nvec] = sym.
     # at each match, if the third item is a list we recurse,
     # and otherwise we add the quintuple to the constraint.
-    #print("call", quads, tree)
+    #print("call", tree)
+    #for tup in tups:
+    #    print(" ", tup)
     sumsizes = 0
     while tups:
         #print("tups", len(tups))
@@ -221,8 +228,65 @@ class DischargingSimplifier:
                 print("Trimming final rules")
             self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
             self.status = SimplifierState.FINISHED
-            
 
+
+class DischargingRefiner:
+    "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
+
+    def __init__(self, disc_arg, solver_str, num_extend):
+        # disc_arg should have compute_bound() executed but nothing else
+        self.disc_arg = disc_arg
+        self.sft = disc_arg.sft
+        self.solver_str = solver_str
+        self.num_extend = num_extend
+        self.old_bound = None
+
+    def step(self, verbose=False, print_freq=None):
+        "Return a boolean for success"
+        rat_ok = self.disc_arg.try_rationalize(verbose=verbose, forget_surrs=False)
+        if not rat_ok:
+            if verbose:
+                print("Could not rationalize")
+            return False
+        valid, excess = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=self.old_bound is None or self.old_bound < self.disc_arg.bound)
+        if not valid:
+            if verbose:
+                print("Invalid")
+            return False
+        self.disc_arg.saved_surroundings = None
+        print("excess gap", excess[1])
+        print("excess pats", len(excess[0]))
+        if self.old_bound is None or self.old_bound < self.disc_arg.bound:
+            no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=excess[0])
+            exact = intersection(self.sft, no_excess)
+            exact.deduce_forbs(domain_or_rad=3)#verbose=verbose)
+            exact.deduce_circuit()
+            print("forbs", len(exact.forbs))
+            #for forb in exact.forbs:
+            #    print(" ", forb)
+            empty = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, circuit=circuit.F)
+            cont, _, sep = empty.contains(exact, return_radius_and_sep=True, verbose=verbose)
+            #print("cont", cont)
+            if not cont:
+                if verbose:
+                    print("Exact bound!")
+                    print("conf contents", sep.pat)
+                    print("in sft", sep in self.sft)
+                return True
+        self.old_bound = self.disc_arg.bound
+        if verbose:
+            print("Extending rules")
+        extendables = [rule for (rule, _) in
+                       sorted(self.disc_arg.occurrences_in_exact.items(),
+                              key=lambda p: -p[1])][:self.num_extend]
+        #print("ext", extendables)
+        self.disc_arg.extend_rules(extendables, remove_old=True)
+        self.disc_arg.bound = None
+        self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
+        if self.disc_arg.bound + TOLERANCE < self.old_bound:
+            print("kukkuu")
+            return False
+            
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
 
@@ -288,6 +352,8 @@ class DischargingArgument:
         self.bigdomain = {node : None for node in self.sym_nodes}
         self.score = None
         self.saved_surroundings = None
+
+        self.occurrences_in_exact = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
@@ -372,13 +438,17 @@ class DischargingArgument:
 
     def _surroundings(self, node, bigpat, ret_big, rules, verbose):
         assert node in self.sym_nodes
+        print("start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "bigpats")
         #print("node", node)
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
-        compute_bigpats = False
+        did_extend = False
+        did_compute = False
         if bigpat is not None:
-           bigpats = [bigpat]
+            compute_bigpats = False
+            bigpats = [bigpat]
         elif self.bigpats[node] is None:
+            did_compute = True
             compute_bigpats = True
             self.bigdomain[node] = self.bigdomain_from_spec(node)
             if verbose:
@@ -388,83 +458,138 @@ class DischargingArgument:
             bigpats = self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node])
             self.bigpats[node] = []
         else:
-            bigpats = self.bigpats[node]
-        if rules is None or (len(rules) >= 2**sum(len(x) for x in self.specs.values())):
-            #print("DIRECT")
-            for the_bigpat in bigpats:
-                #print("got bigpat", bigpat, len(bigpat), node)
-                if compute_bigpats:
-                    #found = False
-                    #for aut in self.symmetries:
-                    #    (aut_orig_vec, aut_node) = aut(((0,)*self.sft.dim, node))
-                    #    if aut_node == node:
-                    #        aut_bigpat = {nvsub(aut(nvec), aut_orig_vec) : sym
-                    #                      for (nvec, sym) in bigpat.items()}
-                    #        if aut_bigpat in self.bigpats[node]:
-                    #            found = True
-                    #            break
-                    #if found:
-                    #    continue
-                    #else:
-                    self.bigpats[node].append(the_bigpat)
-                surr = []
-                #print("accepted bigpat", bigpat)
-                if node in self.relevant_nodes:
+            compute_bigpats = True
+            iterated = self.bigpats[node]
+            self.bigpats[node] = []
+            def iter_old_bigpats():
+                while iterated:
+                    yield iterated.pop()
+            bigpats = iter_old_bigpats()
+        while True:
+            to_reprocess = []
+            # This should run at most twice
+            if rules is None:# or (len(rules) >= 2**sum(len(x) for x in self.specs.values())):
+                print("DIRECT")
+                for the_bigpat in bigpats:
+                    reprocess = False
+                    needed_nvecs = set()
+                    #print("got bigpat", the_bigpat)
+                    surr = []
+                    #print("accepted bigpat", bigpat)
+                    if node in self.relevant_nodes:
+                        orig_val = the_bigpat[((0,)*self.sft.dim, node)]
+                    else:
+                        orig_val = None
+                    for (source_node, node_specs) in self.specs.items():
+                        for (tr_nvec, domain) in node_specs:
+                            #print("transition", source_node, tr_nvec, domain)
+                            # here we must consider all symmetries to find transitions
+                            # but we return the original, untransformed patterns
+                            for aut in self.symmetries:
+                                #print("aut", aut)
+                                (aut_orig_vec, aut_source) = aut(((0,)*self.sft.dim, source_node))
+                                #print("aut source", aut_orig_vec, aut_source)
+                                aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
+                                #print("aut target", aut_trvec, aut_target)
+                                aut_domain = {aut(nvec) : nvec for nvec in domain}
+                                #print("aut domain", aut_domain)
+                                if aut_source == node:
+                                    # send charge away from origin node
+                                    try:
+                                        surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_orig_vec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, True))
+                                    except KeyError:
+                                        reprocess = True
+                                        needed_nvecs.update({nvsub(img_nvec, aut_orig_vec)
+                                                             for img_nvec in aut_domain})
+                                (vec, target_node) = tr_nvec
+                                if aut_target == node:
+                                    try:
+                                        # send charge to origin node
+                                        surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_trvec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, False))
+                                    except KeyError:
+                                        reprocess = True
+                                        needed_nvecs.update({nvsub(img_nvec, aut_trvec)
+                                                             for img_nvec in aut_domain})
+                    #print("surr", orig_val, surr)
+                    if reprocess:
+                        to_reprocess.append((the_bigpat, needed_nvecs))
+                    else:
+                        if compute_bigpats:
+                            self.bigpats[node].append(the_bigpat)
+                        if ret_big:
+                            yield (orig_val, surr, the_bigpat)
+                        else:
+                            yield (orig_val, surr)    
+            else:
+                print("TREE")
+                tree = rules_to_tree(self.sft.dim, self.sft.alph, node, self.symmetries, rules)
+                for the_bigpat in bigpats:
+                    #print("got bigpat", the_bigpat)
+                    reprocess = False
+                    needed_nvecs = set()
+                    surr = []
                     orig_val = the_bigpat[((0,)*self.sft.dim, node)]
-                else:
-                    orig_val = None
-                for (source_node, node_specs) in self.specs.items():
-                    for (tr_nvec, domain) in node_specs:
-                        #print("transition", source_node, tr_nvec, domain)
-                        # here we must consider all symmetries to find transitions
-                        # but we return the original, untransformed patterns
-                        for aut in self.symmetries:
-                            #print("aut", aut)
-                            (aut_orig_vec, aut_source) = aut(((0,)*self.sft.dim, source_node))
-                            #print("aut source", aut_orig_vec, aut_source)
-                            aut_trnvec = (aut_trvec, aut_target) = aut(tr_nvec)
-                            #print("aut target", aut_trvec, aut_target)
-                            aut_domain = {aut(nvec) : nvec for nvec in domain}
-                            #print("aut domain", aut_domain)
-                            if aut_source == node:
-                                # send charge away from origin node
-                                surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_orig_vec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, True))
-                            (vec, target_node) = tr_nvec
-                            if aut_target == node:
-                                # send charge to origin node
-                                surr.append((source_node, fd.frozendict({nvec : the_bigpat[nvsub(img_nvec, aut_trvec)] for (img_nvec, nvec) in aut_domain.items()}), tr_nvec, False))
-                #print("surr", orig_val, surr)
-                if ret_big:
-                    yield (orig_val, surr, the_bigpat)
-                else:
-                    yield (orig_val, surr)
-        else:
-            #print("TREE")
-            tree = rules_to_tree(self.sft.dim, self.sft.alph, node, self.symmetries, self.bigdomain[node], rules)
-            for the_bigpat in bigpats:
-                #print("new bigpat", bigpat)
-                surr = []
-                orig_val = the_bigpat[((0,)*self.sft.dim, node)]
-                curr_tree = tree.copy()
-                while curr_tree:
-                    #print("popping", curr_tree[-1])
-                    item = curr_tree.pop()
-                    # item is either (nvec, sym, subtree) or (source, pat, nvec, away, testpat)
-                    if len(item) == 5:
-                        if all(the_bigpat[nvec] == sym for (nvec, sym) in item[4].items()):
-                            # a rule that matches
-                            surr.append(item[:4])
-                    elif the_bigpat[item[0]] == item[1]:
-                        # a subtree that matches
-                        curr_tree.extend(item[2])
-                #print("surr", surr)
-                if compute_bigpats:
-                    self.bigpats[node].append(the_bigpat)
-                if ret_big:
-                    yield (orig_val, surr, the_bigpat)
-                else:
-                    yield (orig_val, surr)
-    
+                    curr_tree = tree.copy()
+                    while curr_tree:
+                        #print("popping", curr_tree[-1])
+                        item = curr_tree.pop()
+                        # item is either (nvec, sym, subtree) or (source, pat, nvec, away, testpat)
+                        if len(item) == 5:
+                            try:
+                                if all(the_bigpat[nvec] == sym for (nvec, sym) in item[4].items()):
+                                    # a rule that matches
+                                    surr.append(item[:4])
+                            except KeyError:
+                                reprocess = True
+                                needed_nvecs.update(item[4])
+                        else:
+                            try:
+                                if the_bigpat[item[0]] == item[1]:
+                                    # a subtree that matches
+                                    curr_tree.extend(item[2])
+                            except KeyError:
+                                reprocess = True
+                                needed_nvecs.add(item[0])
+                                # the subtree may not match the extended pattern
+                                #curr_tree.extend(item[2])
+                    #print("surr", surr)
+                    if reprocess:
+                        #print("needed", needed_nvecs)
+                        to_reprocess.append((the_bigpat, needed_nvecs))
+                    else:
+                        if compute_bigpats:
+                            self.bigpats[node].append(the_bigpat)
+                        if ret_big:
+                            yield (orig_val, surr, the_bigpat)
+                        else:
+                            yield (orig_val, surr)
+            if to_reprocess:
+                did_extend = True
+                print("need to reprocess", len(to_reprocess))
+                reprocessed = self.extend_pats(node, to_reprocess, self.sym_nodes[node])
+                def iter_reprocessed():
+                    while reprocessed:
+                        yield reprocessed.pop()
+                bigpats = iter_reprocessed()
+            else:
+                break
+        print("end with", len(self.bigpats[node]), "bigpats")
+        #if did_extend or did_compute:
+        #    for b in self.bigpats[node]:
+        #        print(b)
+        #if did_extend:
+        #    self.update_specs()
+
+    def extend_pats(self, node, pat_pairs, symmetries):
+        "Given a list of pairs (pattern, nvecs), extend each pattern in all locally valid ways to the nvecs."
+        ret = []
+        for (pat, nvecs) in pat_pairs:
+            #print("extending", pat, "into", {nvec for nvec in nvecs if nvec not in pat})
+            for new_pat in self.sft.all_patterns(set(pat) | nvecs, existing=pat, extra_rad=self.radius, mod_symmetries=symmetries):
+                #print("  got", new_pat)
+                ret.append(new_pat)
+        return ret
+            
 
     def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False):
         "Check that the argument is valid."
@@ -476,36 +601,42 @@ class DischargingArgument:
                 return True
         # list all legal combinations of patterns around origin
         excess_pats = dict()
+        exact_pats = dict()
         i = 0
         rules = [(source, fpat, nvec)
                  for (source, node_rules) in self.trans_rules.items()
                  for (fpat, nvecs) in node_rules.items()
                  for nvec in nvecs]
         excess_gap = None
+        self.occurrences_in_exact = {rule : 0 for rule in rules}
         for node in self.sym_nodes:
             excess_pats[node] = set()
+            exact_pats[node] = set()
             for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat, rules=rules, shuffle=shuffle):
                 # for each legal combo, sum the contributions from each -v
                 if isinstance(self.bound, Fraction):
                     summa = Fraction(0)
                 else:
                     summa = 0
+                occurring_rules = []
                 for (source, pat, nvec, away) in surr:
                     try:
                         if away:
                             summa -= self.trans_rules[source][pat][nvec]
                         else:
                             summa += self.trans_rules[source][pat][nvec]
+                        occurring_rules.append((source, pat, nvec))
                     except KeyError:
                         # missing rules are treated as 0
                         pass
                 if type(summa) == float:
                     # reduce float inaccuracies but possibly introduce false positives
                     summa += TOLERANCE
+                fpat = fd.frozendict(the_bigpat)
+                #print("fpat", fpat)
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
                     if summa + self.weights[orig_val] > self.bound + (TOLERANCE if type(summa) == float else 0):
-                        fpat = fd.frozendict(the_bigpat)
                         for nvec in the_bigpat:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
@@ -514,11 +645,14 @@ class DischargingArgument:
                             excess_gap = summa + self.weights[orig_val] - self.bound
                         else:
                             excess_gap = min(excess_gap, summa + self.weights[orig_val] - self.bound)
+                    else:
+                        exact_pats[node].add(fpat)
+                        for rule in occurring_rules:
+                            self.occurrences_in_exact[rule] += 1
                 else:
                     good = summa >= 0
                     if summa > (TOLERANCE if type(summa) == float else 0):
                         #print("excess", the_bigpat)
-                        fpat = fd.frozendict(the_bigpat)
                         for nvec in the_bigpat:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
@@ -527,6 +661,10 @@ class DischargingArgument:
                             excess_gap = summa
                         else:
                             excess_gap = min(excess_gap, summa)
+                    else:
+                        exact_pats[node].add(fpat)
+                        for rule in occurring_rules:
+                            self.occurrences_in_exact[rule] += 1
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -542,6 +680,18 @@ class DischargingArgument:
                     else:
                         return False
                 i += 1
+        
+        if verbose:
+            print("Found {} exact and {} excess patterns".format(
+                sum(len(pats) for pats in exact_pats.values()),
+                sum(len(pats) for pats in excess_pats.values())
+            ))
+            occur_counts = {}
+            for num in self.occurrences_in_exact.values():
+                occur_counts[num] = occur_counts.get(num, 0)+1
+            print("Rule occurrences in exact patterns:")
+            for (occur_num, rule_count) in sorted(occur_counts.items()):
+                print("{} rules occur {} times".format(rule_count, occur_num))
         if give_reason:
             if bigpat_given:
                 return True, (the_bigpat, orig_nodes,
@@ -555,7 +705,7 @@ class DischargingArgument:
                               0)
             else:
                 return True, "valid"
-        elif ret_excess:
+        elif ret_excess or simplify_excess:
             if simplify_excess:
                 for node in self.sym_nodes:
                     if verbose:
@@ -632,13 +782,15 @@ class DischargingArgument:
                         excess_pats.add(found_pat.delete(nvec))
             else:
                 excess_pats = set().union(*excess_pats.values())
-
-            return True, (excess_pats, excess_gap)
+            if ret_excess:
+                return True, (excess_pats, excess_gap)
+            else:
+                return True
     
         else:
             return True
 
-    def try_rationalize(self, verbose=False):
+    def try_rationalize(self, verbose=False, forget_surrs=True):
         "Attempt to convert into rational numbers. Return whether it was succesful."
         if verbose:
             print("Attempting to rationalize")
@@ -675,7 +827,8 @@ class DischargingArgument:
                 print("Could not rationalize solution and it seems to be invalid")
                 for r in reason:
                     print(r)
-        self.saved_surroundings = None
+        if forget_surrs:
+            self.saved_surroundings = None
         return False
     
     def rationalize(self, den_ix, verbose=False, attempt_fix=False):
@@ -801,7 +954,12 @@ class DischargingArgument:
             self.score = [0]*len(self.score)
         for (node, rules) in trans_rules.items():
             for (fpat, nvecs) in rules.items():
-                self.score[-len(fpat)] += len(nvecs)
+                while True:
+                    try:
+                        self.score[-len(fpat)] += len(nvecs)
+                        break
+                    except IndexError:
+                        self.score = [0] + self.score
         #print("score", self.score)
         if rules_only or None in self.bigpats.values():
             return
@@ -809,14 +967,14 @@ class DischargingArgument:
         bigdomain = dict()
         for node in self.sym_nodes:
             bigdomain[node] = self.bigdomain_from_spec(node)
+            if bigdomain[node] >= self.bigdomain[node]:
+                return
         #print("new bigdomain", bigdomain)
-        if bigdomain != self.bigdomain:
-            #print("changing")
-            self.bigdomain = bigdomain
-            self.bigpats = {node : set(fd.frozendict({nvec : bigpat[nvec]
-                                                      for nvec in bigdomain[node]})
-                                       for bigpat in pats)
-                            for (node, pats) in self.bigpats.items()}
+        self.bigdomain = bigdomain
+        self.bigpats = {node : set(fd.frozendict({nvec : bigpat[nvec]
+                                                  for nvec in bigdomain[node]})
+                                   for bigpat in pats)
+                        for (node, pats) in self.bigpats.items()}
 
     def minimize_rule_count(self, solver_str, verbose=False, print_freq=5000, max_rounds=None, ordered_split=False, save_rules=None, sort_rules=False):
         "Iteratively remove rules until each is essential, starting from the largest."
@@ -887,6 +1045,52 @@ class DischargingArgument:
             #        print(self.trans_rules == old_rules)
             #        print(self.is_valid(bigpat=bigpat, give_reason=True))
             #        1/0
+
+    def extend_rules(self, extendables, ordering=None, remove_old=True):
+        "Extend the given rules by adding new nodes to their neighborhood."
+        if ordering is None:
+            # Order by hypercube borders
+            def ordering():
+                rad = 0
+                while True:
+                    for vec in sorted(hypercube_shell(self.sft.dim, rad),
+                                      key=lambda vec: sum(abs(x) for x in vec)):
+                        for node in self.sft.nodes:
+                            # only add nodes with nontrivial alphabets
+                            if len(self.sft.alph[node]) > 1:
+                                yield (vec, node)
+                    rad += 1
+                    
+        for (source, pat, nvec) in extendables:
+            for potential_nvec in ordering():
+                if potential_nvec not in pat:
+                    new_nvec = potential_nvec
+                    break
+            for sym in self.sft.alph[new_nvec[1]]:
+                # it should be safe to extend by invalid patterns, since they will never be used in the program, will have value 0, and will be removed
+                # it might not be safe to extend in such a way that we produce symmetry-equivalent rules
+                new_pat = pat.set(new_nvec, sym)
+                exists = False
+                for aut in self.sym_nodes[source]:
+                    if aut(nvec) != nvec:
+                        continue
+                    aut_pat = fd.frozendict({aut(nv) : s for (nv, s) in new_pat.items()})
+                    if aut_pat in self.trans_rules[source] and\
+                       nvec in self.trans_rules[source][aut_pat]:
+                        exists = True
+                        break
+                if exists:
+                    #print("already existed")
+                    continue
+                print("pat", dict(pat), "extended to", dict(new_pat))
+                try:
+                    self.trans_rules[source][new_pat][nvec] = self.trans_rules[source][pat][nvec]
+                except KeyError:
+                    self.trans_rules[source][new_pat] = {nvec : self.trans_rules[source][pat][nvec]}
+            if remove_old:
+                del self.trans_rules[source][pat][nvec]
+        self.update_specs(rules_only=True)
+        # bigpats are updated during the next surroundings() call
                 
 
     def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False):
@@ -1007,7 +1211,9 @@ class DischargingArgument:
         # only handle one node from each symmetry orbit
         i = 0
         for node in self.sym_nodes:
-            for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
+            #for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
+            #print("send", list(send))
+            for (orig_val, surr) in self.surroundings(node, rules=None if self.trans_rules is None else list(send), verbose=verbose):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -1064,7 +1270,7 @@ class DischargingArgument:
 
         self.trans_rules = {node : dict() for node in self.sft.nodes}
         for ((source, fr_pat, nvec), var) in send.items():
-            if var.varValue:
+            if True:#var.varValue:
                 if fr_pat not in self.trans_rules[source]:
                     self.trans_rules[source][fr_pat] = dict()
                 self.trans_rules[source][fr_pat][nvec] = var.varValue

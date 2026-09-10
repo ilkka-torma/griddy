@@ -788,6 +788,7 @@ class Griddy:
                 rationalize_intermediates = "rationalize_intermediates" in flags
                 minimize_all = "minimize_all" in flags
                 solver = kwds.get("solver", "CBC")
+                refine = kwds.get("refine", False)
                 specs = args[1]
                 #print("specs", specs)
                 if not specs:
@@ -819,6 +820,13 @@ class Griddy:
                         print("Loading rules from {}.output".format(load_rules))
                     disc_arg.load_transfer_rules(load_rules)
                     disc_arg.update_specs()
+                    
+                if refine:
+                    refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine)
+                    while True:
+                        res = refiner.step(verbose=verb, print_freq=print_freq)
+                        if res is not None:
+                            break
                     
                 if simplify:
                     if load_rules is None:

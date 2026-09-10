@@ -133,6 +133,7 @@ cmd_tiler_opts: ( /x_size/ "=" NAT
 cmd_dlb_opts: ( /radius/ "=" NAT
               | /max_split/ "=" NAT
               | /num_split/ "=" NAT
+              | /refine/ "=" NAT
               | /save_constr/ "=" LABEL
               | /load_constr/ "=" LABEL
               | /save_rules/ "=" LABEL

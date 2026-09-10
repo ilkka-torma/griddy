@@ -1166,7 +1166,11 @@ class SFT:
         domain = list(domain)
         nontriv_symmetries = []
         for aut in mod_symmetries:
-            if aut != id_sym and set(domain) == {aut(nvec) for nvec in domain} and aut not in nontriv_symmetries:
+            if aut != id_sym and\
+               set(domain) == {aut(nvec) for nvec in domain} and\
+               all(aut(nvec) not in existing or existing[nvec] == existing[aut(nvec)]
+                   for nvec in existing) and\
+               aut not in nontriv_symmetries:
                 nontriv_symmetries.append(aut)
             
 
@@ -1401,16 +1405,16 @@ class SFT:
                 return True
             # Try to find a configuration that is in other, but not in this.
             if method == "recognizable":
-                res, sep = other.exists_recognizable_not_in(self, [r]*self.dim, return_conf=return_radius_and_sep)
+                res = other.exists_recognizable_not_in(self, [r]*self.dim, return_conf=return_radius_and_sep)
             elif method == "periodic":
-                res, sep = other.exists_recognizable_not_in(self, [r]*self.dim,
+                res = other.exists_recognizable_not_in(self, [r]*self.dim,
                                                             periodics = [i for i in range(self.dim) if i not in self.onesided],
                                                             return_conf=return_radius_and_sep)
             else:
                 raise Exception("Unknown method: {}".format(method))
-            if res:
+            if res[0]:
                 if return_radius_and_sep:
-                    return False, r, sep
+                    return False, r, res[1]
                 return False
             r += 1
         return None
