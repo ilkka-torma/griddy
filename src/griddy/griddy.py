@@ -789,6 +789,7 @@ class Griddy:
                 minimize_all = "minimize_all" in flags
                 solver = kwds.get("solver", "CBC")
                 refine = kwds.get("refine", False)
+                opt_conf = kwds.get("opt_conf", None)
                 specs = args[1]
                 #print("specs", specs)
                 if not specs:
@@ -826,6 +827,8 @@ class Griddy:
                     while True:
                         res = refiner.step(verbose=verb, print_freq=print_freq)
                         if res is not None:
+                            if res[0] and opt_conf is not None:
+                                self.confs[opt_conf] = res[1]
                             break
                     
                 if simplify:

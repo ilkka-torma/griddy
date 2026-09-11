@@ -15,7 +15,7 @@ from enum import Enum
 import ast
 
 TOLERANCE = 1e-6
-DENOMINATORS = [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 3500, 5000, 7500, 10000, 20000, 35000, 50000, 75000, 100000, 200000, 350000, 500000, 750000, 1000000, 2000000, 3500000, 5000000, 7500000, 10000000, 20000000, 35000000, 50000000, 75000000, 100000000, 200000000, 350000000, 500000000, 750000000, 1000000000, 2000000000, 3500000000, 5000000000, 7500000000, 10000000000]
+DENOMINATORS = [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 3500, 5000, 7500, 10000, 20000, 35000, 50000, 75000, 100000, 200000, 350000, 500000, 750000, 1000000, 2000000, 3500000, 5000000, 7500000, 10000000, 20000000, 35000000, 50000000, 75000000, 100000000, 200000000, 350000000, 500000000, 750000000, 1000000000, 2000000000, 3500000000, 5000000000, 7500000000, 10000000000][::-1]
 
 # A dict of solvers, type str -> ((solver, args), None | (solver, args))
 # The first component is used by default, the second when the first one fails
@@ -247,16 +247,20 @@ class DischargingRefiner:
         if not rat_ok:
             if verbose:
                 print("Could not rationalize")
-            return False
-        valid, excess = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=self.old_bound is None or self.old_bound < self.disc_arg.bound)
+            return (False, None)
+        get_excess = self.old_bound is None or self.old_bound < self.disc_arg.bound
+        if get_excess:
+            valid, excess = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True)
+        else:
+            valid = self.disc_arg.is_valid(verbose=verbose) # just to compute excess counts
         if not valid:
             if verbose:
                 print("Invalid")
-            return False
+            return (False, None)
         self.disc_arg.saved_surroundings = None
-        print("excess gap", excess[1])
-        print("excess pats", len(excess[0]))
-        if self.old_bound is None or self.old_bound < self.disc_arg.bound:
+        if get_excess:
+            print("excess gap", excess[1])
+            print("excess pats", len(excess[0]))
             print("forming SFT")
             no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=excess[0])
             exact = intersection(self.sft, no_excess)
@@ -273,7 +277,13 @@ class DischargingRefiner:
                     print("Exact bound!")
                     print("conf contents", sep.pat)
                     print("in sft", sep in self.sft)
-                return True
+                    weight = count = 0
+                    for (nvec, sym) in sep.pat.items():
+                        if nvec[1] != ("F",):
+                            count += 1
+                            weight += int(sym)
+                    print("dens", Fraction(weight, count))
+                return (True, sep)
         self.old_bound = self.disc_arg.bound
         if verbose:
             print("Extending rules")
@@ -286,12 +296,12 @@ class DischargingRefiner:
         #print("ext")
         #for rule in extendables:
         #    print(" ", rule)
-        self.disc_arg.extend_rules(extendables, remove_old=True)
+        self.disc_arg.extend_rules(extendables, remove_old=True, ordering="topology")
         self.disc_arg.bound = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
         if self.disc_arg.bound + TOLERANCE < self.old_bound:
             print("kukkuu")
-            return False
+            return (False, None)
             
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
@@ -664,13 +674,27 @@ class DischargingArgument:
                                 fpat = fpat.delete(nvec)
                         if simplify_excess:
                             while fpat:
+                                images = {aut : fd.frozendict({aut(nvec) : sym
+                                                               for (nvec, sym)
+                                                               in fpat.items()})
+                                          for aut in self.sym_nodes[node]}
                                 for (nvec, sym) in fpat.items():
-                                    if all(sym2 == sym or\
-                                           fpat.set(nvec, sym2) in excess_pats[node]
-                                           for sym2 in self.sft.alph[nvec[1]]):
-                                        for sym2 in self.sft.alph[nvec[1]]:
-                                            if sym2 != sym:
-                                                excess_pats[node].remove(fpat.set(nvec, sym2))
+                                    removables = []
+                                    for sym2 in self.sft.alph[nvec[1]]:
+                                        if sym2 == sym:
+                                            continue
+                                        for (aut, img_fpat) in images.items():
+                                            check_pat = img_fpat.set(aut(nvec), sym2)
+                                            if check_pat in excess_pats[node]:
+                                                removables.append(check_pat)
+                                                break
+                                        else:
+                                            # did not find removable pattern
+                                            break
+                                    else:
+                                        # found all removable patterns
+                                        for rem_fpat in removables:
+                                            excess_pats[node].remove(rem_fpat)
                                         fpat = fpat.delete(nvec)
                                         break
                                 else:
@@ -696,13 +720,27 @@ class DischargingArgument:
                                 fpat = fpat.delete(nvec)
                         if simplify_excess:
                             while fpat:
+                                images = {aut : fd.frozendict({aut(nvec) : sym
+                                                               for (nvec, sym)
+                                                               in fpat.items()})
+                                          for aut in self.sym_nodes[node]}
                                 for (nvec, sym) in fpat.items():
-                                    if all(sym2 == sym or\
-                                           fpat.set(nvec, sym2) in excess_pats[node]
-                                           for sym2 in self.sft.alph[nvec[1]]):
-                                        for sym2 in self.sft.alph[nvec[1]]:
-                                            if sym2 != sym:
-                                                excess_pats[node].remove(fpat.set(nvec, sym2))
+                                    removables = []
+                                    for sym2 in self.sft.alph[nvec[1]]:
+                                        if sym2 == sym:
+                                            continue
+                                        for (aut, img_fpat) in images.items():
+                                            check_pat = img_fpat.set(aut(nvec), sym2)
+                                            if check_pat in excess_pats[node]:
+                                                removables.append(check_pat)
+                                                break
+                                        else:
+                                            # did not find removable pattern
+                                            break
+                                    else:
+                                        # found all removable patterns
+                                        for rem_fpat in removables:
+                                            excess_pats[node].remove(rem_fpat)
                                         fpat = fpat.delete(nvec)
                                         break
                                 else:
@@ -814,31 +852,36 @@ class DischargingArgument:
                         for pat in ret_pats[sym_node]:
                             ret_pats[node].add(fd.frozendict({the_aut(nvec) : sym
                                                               for (nvec, sym) in pat.items()}))
-
-                excess_pats = set().union(*ret_pats.values())
                 if simplify_excess:
                     if verbose:
                         print("Simplifying unified excess patterns")
                     i=0
-                    while True:
-                        i+=1
-                        if verbose and i%1000 == 0:
-                            print("Round", i, "has", len(excess_pats), "pats")
-                        found = None
-                        for pat in excess_pats:
-                            for (nvec, sym) in pat.items():
-                                if all(sym2 == sym or pat.set(nvec, sym2) in excess_pats
-                                       for sym2 in self.sft.alph[nvec[1]]):
-                                    found_pat, found_nvec = pat, nvec
+                    ret_pats = list(ret_pats.values())
+                    total = sum(len(pats) for pats in ret_pats)
+                    excess_pats = ret_pats[0]
+                    for pats in ret_pats[1:]:
+                        for fpat in pats:
+                            while fpat:
+                                for (nvec, sym) in fpat.items():
+                                    if all(sym2 == sym or\
+                                           fpat.set(nvec, sym2) in excess_pats
+                                           for sym2 in self.sft.alph[nvec[1]]):
+                                        for sym2 in self.sft.alph[nvec[1]]:
+                                            if sym2 != sym:
+                                                excess_pats.remove(fpat.set(nvec, sym2))
+                                        fpat = fpat.delete(nvec)
+                                        break
+                                else:
+                                    # could not simplify
+                                    excess_pats.add(fpat)
                                     break
-                            else:
-                                continue
-                            break
-                        else:
-                            break
-                        for sym in self.sft.alph[found_nvec[1]]:
-                            excess_pats.remove(found_pat.set(found_nvec, sym))
-                        excess_pats.add(found_pat.delete(nvec))
+                            i += 1
+                            if verbose and i%10000 == 0:
+                                print("Handled {}/{} patterns, {} stored".format(i, total, len(excess_pats)))
+                    if verbose:
+                        print("Done with {} patterns".format(len(excess_pats)))
+                else:
+                    excess_pats = set().union(*ret_pats.values())
             else:
                 excess_pats = set().union(*excess_pats.values())
             if ret_excess:
@@ -1105,11 +1148,11 @@ class DischargingArgument:
             #        print(self.is_valid(bigpat=bigpat, give_reason=True))
             #        1/0
 
-    def extend_rules(self, extendables, ordering=None, remove_old=True):
+    def extend_rules(self, extendables, ordering="hypercube", remove_old=True):
         "Extend the given rules by adding new nodes to their neighborhood."
-        if ordering is None:
+        if ordering == "hypercube":
             # Order by hypercube borders
-            def ordering():
+            def ordering(_):
                 rad = 0
                 while True:
                     for vec in sorted(hypercube_shell(self.sft.dim, rad),
@@ -1119,13 +1162,28 @@ class DischargingArgument:
                             if len(self.sft.alph[node]) > 1:
                                 yield (vec, node)
                     rad += 1
-                    
+        elif ordering == "topology":
+            def ordering(source):
+                yield source
+                seen = set([source])
+                frontier = set(seen)
+                while True:
+                    new_frontier = set()
+                    for (vec, node) in frontier:
+                        for (_, edge_vec, from_node, to_node) in self.sft.topology:
+                            if from_node == node:
+                                new_nvec = (vadd(vec, edge_vec), to_node)
+                                if new_nvec not in seen:
+                                    yield new_nvec
+                                    seen.add(new_nvec)
+                                    new_frontier.add(new_nvec)
+                    frontier = new_frontier
         for (source, pat, nvec) in extendables:
-            print("ext rule", source, pat, nvec)
-            for potential_nvec in ordering():
+            for potential_nvec in ordering(((0,)*self.sft.dim, source)):
                 if potential_nvec not in pat:
                     new_nvec = potential_nvec
                     break
+            print("ext rule", source, pat, nvec, "into", new_nvec)
             for sym in self.sft.alph[new_nvec[1]]:
                 # it should be safe to extend by invalid patterns, since they will never be used in the program, will have value 0, and will be removed
                 # it might not be safe to extend in such a way that we produce symmetry-equivalent rules
