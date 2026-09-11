@@ -257,9 +257,10 @@ class DischargingRefiner:
         print("excess gap", excess[1])
         print("excess pats", len(excess[0]))
         if self.old_bound is None or self.old_bound < self.disc_arg.bound:
+            print("forming SFT")
             no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=excess[0])
             exact = intersection(self.sft, no_excess)
-            exact.deduce_forbs(domain_or_rad=3)#verbose=verbose)
+            exact.deduce_forbs(domain_or_rad=3, verbose=verbose)
             exact.deduce_circuit()
             print("forbs", len(exact.forbs))
             #for forb in exact.forbs:
@@ -276,10 +277,15 @@ class DischargingRefiner:
         self.old_bound = self.disc_arg.bound
         if verbose:
             print("Extending rules")
-        extendables = [rule for (rule, _) in
-                       sorted(self.disc_arg.occurrences_in_exact.items(),
-                              key=lambda p: -p[1])][:self.num_extend]
-        #print("ext", extendables)
+        extendables = set()
+        for node in self.disc_arg.sym_nodes:
+            extendables.update([rule
+                                for (rule, _) in
+                                sorted(self.disc_arg.occurrences_in_exact[node].items(),
+                                       key=lambda p: -p[1])][:self.num_extend])
+        #print("ext")
+        #for rule in extendables:
+        #    print(" ", rule)
         self.disc_arg.extend_rules(extendables, remove_old=True)
         self.disc_arg.bound = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
@@ -566,7 +572,7 @@ class DischargingArgument:
             if to_reprocess:
                 did_extend = True
                 print("need to reprocess", len(to_reprocess))
-                reprocessed = self.extend_pats(node, to_reprocess, self.sym_nodes[node])
+                reprocessed = self.extend_pats(to_reprocess, self.sym_nodes[node])
                 def iter_reprocessed():
                     while reprocessed:
                         yield reprocessed.pop()
@@ -580,14 +586,29 @@ class DischargingArgument:
         #if did_extend:
         #    self.update_specs()
 
-    def extend_pats(self, node, pat_pairs, symmetries):
+    def extend_pats(self, pat_pairs, symmetries):
         "Given a list of pairs (pattern, nvecs), extend each pattern in all locally valid ways to the nvecs."
-        ret = []
+        # group the patterns by extension domain and existing symmetries
+        groups = {}
         for (pat, nvecs) in pat_pairs:
-            #print("extending", pat, "into", {nvec for nvec in nvecs if nvec not in pat})
-            for new_pat in self.sft.all_patterns(set(pat) | nvecs, existing=pat, extra_rad=self.radius, mod_symmetries=symmetries):
-                #print("  got", new_pat)
-                ret.append(new_pat)
+            #print("k", pat)
+            domain = frozenset(pat) | frozenset(nvecs)
+            local_syms = frozenset(aut for aut in symmetries
+                                   if all(pat.get(aut(nvec), sym) == sym
+                                          for (nvec, sym) in pat.items())
+                                   if domain == {aut(nvec) for nvec in domain})
+            
+            try:
+                groups[domain, local_syms].append(pat)
+            except KeyError:
+                groups[domain, local_syms] = [pat]
+        print("made groups")
+        ret = set()
+        for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
+            #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
+            #print("domain", domain, "local_syms", local_syms)
+            for new_pat in self.sft.all_patterns(domain, existing=pats, extra_rad=self.radius, mod_symmetries=local_syms):
+                ret.add(fd.frozendict(new_pat))
         return ret
             
 
@@ -608,7 +629,8 @@ class DischargingArgument:
                  for (fpat, nvecs) in node_rules.items()
                  for nvec in nvecs]
         excess_gap = None
-        self.occurrences_in_exact = {rule : 0 for rule in rules}
+        self.occurrences_in_exact = {node : {rule : 0 for rule in rules}
+                                     for node in self.sym_nodes}
         for node in self.sym_nodes:
             excess_pats[node] = set()
             exact_pats[node] = set()
@@ -618,14 +640,14 @@ class DischargingArgument:
                     summa = Fraction(0)
                 else:
                     summa = 0
-                occurring_rules = []
+                occurring_rules = set()
                 for (source, pat, nvec, away) in surr:
                     try:
                         if away:
                             summa -= self.trans_rules[source][pat][nvec]
                         else:
                             summa += self.trans_rules[source][pat][nvec]
-                        occurring_rules.append((source, pat, nvec))
+                        occurring_rules.add((source, pat, nvec))
                     except KeyError:
                         # missing rules are treated as 0
                         pass
@@ -648,7 +670,7 @@ class DischargingArgument:
                     else:
                         exact_pats[node].add(fpat)
                         for rule in occurring_rules:
-                            self.occurrences_in_exact[rule] += 1
+                            self.occurrences_in_exact[node][rule] += 1
                 else:
                     good = summa >= 0
                     if summa > (TOLERANCE if type(summa) == float else 0):
@@ -664,7 +686,7 @@ class DischargingArgument:
                     else:
                         exact_pats[node].add(fpat)
                         for rule in occurring_rules:
-                            self.occurrences_in_exact[rule] += 1
+                            self.occurrences_in_exact[node][rule] += 1
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -686,12 +708,17 @@ class DischargingArgument:
                 sum(len(pats) for pats in exact_pats.values()),
                 sum(len(pats) for pats in excess_pats.values())
             ))
-            occur_counts = {}
-            for num in self.occurrences_in_exact.values():
-                occur_counts[num] = occur_counts.get(num, 0)+1
-            print("Rule occurrences in exact patterns:")
-            for (occur_num, rule_count) in sorted(occur_counts.items()):
-                print("{} rules occur {} times".format(rule_count, occur_num))
+            for node in self.sym_nodes:
+                if exact_pats[node]:
+                    occur_counts = {}
+                    for num in self.occurrences_in_exact[node].values():
+                        occur_counts[num] = occur_counts.get(num, 0)+1
+                    print("Rule occurrences in {} exact patterns of node {}:".format(len(exact_pats[node]), node))
+                    for (occur_num, rule_count) in sorted(occur_counts.items()):
+                        print("{} rules occur {} times".format(rule_count, occur_num))
+        #for node in self.sym_nodes:
+        #    for (rule, num) in self.occurrences_in_exact[node].items():
+        #        self.occurrences_in_exact[node][rule] = Fraction(num, len(exact_pats[node]))
         if give_reason:
             if bigpat_given:
                 return True, (the_bigpat, orig_nodes,
@@ -1062,6 +1089,7 @@ class DischargingArgument:
                     rad += 1
                     
         for (source, pat, nvec) in extendables:
+            print("ext rule", source, pat, nvec)
             for potential_nvec in ordering():
                 if potential_nvec not in pat:
                     new_nvec = potential_nvec
@@ -1082,7 +1110,7 @@ class DischargingArgument:
                 if exists:
                     #print("already existed")
                     continue
-                print("pat", dict(pat), "extended to", dict(new_pat))
+                #print("pat", dict(pat), "extended to", dict(new_pat))
                 try:
                     self.trans_rules[source][new_pat][nvec] = self.trans_rules[source][pat][nvec]
                 except KeyError:

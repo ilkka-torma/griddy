@@ -1152,26 +1152,24 @@ class SFT:
                 nvals = [model[nvec+(l,)] for l in node_alph.node_vars]
                 pat[nvec] = node_alph.model_to_sym(nvals)
             yield pat
-    
+
+    # existing can be a pattern, a list of patterns, or None
     # domain is a collection of nodevectors
     # if mod_symmetries are given, only generate one pattern in each equivalence class
-    # mod_symmetries is assumed to be a finite group
+    # mod_symmetries is assumed to be a finite group that does not break any pattern in existing
     def all_patterns(self, domain, existing=None, extra_rad=0, mod_symmetries=None):
 
         if existing is None:
-            existing = dict()
+            existing = [dict()]
+        if isinstance(existing, dict):
+            existing = [existing]
         id_sym = AffineAutomorphism(dim=self.dim, nodes=self.nodes)
         if mod_symmetries is None:
             mod_symmetries = [id_sym]
-        domain = list(domain)
-        nontriv_symmetries = []
-        for aut in mod_symmetries:
-            if aut != id_sym and\
-               set(domain) == {aut(nvec) for nvec in domain} and\
-               all(aut(nvec) not in existing or existing[nvec] == existing[aut(nvec)]
-                   for nvec in existing) and\
-               aut not in nontriv_symmetries:
-                nontriv_symmetries.append(aut)
+        domain = list(sorted(domain))
+        nontriv_symmetries = [aut for aut in mod_symmetries if aut != id_sym]
+        assert all(set(domain) == set(aut(nvec) for nvec in domain)
+                   for aut in nontriv_symmetries)
             
 
         #print("domain", domain)
@@ -1192,10 +1190,10 @@ class SFT:
                 all_positions.add(var[:2])
             circuits.append(circ)
             
-        for (nvec, sym) in existing.items():
-            node_alph = self.alph[nvec[1]]
-            nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
-            circuits.append(node_alph.node_eq_sym(nvars, sym))
+        #for (nvec, sym) in existing.items():
+        #    node_alph = self.alph[nvec[1]]
+        #    nvars = [V(nvec+(l,)) for l in node_alph.node_vars]
+        #    circuits.append(node_alph.node_eq_sym(nvars, sym))
 
         #print("kapa")
         #for c in circuits:
@@ -1221,6 +1219,32 @@ class SFT:
 
         circuits.append(node_constraints(self.alph)(circuits))
 
+        process = solver_process(AND(*circuits), ret_assignment=True)
+        _ = next(process)
+
+        for pat in existing:
+            #print("  existing", pat)
+            var_vals = {}
+            for (nvec, sym) in pat.items():
+                local_alph = self.alph[nvec[1]]
+                for var in local_alph.node_vars:
+                    var_vals[nvec+(var,)] = local_alph.models[sym][var]
+            while True:
+                res = process.send(var_vals)
+                if res is None:
+                    break
+                ret = dict()
+                oreds = []
+                for nvec in domain:
+                    local_alph = self.alph[nvec[1]]
+                    local_vars = [nvec + (var,) for var in local_alph.node_vars]
+                    sym = local_alph.model_to_sym([res[var] for var in local_vars])
+                    ret[nvec] = sym
+                    oreds.append(NOT(local_alph.node_eq_sym([V(var) for var in local_vars], sym)))
+                yield ret
+                process.send(OR(*oreds))
+
+        """
         for model in projections(AND(*circuits), [nvec+(l,) for nvec in domain for l in self.alph[nvec[1]].node_vars]):
             #print("model", model)
             pat = dict()
@@ -1229,6 +1253,7 @@ class SFT:
                 nvals = [model[nvec+(l,)] for l in node_alph.node_vars]
                 pat[nvec] = node_alph.model_to_sym(nvals)
             yield pat
+        """
 
     # for one-dimensional sfts, the language can be requested as strings
     # TODO: replace extra_rad with exact calculation
