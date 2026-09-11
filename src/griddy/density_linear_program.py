@@ -602,7 +602,7 @@ class DischargingArgument:
                 groups[domain, local_syms].append(pat)
             except KeyError:
                 groups[domain, local_syms] = [pat]
-        print("made groups")
+        print("made {} groups".format(len(groups)))
         ret = set()
         for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
             #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
@@ -662,7 +662,23 @@ class DischargingArgument:
                         for nvec in the_bigpat:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
-                        excess_pats[node].add(fpat)
+                        if simplify_excess:
+                            while fpat:
+                                for (nvec, sym) in fpat.items():
+                                    if all(sym2 == sym or\
+                                           fpat.set(nvec, sym2) in excess_pats[node]
+                                           for sym2 in self.sft.alph[nvec[1]]):
+                                        for sym2 in self.sft.alph[nvec[1]]:
+                                            if sym2 != sym:
+                                                excess_pats[node].remove(fpat.set(nvec, sym2))
+                                        fpat = fpat.delete(nvec)
+                                        break
+                                else:
+                                    # could not simplify
+                                    excess_pats[node].add(fpat)
+                                    break
+                        else:
+                            excess_pats[node].add(fpat)
                         if excess_gap is None:
                             excess_gap = summa + self.weights[orig_val] - self.bound
                         else:
@@ -678,7 +694,23 @@ class DischargingArgument:
                         for nvec in the_bigpat:
                             if len(self.sft.alph[nvec[1]]) == 1:
                                 fpat = fpat.delete(nvec)
-                        excess_pats[node].add(fpat)
+                        if simplify_excess:
+                            while fpat:
+                                for (nvec, sym) in fpat.items():
+                                    if all(sym2 == sym or\
+                                           fpat.set(nvec, sym2) in excess_pats[node]
+                                           for sym2 in self.sft.alph[nvec[1]]):
+                                        for sym2 in self.sft.alph[nvec[1]]:
+                                            if sym2 != sym:
+                                                excess_pats[node].remove(fpat.set(nvec, sym2))
+                                        fpat = fpat.delete(nvec)
+                                        break
+                                else:
+                                    # could not simplify
+                                    excess_pats[node].add(fpat)
+                                    break
+                        else:
+                            excess_pats[node].add(fpat)
                         if excess_gap is None:
                             excess_gap = summa
                         else:
@@ -733,7 +765,7 @@ class DischargingArgument:
             else:
                 return True, "valid"
         elif ret_excess or simplify_excess:
-            if simplify_excess:
+            if False:#simplify_excess:
                 for node in self.sym_nodes:
                     if verbose:
                         print("Simplifying excess patterns for node {}".format(node))
