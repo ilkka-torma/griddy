@@ -135,6 +135,50 @@ class Nodes:
         for n in self:
             return n
 
+def circuit_from_allowed(alph, allowed, domain):
+    "Deduce a circuit from a set of allowed patterns."
+    if not allowed:
+        return F
+    elif len(allowed) == 1:
+        pat = allowed[0]
+        andeds = []
+        for nvec in domain:
+            if nvec not in pat:
+                continue
+            node_alph = alph[nvec[1]]
+            nvec_vars = [V(nvec + (var,)) for var in node_alph.node_vars]
+            andeds.append(node_alph.node_eq_sym(nvec_vars, pat[nvec]))
+        ret = AND(*andeds)
+    else:
+        counts = {nvec : {sym : 0 for sym in alph[nvec[1]]}
+                  for nvec in domain}
+        for pat in allowed:
+            for nvec in domain:
+                try:
+                    counts[nvec][pat[nvec]] += 1
+                except KeyError:
+                    pass
+        split_nvec = max(counts.items(), key=lambda pair: (min(pair[1].values())))[0]
+        new_domain = set(nvec for
+                         (nvec, syms) in counts.items()
+                         if nvec != split_nvec
+                         if any(syms.values()))
+        oreds = []
+        node_alph = alph[split_nvec[1]]
+        nvec_vars = [V(split_nvec + (var,)) for var in node_alph.node_vars]
+        for sym in node_alph:
+            circ = circuit_from_allowed(alph,
+                                        [pat for pat in allowed
+                                         if pat.get(split_nvec, None) == sym],
+                                        new_domain)
+            oreds.append(AND(node_alph.node_eq_sym(nvec_vars, sym), circ))
+        oreds.append(circuit_from_allowed(alph,
+                                          [pat for pat in allowed
+                                           if split_nvec not in pat],
+                                          new_domain))
+        ret = OR(*oreds)
+    return ret
+
 # check that circuit is forced to be true when variable set
 def forced_by(circuit, vals_as_list):
     andeds = []
@@ -1268,7 +1312,7 @@ class SFT:
     def deduce_circuit(self):
         assert self.forbs is not None
         forb_domain = set(nvec for forb in self.forbs for nvec in forb)
-        self.circuit = self.deduce_circuit_from(self.forbs, forb_domain)
+        self.circuit = self.deduce_circuit_from_forbs(self.forbs, forb_domain)
         #anded = []
         #for forb in self.forbs:
         #    ored = []
@@ -1279,7 +1323,7 @@ class SFT:
         #    anded.append(OR(*ored))
         #self.circuit = AND(*anded)
 
-    def deduce_circuit_from(self, forbs, domain):
+    def deduce_circuit_from_forbs(self, forbs, domain):
         if not forbs:
             ret = T
         elif len(forbs) == 1:
@@ -1310,15 +1354,22 @@ class SFT:
             node_alph = self.alph[split_nvec[1]]
             nvec_vars = [V(split_nvec + (var,)) for var in node_alph.node_vars]
             for sym in node_alph:
-                circ = self.deduce_circuit_from([forb for forb in forbs
-                                                 if forb.get(split_nvec, None) == sym],
-                                                new_domain)
+                circ = self.deduce_circuit_from_forbs([forb for forb in forbs
+                                                       if forb.get(split_nvec, None) == sym],
+                                                      new_domain)
                 andeds.append(IMP(node_alph.node_eq_sym(nvec_vars, sym), circ))
-            andeds.append(self.deduce_circuit_from([forb for forb in forbs
-                                                    if split_nvec not in forb],
-                                                   new_domain))
+            andeds.append(self.deduce_circuit_from_forbs([forb for forb in forbs
+                                                          if split_nvec not in forb],
+                                                         new_domain))
             ret = AND(*andeds)
         return ret
+
+    @classmethod
+    def from_allowed(self, dim, nodes, alph, topology, graph, allowed):
+        "Construct an SFT from a set of allowed patterns: at every coordinate, one of them must occur." 
+        domain = set(nvec for pat in allowed for nvec in pat)
+        circuit = circuit_from_allowed(alph, allowed, domain)
+        return self(dim, nodes, alph, topology, graph, circuit=circuit)
 
     # domain_or_rad is a collection of vectors OR an integer
     def deduce_forbs(self, domain_or_rad=None, cap=None, verbose=False, print_freq=10000):
@@ -1396,6 +1447,7 @@ class SFT:
                 
             if verbose and len(self.forbs)%print_freq == 0:
                 print("{} patterns found in {} seconds, average size {}".format(len(self.forbs), time.time()-start_time, sum(len(f) for f in self.forbs)/len(self.forbs)))
+        
 
     def inconsistent_with(self, other, verbose=False):
         if verbose:

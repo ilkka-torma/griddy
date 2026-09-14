@@ -176,6 +176,13 @@ class AffineAutomorphism:
         #print("ret", ret)
         return ret
 
+    def is_id(self):
+        "Is it the identity?"
+        return all(img == node for (node, img) in self.node_map.items()) and\
+            all(numpy.array_equal(vec, numpy.zeros(self.dim).astype(int))
+                for vec in self.vectors.values()) and\
+                        numpy.array_equal(self.matrix, numpy.identity(self.dim).astype(int))
+
     def then(self, other):
         "Compose affine automorphisms."
         comp_node_map = {node : other.node_map[self.node_map[node]]

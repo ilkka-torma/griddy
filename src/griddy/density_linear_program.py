@@ -54,6 +54,21 @@ SOLVER_DICTS = {
                         }))
 }
 
+def insert_pat(alphs, fpats, fpat):
+    "Insert a pattern into a set of patterns representing a clopen set."
+    while fpat:
+        for (nvec, sym) in fpat.items():
+            if all(sym2 == sym or\
+                   fpat.set(nvec, sym2) in fpats
+                   for sym2 in alphs[nvec[1]]):
+                for sym2 in alphs[nvec[1]]:
+                    if sym2 != sym:
+                        fpats.remove(fpat.set(nvec, sym2))
+                fpat = fpat.delete(nvec)
+        else:
+            fpats.add(fpat)
+            break
+
 def rules_to_tree(dim, alph, node, syms, rules):
     "Transform charge transfer rules into a decision tree, which can be used to extract constraints from bigpats."
     # rules is a list of (node, pattern, nvec).
@@ -250,7 +265,7 @@ class DischargingRefiner:
             return (False, None)
         get_excess = self.old_bound is None or self.old_bound < self.disc_arg.bound
         if get_excess:
-            valid, excess = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True)
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True)
         else:
             valid = self.disc_arg.is_valid(verbose=verbose) # just to compute excess counts
         if not valid:
@@ -259,16 +274,31 @@ class DischargingRefiner:
             return (False, None)
         self.disc_arg.saved_surroundings = None
         if get_excess:
-            print("excess gap", excess[1])
-            print("excess pats", len(excess[0]))
-            print("forming SFT")
-            no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=excess[0])
-            exact = intersection(self.sft, no_excess)
+            #print("ex data", ex_data)
+            print("excess gap", ex_data[2])
+            if ex_data[0] == "exact":
+                print("exact pats", sum(len(p) for p in ex_data[1].values()))
+                #for (node, pats) in ex_data[1].items():
+                #    print("node", node)
+                #    for pat in pats:
+                #        print(" ", pat)
+                print("forming SFT")
+                exact = intersection(self.disc_arg.sft,
+                                     *(SFT.from_allowed(self.sft.dim,
+                                                        self.sft.nodes,
+                                                        self.sft.alph,
+                                                        self.sft.topology,
+                                                        self.sft.graph,
+                                                        list(exacts))
+                                       for exacts in ex_data[1].values()))
+            else:
+                print("excess pats", len(ex_data[1]))
+                print("forming SFT")
+                no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=ex_data[1])
+                exact = intersection(self.sft, no_excess)
             exact.deduce_forbs(domain_or_rad=3, verbose=verbose)
             exact.deduce_circuit()
             print("forbs", len(exact.forbs))
-            #for forb in exact.forbs:
-            #    print(" ", forb)
             empty = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, circuit=circuit.F)
             cont, _, sep = empty.contains(exact, return_radius_and_sep=True, verbose=verbose)
             #print("cont", cont)
@@ -668,95 +698,20 @@ class DischargingArgument:
                 #print("fpat", fpat)
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
-                    if summa + self.weights[orig_val] > self.bound + (TOLERANCE if type(summa) == float else 0):
-                        for nvec in the_bigpat:
-                            if len(self.sft.alph[nvec[1]]) == 1:
-                                fpat = fpat.delete(nvec)
-                        if simplify_excess:
-                            while fpat:
-                                images = {aut : fd.frozendict({aut(nvec) : sym
-                                                               for (nvec, sym)
-                                                               in fpat.items()})
-                                          for aut in self.sym_nodes[node]}
-                                for (nvec, sym) in fpat.items():
-                                    removables = []
-                                    for sym2 in self.sft.alph[nvec[1]]:
-                                        if sym2 == sym:
-                                            continue
-                                        for (aut, img_fpat) in images.items():
-                                            check_pat = img_fpat.set(aut(nvec), sym2)
-                                            if check_pat in excess_pats[node]:
-                                                removables.append(check_pat)
-                                                break
-                                        else:
-                                            # did not find removable pattern
-                                            break
-                                    else:
-                                        # found all removable patterns
-                                        for rem_fpat in removables:
-                                            excess_pats[node].remove(rem_fpat)
-                                        fpat = fpat.delete(nvec)
-                                        break
-                                else:
-                                    # could not simplify
-                                    excess_pats[node].add(fpat)
-                                    break
-                        else:
-                            excess_pats[node].add(fpat)
+                    is_exact = summa + self.weights[orig_val] <= self.bound + (TOLERANCE if type(summa) == float else 0)
+                    if not is_exact:
                         if excess_gap is None:
                             excess_gap = summa + self.weights[orig_val] - self.bound
                         else:
-                            excess_gap = min(excess_gap, summa + self.weights[orig_val] - self.bound)
-                    else:
-                        exact_pats[node].add(fpat)
-                        for rule in occurring_rules:
-                            self.occurrences_in_exact[node][rule] += 1
+                            excess_gap = min(summa + self.weights[orig_val] - self.bound, excess_gap)
                 else:
                     good = summa >= 0
-                    if summa > (TOLERANCE if type(summa) == float else 0):
-                        #print("excess", the_bigpat)
-                        for nvec in the_bigpat:
-                            if len(self.sft.alph[nvec[1]]) == 1:
-                                fpat = fpat.delete(nvec)
-                        if simplify_excess:
-                            while fpat:
-                                images = {aut : fd.frozendict({aut(nvec) : sym
-                                                               for (nvec, sym)
-                                                               in fpat.items()})
-                                          for aut in self.sym_nodes[node]}
-                                for (nvec, sym) in fpat.items():
-                                    removables = []
-                                    for sym2 in self.sft.alph[nvec[1]]:
-                                        if sym2 == sym:
-                                            continue
-                                        for (aut, img_fpat) in images.items():
-                                            check_pat = img_fpat.set(aut(nvec), sym2)
-                                            if check_pat in excess_pats[node]:
-                                                removables.append(check_pat)
-                                                break
-                                        else:
-                                            # did not find removable pattern
-                                            break
-                                    else:
-                                        # found all removable patterns
-                                        for rem_fpat in removables:
-                                            excess_pats[node].remove(rem_fpat)
-                                        fpat = fpat.delete(nvec)
-                                        break
-                                else:
-                                    # could not simplify
-                                    excess_pats[node].add(fpat)
-                                    break
-                        else:
-                            excess_pats[node].add(fpat)
+                    is_exact = summa <= (TOLERANCE if type(summa) == float else 0)
+                    if not is_exact:
                         if excess_gap is None:
                             excess_gap = summa
                         else:
-                            excess_gap = min(excess_gap, summa)
-                    else:
-                        exact_pats[node].add(fpat)
-                        for rule in occurring_rules:
-                            self.occurrences_in_exact[node][rule] += 1
+                            excess_gap = min(summa, excess_gap)
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -771,6 +726,21 @@ class DischargingArgument:
                         return False, None
                     else:
                         return False
+                for nvec in the_bigpat:
+                    if len(self.sft.alph[nvec[1]]) == 1:
+                        fpat = fpat.delete(nvec)
+                if is_exact:
+                    if simplify_excess:
+                        insert_pat(self.sft.alph, exact_pats[node], fpat)
+                    else:
+                        exact_pats[node].add(fpat)
+                    for rule in occurring_rules:
+                        self.occurrences_in_exact[node][rule] += 1
+                else:
+                    if simplify_excess:
+                        insert_pat(self.sft.alph, excess_pats[node], fpat)
+                    else:
+                        excess_pats[node].add(fpat)
                 i += 1
         
         if verbose:
@@ -802,90 +772,88 @@ class DischargingArgument:
                               0)
             else:
                 return True, "valid"
-        elif ret_excess or simplify_excess:
-            if False:#simplify_excess:
-                for node in self.sym_nodes:
-                    if verbose:
-                        print("Simplifying excess patterns for node {}".format(node))
-                    i=0
-                    while True:
-                        found = None
-                        i+=1
-                        if verbose and i%1000 == 0:
-                            print("Round", i, "has", len(excess_pats[node]), "pats")
-                        for pat in excess_pats[node]:
-                            for (nvec, sym) in pat.items():
-                                if all(sym2 == sym or\
-                                       pat.set(nvec, sym2) in excess_pats[node]
-                                       for sym2 in self.sft.alph[nvec[1]]):
-                                    found = (pat, nvec)
-                                    break
-                            else:
-                                continue
-                            break
-                        else:
-                            break
-                        found_pat, found_nvec = found
-                        for sym in self.sft.alph[found_nvec[1]]:
-                            excess_pats[node].remove(found_pat.set(found_nvec, sym))
-                        excess_pats[node].add(found_pat.delete(nvec))
-
-            if len(self.symmetries) > 1:
-                # generate symmetric excess patterns
-                # first for the representative nodes using their symmetries
-                ret_pats = dict()
+        elif ret_excess:
+            if sum(len(pats) for pats in exact_pats.values()) <= sum(len(pats) for pats in excess_pats.values()):
+                # less exact pats -> return them
+                # generate symmetric exact patterns for each sym node
+                new_exact_pats = dict()
                 for (node, syms) in self.sym_nodes.items():
-                    ret_pats[node] = set()
-                    for pat in excess_pats[node]:
-                        for aut in syms:
-                            ret_pats[node].add(fd.frozendict({aut(nvec) : sym
-                                                              for (nvec, sym) in pat.items()}))
-                # then for other nodes using the former
+                    new_exact_pats[node] = exact_pats[node].copy()
+                    for aut in syms:
+                        if not aut.is_id():
+                            for fpat in exact_pats[node]:
+                                if simplify_excess:
+                                    insert_pat(self.sft.alph, new_exact_pats[node],
+                                               fd.frozendict({aut(nvec) : sym
+                                                              for (nvec, sym) in fpat.items()}))
+                                else:
+                                    new_exact_pats[node].add(fd.frozendict({aut(nvec) : sym
+                                                              for (nvec, sym) in fpat.items()}))
+                # then transfer them to other nodes
                 for node in self.sft.nodes:
                     if node not in self.sym_nodes:
-                        ret_pats[node] = set()
+                        new_exact_pats[node] = set()
                         for aut in self.symmetries:
                             if aut.inv_node_map[node] in self.sym_nodes:
                                 the_aut = aut
                                 sym_node = aut.inv_node_map[node]
                                 break
-                        for pat in ret_pats[sym_node]:
-                            ret_pats[node].add(fd.frozendict({the_aut(nvec) : sym
-                                                              for (nvec, sym) in pat.items()}))
-                if simplify_excess:
-                    if verbose:
-                        print("Simplifying unified excess patterns")
-                    i=0
-                    ret_pats = list(ret_pats.values())
-                    total = sum(len(pats) for pats in ret_pats)
-                    excess_pats = ret_pats[0]
-                    for pats in ret_pats[1:]:
-                        for fpat in pats:
-                            while fpat:
-                                for (nvec, sym) in fpat.items():
-                                    if all(sym2 == sym or\
-                                           fpat.set(nvec, sym2) in excess_pats
-                                           for sym2 in self.sft.alph[nvec[1]]):
-                                        for sym2 in self.sft.alph[nvec[1]]:
-                                            if sym2 != sym:
-                                                excess_pats.remove(fpat.set(nvec, sym2))
-                                        fpat = fpat.delete(nvec)
-                                        break
+                        new_exact_pats[node] = {
+                            fd.frozendict({the_aut(nvec) : sym
+                                           for (nvec, sym) in fpat.items()})
+                            for fpat in new_exact_pats[sym_node]
+                        }
+                return True, ("exact", new_exact_pats, excess_gap)
+            else:
+                # less excess pats -> return them
+                # generate symmetric excess patterns for each sym node
+                new_excess_pats = dict()
+                for (node, syms) in self.sym_nodes.items():
+                    new_excess_pats[node] = exact_pats[node].copy()
+                    for aut in syms:
+                        if not aut.is_id():
+                            for fpat in excess_pats[node]:
+                                if simplify_excess:
+                                    insert_pat(self.sft.alph, new_excess_pats[node],
+                                               fd.frozendict({aut(nvec) : sym
+                                                              for (nvec, sym) in fpat.items()}))
                                 else:
-                                    # could not simplify
-                                    excess_pats.add(fpat)
-                                    break
+                                    new_excess_pats[node].add(fd.frozendict({aut(nvec) : sym
+                                                              for (nvec, sym) in fpat.items()}))
+                # then transfer them to other nodes
+                for node in self.sft.nodes:
+                    if node not in self.sym_nodes:
+                        new_excess_pats[node] = set()
+                        for aut in self.symmetries:
+                            if aut.inv_node_map[node] in self.sym_nodes:
+                                the_aut = aut
+                                sym_node = aut.inv_node_map[node]
+                                break
+                        new_excess_pats[node] = {
+                            fd.frozendict({the_aut(nvec) : sym
+                                           for (nvec, sym) in fpat.items()})
+                            for fpat in new_excess_pats[sym_node]
+                        }
+                # combine
+                if simplify_excess:
+                    i = 0
+                    if verbose:
+                        print("Simplifying combined excess patterns")
+                    new_excess_pats = list(new_excess_pats.values())
+                    total = sum(len(pats) for pats in new_excess_pats)
+                    all_excess_pats = new_excess_pats[0]
+                    for pats in new_excess_pats[1:]:
+                        for fpat in pats:
+                            insert_pat(self.sft.alph, all_excess_pats, fpat)
                             i += 1
                             if verbose and i%10000 == 0:
                                 print("Handled {}/{} patterns, {} stored".format(i, total, len(excess_pats)))
                     if verbose:
                         print("Done with {} patterns".format(len(excess_pats)))
                 else:
-                    excess_pats = set().union(*ret_pats.values())
-            else:
-                excess_pats = set().union(*excess_pats.values())
+                    all_excess_pats = set().union(*new_excess_pats.values())
             if ret_excess:
-                return True, (excess_pats, excess_gap)
+                return True, ("excess", all_excess_pats, excess_gap)
             else:
                 return True
     
