@@ -248,22 +248,25 @@ class DischargingSimplifier:
 class DischargingRefiner:
     "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
 
-    def __init__(self, disc_arg, solver_str, num_extend):
+    def __init__(self, disc_arg, solver_str, num_extend, known_ub=None, known_lb=None):
         # disc_arg should have compute_bound() executed but nothing else
         self.disc_arg = disc_arg
         self.sft = disc_arg.sft
         self.solver_str = solver_str
         self.num_extend = num_extend
+        self.known_ub = known_ub
+        self.known_lb = known_lb
         self.old_bound = None
 
-    def step(self, verbose=False, print_freq=None):
+    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0):
         "Return a boolean for success"
         rat_ok = self.disc_arg.try_rationalize(verbose=verbose, forget_surrs=False)
         if not rat_ok:
             if verbose:
                 print("Could not rationalize")
             return (False, None)
-        get_excess = self.old_bound is None or self.old_bound < self.disc_arg.bound
+        get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
+            (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
         if get_excess:
             valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True)
         else:
@@ -275,14 +278,15 @@ class DischargingRefiner:
         self.disc_arg.saved_surroundings = None
         if get_excess:
             #print("ex data", ex_data)
-            print("excess gap", ex_data[2])
+            if verbose:
+                print("Excess gap", ex_data[2])
             if ex_data[0] == "exact":
-                print("exact pats", sum(len(p) for p in ex_data[1].values()))
+                #print("exact pats", sum(len(p) for p in ex_data[1].values()))
                 #for (node, pats) in ex_data[1].items():
                 #    print("node", node)
                 #    for pat in pats:
                 #        print(" ", pat)
-                print("forming SFT")
+                #print("forming SFT")
                 exact = intersection(self.disc_arg.sft,
                                      *(SFT.from_allowed(self.sft.dim,
                                                         self.sft.nodes,
@@ -292,28 +296,21 @@ class DischargingRefiner:
                                                         list(exacts))
                                        for exacts in ex_data[1].values()))
             else:
-                print("excess pats", len(ex_data[1]))
-                print("forming SFT")
+                #print("excess pats", len(ex_data[1]))
+                #print("forming SFT")
                 no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=ex_data[1])
                 exact = intersection(self.sft, no_excess)
-            exact.deduce_forbs(domain_or_rad=3, verbose=verbose)
+            exact.deduce_forbs(domain_or_rad=forb_radius, verbose=verbose)
             exact.deduce_circuit()
-            print("forbs", len(exact.forbs))
-            empty = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, circuit=circuit.F)
-            cont, _, sep = empty.contains(exact, return_radius_and_sep=True, verbose=verbose)
-            #print("cont", cont)
-            if not cont:
+            if verbose:
+                print("Formed exact SFT with {} forbidden patterns".format(len(exact.forbs)))
+            empty, conf = exact.is_empty(ret_conf=True, verbose=verbose, method="automaton" if self.sft.dim <= 2 else "SAT", symmetries=self.disc_arg.symmetries, extra_threads=extra_threads, can_be_empty=self.known_ub is None or self.disc_arg.bound < self.known_ub)
+            if not empty:
                 if verbose:
-                    print("Exact bound!")
-                    print("conf contents", sep.pat)
-                    print("in sft", sep in self.sft)
-                    weight = count = 0
-                    for (nvec, sym) in sep.pat.items():
-                        if nvec[1] != ("F",):
-                            count += 1
-                            weight += int(sym)
-                    print("dens", Fraction(weight, count))
-                return (True, sep)
+                    print("Reached tight bound")
+                    #print("conf contents", conf.pat)
+                    #print("in sft", conf in self.sft)
+                return (True, conf)
         self.old_bound = self.disc_arg.bound
         if verbose:
             print("Extending rules")
@@ -330,7 +327,7 @@ class DischargingRefiner:
         self.disc_arg.bound = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
         if self.disc_arg.bound + TOLERANCE < self.old_bound:
-            print("kukkuu")
+            print("Failure")
             return (False, None)
             
 class DischargingArgument:
@@ -377,6 +374,7 @@ class DischargingArgument:
         
         # specs has type dict[node_name : [(nvec, [nvec])]]
         # normalize the specs so that the nodes are in sym_nodes
+        #print("specs", specs)
         self.specs = dict()
         for (node, node_spec) in specs.items():
             for aut in self.symmetries:
@@ -484,7 +482,7 @@ class DischargingArgument:
 
     def _surroundings(self, node, bigpat, ret_big, rules, verbose):
         assert node in self.sym_nodes
-        print("start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "bigpats")
+        #print("start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "bigpats")
         #print("node", node)
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
@@ -515,7 +513,7 @@ class DischargingArgument:
             to_reprocess = []
             # This should run at most twice
             if rules is None:# or (len(rules) >= 2**sum(len(x) for x in self.specs.values())):
-                print("DIRECT")
+                #print("DIRECT")
                 for the_bigpat in bigpats:
                     reprocess = False
                     needed_nvecs = set()
@@ -567,7 +565,7 @@ class DischargingArgument:
                         else:
                             yield (orig_val, surr)    
             else:
-                print("TREE")
+                #print("TREE")
                 tree = rules_to_tree(self.sft.dim, self.sft.alph, node, self.symmetries, rules)
                 for the_bigpat in bigpats:
                     #print("got bigpat", the_bigpat)
@@ -611,7 +609,7 @@ class DischargingArgument:
                             yield (orig_val, surr)
             if to_reprocess:
                 did_extend = True
-                print("need to reprocess", len(to_reprocess))
+                #print("need to reprocess", len(to_reprocess))
                 reprocessed = self.extend_pats(to_reprocess, self.sym_nodes[node])
                 def iter_reprocessed():
                     while reprocessed:
@@ -619,7 +617,7 @@ class DischargingArgument:
                 bigpats = iter_reprocessed()
             else:
                 break
-        print("end with", len(self.bigpats[node]), "bigpats")
+        #print("end with", len(self.bigpats[node]), "bigpats")
         #if did_extend or did_compute:
         #    for b in self.bigpats[node]:
         #        print(b)
@@ -642,7 +640,7 @@ class DischargingArgument:
                 groups[domain, local_syms].append(pat)
             except KeyError:
                 groups[domain, local_syms] = [pat]
-        print("made {} groups".format(len(groups)))
+        #print("made {} groups".format(len(groups)))
         ret = set()
         for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
             #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
@@ -753,9 +751,9 @@ class DischargingArgument:
                     occur_counts = {}
                     for num in self.occurrences_in_exact[node].values():
                         occur_counts[num] = occur_counts.get(num, 0)+1
-                    print("Rule occurrences in {} exact patterns of node {}:".format(len(exact_pats[node]), node))
-                    for (occur_num, rule_count) in sorted(occur_counts.items()):
-                        print("{} rules occur {} times".format(rule_count, occur_num))
+                    #print("Rule occurrences in {} exact patterns of node {}:".format(len(exact_pats[node]), node))
+                    #for (occur_num, rule_count) in sorted(occur_counts.items()):
+                    #    print("{} rules occur {} times".format(rule_count, occur_num))
         #for node in self.sym_nodes:
         #    for (rule, num) in self.occurrences_in_exact[node].items():
         #        self.occurrences_in_exact[node][rule] = Fraction(num, len(exact_pats[node]))
@@ -1131,9 +1129,10 @@ class DischargingArgument:
                                 yield (vec, node)
                     rad += 1
         elif ordering == "topology":
-            def ordering(source):
-                yield source
-                seen = set([source])
+            def ordering(sources):
+                for source in sources:
+                    yield source
+                seen = set(sources)
                 frontier = set(seen)
                 while True:
                     new_frontier = set()
@@ -1147,11 +1146,11 @@ class DischargingArgument:
                                     new_frontier.add(new_nvec)
                     frontier = new_frontier
         for (source, pat, nvec) in extendables:
-            for potential_nvec in ordering(((0,)*self.sft.dim, source)):
+            for potential_nvec in ordering([((0,)*self.sft.dim, source), nvec]):
                 if potential_nvec not in pat:
                     new_nvec = potential_nvec
                     break
-            print("ext rule", source, pat, nvec, "into", new_nvec)
+            #print("ext rule", source, pat, nvec, "into", new_nvec)
             for sym in self.sft.alph[new_nvec[1]]:
                 # it should be safe to extend by invalid patterns, since they will never be used in the program, will have value 0, and will be removed
                 # it might not be safe to extend in such a way that we produce symmetry-equivalent rules

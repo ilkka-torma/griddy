@@ -57,7 +57,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
        | "density_lower_bound" cmd_dlb_opts STRICT_LABEL (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"? -> cmd_density_bound_single
-       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts ";"? (node_name ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"?)+ -> cmd_density_bound_multi
+       | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts ";"? (node_name? ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ ((cmd_dlb_opts vector)+ cmd_dlb_opts ";"? | cmd_dlb_opts /;/))+ -> cmd_density_bound_multi
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
        | "tiling_instance" cmd_opts STRICT_LABEL vector -> cmd_tiling_instance
        | ("compute_CA_ball" | "calculate_CA_ball") cmd_opts NAT cmd_opts list_of{STRICT_LABEL} cmd_opts -> cmd_ca_ball_default
@@ -131,6 +131,8 @@ cmd_tiler_opts: ( /x_size/ "=" NAT
                 | /hidden/ "=" list_of{node_name}
                 | "@" ( /x_periodic/ | /y_periodic/ ))*
 cmd_dlb_opts: ( /radius/ "=" NAT
+              | /forb_radius/ "=" NAT
+              | /extra_threads/ "=" NAT
               | /max_split/ "=" NAT
               | /num_split/ "=" NAT
               | /refine/ "=" NAT
@@ -138,6 +140,8 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /load_constr/ "=" LABEL
               | /save_rules/ "=" LABEL
               | /load_rules/ "=" LABEL
+              | /known_ub/ "=" fraction
+              | /known_lb/ "=" fraction
               | /forbid_excess/ "=" STRICT_LABEL
               | /opt_conf/ "=" STRICT_LABEL
               | /save_excess_pats/ "=" LABEL
@@ -883,10 +887,16 @@ class GriddyTransformer(Transformer_NonRecursive):
         (name, pos_args, opts, flags) = self.cmd_default("density_lower_bound", args)
         label = pos_args.pop(0)
         specs = dict()
+        #print("pos args", pos_args)
         arg = pos_args.pop(0)
         while pos_args:
-            node_name = arg
-            trans_nvecs = []
+            #print("arg", arg)
+            if isinstance(arg, tuple) and not isinstance(arg[0], str):
+                node_name = ()
+                trans_nvecs = [arg]
+            else:
+                node_name = arg
+                trans_nvecs = []
             while pos_args:
                 arg = pos_args.pop(0)
                 if arg == ";":
@@ -896,11 +906,17 @@ class GriddyTransformer(Transformer_NonRecursive):
             nhood_nvecs = []
             while pos_args:
                 arg = pos_args.pop(0)
-                if isinstance(arg[0], str):
+                if arg == ";":
+                    # no nhood nvecs
+                    if pos_args:
+                        arg = pos_args.pop(0)
+                    break
+                elif isinstance(arg[0], str):
                     # we read a node name
                     break
                 else:
                     nhood_nvecs.append(arg)
+            #print("parsed", node_name, trans_nvecs, nhood_nvecs)
             if node_name not in specs:
                 specs[node_name] = []
             for tr_nvec in trans_nvecs:

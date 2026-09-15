@@ -684,6 +684,7 @@ class Griddy:
                     raise Exception("{} has no forbidden patterns".format(sft_name))
                 periods = args[1]
                 threads = kwds.get("threads", 1)
+                relevant_nodes = kwds.get("relevant_nodes", None)
                 conf_name = kwds.get("conf_name", None)
                 comp_mode = kwds.get("mode", 'S')
                 if comp_mode not in ['Q','S','L']:
@@ -702,7 +703,7 @@ class Griddy:
                 if rot and (the_sft.dim != 2 or periods[0][0] != 0):
                     raise Exception("Rotation only available in 2D and with periods (N,0)")
                 if mode != "silent": print("Computing minimum density for %s restricted to period(s) %s"%(sft_name, periods) + (" using weights {}".format(self.weights) if self.weights is not None else ""))
-                nfa = period_automaton.PeriodAutomaton(the_sft, periods, weights=self.weights, verbose=verb, rotate=rot, sym_bound=sym_bound)
+                nfa = period_automaton.PeriodAutomaton(the_sft, periods, weights=self.weights, verbose=verb, rotate=rot, sym_bound=sym_bound, relevant_nodes=relevant_nodes)
                 border_size = len(the_sft.nodes)*len(nfa.frontier)
                 pmat = nfa.pmat
                 if mode != "silent" and verbose_here: print("const")
@@ -760,6 +761,8 @@ class Griddy:
                 symmetries = [self.automorphisms[label] for label in symmetries]
                 symmetries = node_automorphism.AffineAutomorphism.generate_group(symmetries, dim=the_sft.dim, nodes=the_sft.nodes)
                 rad = kwds.get("radius", 0)
+                forb_radius = kwds.get("forb_radius", 0)
+                extra_threads = kwds.get("extra_threads", 0)
                 max_split = kwds.get("max_split", None)
                 max_split_simp = kwds.get("max_split_simp", max_split)
                 max_split_trim = kwds.get("max_split_trim", max_split)
@@ -769,6 +772,8 @@ class Griddy:
                 load_constr = kwds.get("load_constr", None)
                 save_rules = kwds.get("save_rules", None)
                 load_rules = kwds.get("load_rules", None)
+                known_ub = kwds.get("known_ub", None)
+                known_lb = kwds.get("known_lb", None)
                 forbid_excess = kwds.get("forbid_excess", None)
                 save_excess_pats = kwds.get("save_excess_pats", None)
                 simplify_excess = "simplify_excess" in flags
@@ -823,9 +828,9 @@ class Griddy:
                     disc_arg.update_specs()
                     
                 if refine:
-                    refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine)
+                    refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine, known_ub=known_ub, known_lb=known_lb)
                     while True:
-                        res = refiner.step(verbose=verb, print_freq=print_freq)
+                        res = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads)
                         if res is not None:
                             if res[0] and opt_conf is not None:
                                 self.confs[opt_conf] = res[1]
@@ -865,7 +870,7 @@ class Griddy:
                             if amounts:
                                 if mode != "silent": print("on {}:".format(dict(fr_pat)))
                                 for (nvec, amount) in sorted(amounts.items()):
-                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, node, nvec))
+                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, ((0,)*the_sft.dim, node), nvec))
                 elif mode != "silent":
                     print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:

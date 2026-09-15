@@ -132,8 +132,9 @@ class PeriodAutomaton:
     # They are stored as integers to save space
     # trans has type dict[state] -> (dict[state] -> label(s))
     # After minimization, only the lowest weights are kept
+    # TODO: add relevant_nodes so that irrelevant weights can be ignored
 
-    def __init__(self, sft, periods, rotate=False, sym_bound=None, verbose=False, immediately_relabel=True, check_periods=True, all_labels=True, weights=None):
+    def __init__(self, sft, periods, rotate=False, sym_bound=None, verbose=False, immediately_relabel=True, check_periods=True, all_labels=True, weights=None, relevant_nodes=None):
         if verbose:
             print("Constructing period automaton with periods", periods, "no symmetry" if sym_bound is None else "symmetry %s"%sym_bound, "rotated" if rotate else "not rotated")
         self.sft = sft
@@ -191,11 +192,12 @@ class PeriodAutomaton:
         self.rotate = rotate
         self.all_labels = all_labels
 
-        #TODO here, just found out that frontier and node_fronteir were broken, maybe frontier still is
-
+        if relevant_nodes is None:
+            relevant_nodes = list(self.sft.nodes)
+        self.relevant_nodes = relevant_nodes
         self.weights = weights
         if weights == None:
-            self.weight_numerators = {a:int(a) for sub_alph in self.sft.alph.values() for a in sub_alph}
+            self.weight_numerators = {a:int(a) for node in self.relevant_nodes for a in self.sft.alph[node]}
             self.weight_denominator = 1
             #print("makkel")
         else:
@@ -240,7 +242,7 @@ class PeriodAutomaton:
         alph = {node:list(self.sft.alph[node]) for node in self.sft.alph}
         processes = [mp.Process(target=populate_worker,
                                 args=(self.pmat, alph, self.border_forbs, self.node_frontier, self.sym_bound, self.rotate,
-                                      task_q, res_q, self.weight_numerators, chunk_size, ret_loop))
+                                      task_q, res_q, self.weight_numerators, self.relevant_nodes, chunk_size, ret_loop))
                      for _ in range(num_threads)]
         if debug_verbose: print("processes built")
         for pr in processes:
@@ -277,7 +279,7 @@ class PeriodAutomaton:
                 else:
                     existed = False
                     self.states.add(new_state)
-                    if report and verbose and (len(self.states) - undone)%report == 0:
+                    if report and verbose and len(self.states)%report == 0:
                         print("States processed", len(self.states) - undone, "to process", undone, "total", len(self.states))
                     qq.append(new_state)
                     if len(qq) >= chunk_size:
@@ -294,12 +296,23 @@ class PeriodAutomaton:
                     print("pushed", pushed)
                     print("popped", popped)
                     print("got edge", st_idx, new_st_idx)
+                    if any(popped[ix] <= pushed[ix] for ix in dfs_order):
+                        print([ix for ix in dfs_order
+                               if popped[ix] <= pushed[ix]])
+                        raise Exception("Bad push/pop")
                     if any(pushed[ix] < pushed[ix2] < popped[ix] < popped[ix2]
                            for ix in dfs_order for ix2 in dfs_order):
+                        print([(ix, ix2)
+                               for ix in dfs_order for ix2 in dfs_order
+                               if pushed[ix] < pushed[ix2] < popped[ix] < popped[ix2]])
                         raise Exception("Bad pop")
                     if any(popped[ix] > len(dfs_order) for ix in dfs_order):
-                        raise Exception("Bad push/pop")
+                        print([(ix, popped[ix]) for ix in dfs_order
+                               if popped[ix] > len(dfs_order)])
+                        raise Exception("Bad long pop")
                     if any(pushed[ix] != i for (i, ix) in enumerate(dfs_order)):
+                        print([(i,ix,pushed[ix]) for (i, ix) in enumerate(dfs_order)
+                               if pushed[ix] != i])
                         raise Exception("Bad push")
                 if st_idx not in self.trans:
                     self.trans[st_idx] = dict()
@@ -341,19 +354,29 @@ class PeriodAutomaton:
                             afters = dfs_order[popped[new_st_idx]:]
                             if debug_verbose: print("split", befores, middle, subtree, afters)
                             dfs_order = befores + subtree + middle + afters
+                            # save values before editing
+                            push_st = pushed[st_idx]
+                            pop_st = popped[st_idx]
+                            push_new = pushed[new_st_idx]
+                            pop_new = popped[new_st_idx]
                             # Adjust push and pop times:
-                            # if pushed before old is popped, but popped 
+                            # suppose x is pushed before old is pushed, and popped after, but popped before new is pushed
+                            # then x is popped later, because it's an ancestor of old but not of new
                             for idx in befores:
-                                if pushed[st_idx] < popped[idx] <= pushed[new_st_idx]:
+                                if pushed[idx] <= push_st and pop_st <= popped[idx] <= push_new:
+                                    #if pushed[st_idx] < popped[idx] <= pushed[new_st_idx]:
                                     popped[idx] += len(subtree)
+                            # everyone in the subtree is just moved earlier
                             for idx in subtree:
                                 pushed[idx] -= len(middle)
                                 popped[idx] -= len(middle)
+                            # in the middle, everyone is pushed later
+                            # existing descendants of old and ancestors of new are popped same as before, others later
                             for idx in middle:
                                 pushed[idx] += len(subtree)
-                                if popped[idx] <= pushed[new_st_idx]:
+                                if pop_st <= pushed[idx] and popped[idx] <= push_new:
                                     popped[idx] += len(subtree)
-                        if pushed[new_st_idx] < pushed[st_idx] < popped[new_st_idx]:
+                        elif pushed[new_st_idx] < pushed[st_idx] < popped[new_st_idx]:
                             if debug_verbose: print("loop found")
                             # Case 3
                             # Loop detected, find it with BFS starting from new_st_idx
@@ -691,7 +714,7 @@ class PeriodAutomaton:
             min_things = min(min_things, res)
         min_d, min_len, min_q = min_things
         if verbose:
-            print("min density", min_d/(len(self.sft.nodes)*len(self.frontier)), "min len", min_len)
+            print("min density", min_d/(len(self.relevant_nodes)*len(self.frontier)), "min len", min_len)
 
         # phase 3: compute path from q
         path = [min_q]
@@ -982,7 +1005,7 @@ class PeriodAutomaton:
                             if nxt == cur:
                                 break
                         if len(comp) > 1 or cur in self.trans.get(cur, []):
-                            aut = PeriodAutomaton(self.sft, self.pmat, self.rotate, self.sym_bound, False, self.immediately_relabel, check_periods=False, weights=self.weights)
+                            aut = PeriodAutomaton(self.sft, self.pmat, self.rotate, self.sym_bound, False, self.immediately_relabel, check_periods=False, weights=self.weights, relevant_nodes=self.relevant_nodes)
                             aut.weight_numerators = self.weight_numerators
                             aut.weight_denominator = self.weight_denominator
 
@@ -1013,7 +1036,7 @@ def border_at(pmat, vec):
     return 0 # TODO: change
 
 def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
-                    rotate, task_queue, res_queue, weights, chunk_size, ret_syms):
+                    rotate, task_queue, res_queue, weights, relevant_nodes, chunk_size, ret_syms):
     #print("populating with", len(border_forbs), "forbs")
     numf = len(border_forbs)
     #border_sets = [set(forb) for forb in border_forbs]
@@ -1100,7 +1123,7 @@ def populate_worker(pmat, alph, border_forbs, frontier, sym_bound,
                         if ret_syms:
                             ret.append((state, new_front.copy(), new_state))
                         else:
-                            ret.append((state, weighted_sum(weights, new_front.values()), new_state))
+                            ret.append((state, weighted_sum(weights, [sym for (nvec, sym) in new_front.items() if nvec[1] in relevant_nodes]), new_state))
                         if len(ret) >= chunk_size:
                             res_queue.put(ret)
                             ret = []
@@ -1428,7 +1451,7 @@ if __name__ == "__main__":
     if bound_len is not None and all(len(comp.trans) for comp in comps) <= bound_len:
         print("bound was not needed")
 
-    denom = len(min_aut.frontier)*len(min_aut.sft.nodes)
+    denom = len(min_aut.frontier)*len(min_aut.relevant_nodes)
     #print(denom, min_data)
     # the known bounds are for identifying codes on the infinite hexagonal grid
     if COMP_MODE == CompMode.LINEAR_NOCYCLE:

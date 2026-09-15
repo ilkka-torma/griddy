@@ -5,6 +5,7 @@ from configuration import *
 from itertools import chain
 from alphabet import node_constraints, node_constraints_nvecs
 from node_automorphism import AffineAutomorphism
+from period_automaton import PeriodAutomaton
 import automatic_conf
 import graphs
 
@@ -1447,7 +1448,74 @@ class SFT:
                 
             if verbose and len(self.forbs)%print_freq == 0:
                 print("{} patterns found in {} seconds, average size {}".format(len(self.forbs), time.time()-start_time, sum(len(f) for f in self.forbs)/len(self.forbs)))
-        
+
+    def is_empty(self, method="SAT", verbose=False, ret_conf=False, symmetries=None, extra_threads=0, can_be_empty=True):
+        if verbose:
+            print("Checking SFT emptiness with " + method)
+        if method == "SAT":
+            # TODO: make this more efficient too
+            empty = SFT(self.dim, self.nodes, self.alph, self.topology, self.graph, circuit=F)
+            return empty.contains(self, verbose=verbose)
+        elif method == "automaton":
+            if self.dim > 2:
+                raise GriddyRuntimeException("method=automaton not implemented in dimension > 2")
+            empty_nvecs = set(var[:2] for var in self.circuit.get_variables())
+            empty_proc = solver_process(AND(self.circuit, node_constraints_nvecs(self.alph, empty_nvecs)))
+            _ = next(empty_proc)
+            def periods():
+                seen = set()
+                if self.dim == 1:
+                    yield []
+                else:
+                    the_sum = 1
+                    while True:
+                        for x in reversed(range(-the_sum+1, the_sum)):
+                            y = the_sum - abs(x)
+                            if (x,y) not in seen:
+                                yield [[x,y]]
+                                seen.add((x,y))
+                            if symmetries is not None:
+                                for aut in symmetries:
+                                    seen.add(tuple(int(c) for c in aut.matrix @ (x,y)))
+                        the_sum += 1
+            iter_periods = periods()
+            i = 0
+            while True:
+                # Try to prove emptiness
+                if can_be_empty:
+                    if verbose:
+                        print("Deducing box of side length {}".format(i+1))
+                    if not empty_proc.send(dict()):
+                        if ret_conf:
+                            return True, None
+                        else:
+                            return True
+                # Extend emptiness check for next round
+                anded = []
+                new_nvecs = set()
+                for vec in onesided_hypercube_shell(self.dim, i+1):
+                    circ = self.circuit.copy()
+                    transform(circ, lambda var: nvadd(var[:-1], vec) + var[-1:])
+                    anded.append(circ)
+                    new_nvecs.update(var[:-1] for var in circ.get_variables())
+                new_nvecs -= empty_nvecs
+                anded.append(node_constraints_nvecs(self.alph, new_nvecs))
+                empty_proc.send(AND(*anded))
+                # Try to find periodic configuration
+                p_mat = next(iter_periods)
+                if verbose:
+                    print("Periods", p_mat)
+                p_aut = PeriodAutomaton(self, p_mat, all_labels=False, relevant_nodes=[])
+                maybe_cyc = p_aut.populate(verbose=verbose, ret_loop=True, num_threads=1+extra_threads)
+                if maybe_cyc is not None:
+                    if ret_conf:
+                        return False, p_aut.cycle_to_conf(maybe_cyc)
+                    else:
+                        return False
+                i += 1
+        else:
+            raise GriddyRuntimeException("Unknown emptiness method: {}".format(method))
+                
 
     def inconsistent_with(self, other, verbose=False):
         if verbose:
