@@ -132,7 +132,6 @@ class PeriodAutomaton:
     # They are stored as integers to save space
     # trans has type dict[state] -> (dict[state] -> label(s))
     # After minimization, only the lowest weights are kept
-    # TODO: add relevant_nodes so that irrelevant weights can be ignored
 
     def __init__(self, sft, periods, rotate=False, sym_bound=None, verbose=False, immediately_relabel=True, check_periods=True, all_labels=True, weights=None, relevant_nodes=None):
         if verbose:
@@ -218,6 +217,7 @@ class PeriodAutomaton:
 
     def populate(self, num_threads=1, chunk_size=200, verbose=False, report=5000, ret_loop=False):
         debug_verbose = False
+        debug_check = False
         #if debug_verbose: print("asdf")
         self.s2idict = {}
         self.running = 0
@@ -261,6 +261,7 @@ class PeriodAutomaton:
             # 3) a dict of "popping times" from the DFS stack: index of first element pushed after this is popped.
             # Several elements may have equal popping times, and the last one is len(list).
             # These are updated as new edges are found.
+            # A loop is formed precisely when we insert a back-edge.
             dfs_order = list(self.states)
             pushed = {st : 0 for st in self.states}
             popped = {st : 1 for st in self.states}
@@ -296,6 +297,7 @@ class PeriodAutomaton:
                     print("pushed", pushed)
                     print("popped", popped)
                     print("got edge", st_idx, new_st_idx)
+                if debug_verbose or debug_check:
                     if any(popped[ix] <= pushed[ix] for ix in dfs_order):
                         print([ix for ix in dfs_order
                                if popped[ix] <= pushed[ix]])
@@ -348,9 +350,13 @@ class PeriodAutomaton:
                             if debug_verbose: print("move branch")
                             # Case 2
                             # Split the list into four parts, swap the middle two
+                            # befores: everything up to and including the subtree of old
                             befores = dfs_order[:popped[st_idx]]
+                            # middle: after old but before new
                             middle = dfs_order[popped[st_idx]:pushed[new_st_idx]]
+                            # subtree: new and its descendants
                             subtree = dfs_order[pushed[new_st_idx]:popped[new_st_idx]]
+                            # afters: everything after new
                             afters = dfs_order[popped[new_st_idx]:]
                             if debug_verbose: print("split", befores, middle, subtree, afters)
                             dfs_order = befores + subtree + middle + afters
@@ -360,8 +366,10 @@ class PeriodAutomaton:
                             push_new = pushed[new_st_idx]
                             pop_new = popped[new_st_idx]
                             # Adjust push and pop times:
-                            # suppose x is pushed before old is pushed, and popped after, but popped before new is pushed
-                            # then x is popped later, because it's an ancestor of old but not of new
+                            # in befores, common ancestors of old and new are unaffected
+                            # ancestors of old but not new will be popped later (this includes old itself)
+                            # these are pushed before old is pushed, popped after old is popped, and popped before new is pushed
+                            # non-ancestors of old are unaffected
                             for idx in befores:
                                 if pushed[idx] <= push_st and pop_st <= popped[idx] <= push_new:
                                     #if pushed[st_idx] < popped[idx] <= pushed[new_st_idx]:
@@ -371,11 +379,13 @@ class PeriodAutomaton:
                                 pushed[idx] -= len(middle)
                                 popped[idx] -= len(middle)
                             # in the middle, everyone is pushed later
-                            # existing descendants of old and ancestors of new are popped same as before, others later
+                            # non-ancestors of new (which are popped before new is pushed) are also popped later
                             for idx in middle:
                                 pushed[idx] += len(subtree)
-                                if pop_st <= pushed[idx] and popped[idx] <= push_new:
+                                if popped[idx] <= push_new:
                                     popped[idx] += len(subtree)
+                            # in afters there is no effect
+                            assert popped[st_idx] == popped[new_st_idx]
                         elif pushed[new_st_idx] < pushed[st_idx] < popped[new_st_idx]:
                             if debug_verbose: print("loop found")
                             # Case 3
@@ -408,15 +418,20 @@ class PeriodAutomaton:
                         # Totally new state -> no loops formed
                         # Insert into the DFS list as the last child of state
                         befores, afters = dfs_order[:popped[st_idx]], dfs_order[popped[st_idx]:]
+                        dfs_order = befores + [new_st_idx] + afters
                         pushed[new_st_idx] = popped[st_idx]
                         popped[new_st_idx] = popped[st_idx]+1
+                        # save pop time before modification
+                        pop_st = popped[st_idx]
+                        # all ancestors of old (including old) are popped one moment later
+                        # other nodes in befores are unaffected
                         for idx in befores:
-                            if pushed[idx] <= pushed[st_idx] and popped[st_idx] <= popped[idx]:
+                            if pushed[idx] <= pushed[st_idx] and pop_st <= popped[idx]:
                                 popped[idx] += 1
+                        # everyone after is shifted one step later
                         for idx in afters:
                             pushed[idx] += 1
                             popped[idx] += 1
-                        dfs_order = befores + [new_st_idx] + afters
                         
                     
             if qq != []:

@@ -819,8 +819,12 @@ class Griddy:
                     print("Computing lower bound for density in {}".format(sft_name))
 
                 disc_arg = density_linear_program.DischargingArgument(the_sft, specs, rad, weights=self.weights, relevant_nodes=relevant_nodes, symmetries=symmetries)
+                if load_constr is not None:
+                    if verb:
+                        print("Loading constraints from {}.output".format(load_constr))
+                    disc_arg.load_constraints(load_constr)
                 if load_rules is None:
-                    disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, load_constr=load_constr, save_constr=save_constr)
+                    disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq)
                 else:
                     if verb:
                         print("Loading rules from {}.output".format(load_rules))
@@ -829,17 +833,41 @@ class Griddy:
                     
                 if refine:
                     refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine, known_ub=known_ub, known_lb=known_lb)
+                    if load_rules is None and save_rules is not None:
+                        if verb:
+                            print("Saving intermediate rules...", end='')
+                        disc_arg.save_transfer_rules(save_rules)
+                        if verb:
+                            print(" done")
+                    if load_constr is None and save_constr is not None:
+                        if verb:
+                            print("Saving intermediate constaints...", end='')
+                        disc_arg.save_constraints(save_constr)
+                        if verb:
+                            print(" done")
                     while True:
-                        res = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads)
+                        res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, ret_opt_conf=opt_conf is not None)
+                        if save_rules is not None:
+                            if verb:
+                                print("Saving intermediate rules...", end='')
+                            disc_arg.save_transfer_rules(save_rules)
+                            if verb:
+                                print(" done")
+                        if save_constr is not None:
+                            if verb:
+                                print("Saving intermediate constraints...", end='')
+                            disc_arg.save_constraints(save_constr)
+                            if verb:
+                                print(" done")
                         if res is not None:
-                            if res[0] and opt_conf is not None:
-                                self.confs[opt_conf] = res[1]
+                            if res and opt_conf is not None:
+                                self.confs[opt_conf] = conf
                             break
                     
                 if simplify:
-                    if load_rules is None:
-                        if rationalize_intermediates:
-                            disc_arg.try_rationalize(verbose=verb)
+                    if rationalize_intermediates:
+                        disc_arg.try_rationalize(verbose=verb)
+                    if load_rules is None and not refine:
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
@@ -881,26 +909,36 @@ class Griddy:
                         print(" done")
                         
                 if forbid_excess is not None or save_excess_pats is not None:
-                    _, excess = disc_arg.is_valid(ret_excess=True, simplify_excess=simplify_excess, verbose=verb)
-                    if excess is None:
+                    _, excess_data = disc_arg.is_valid(ret_excess=True, simplify_excess=simplify_excess, verbose=verb)
+                    if excess_data is None:
                         if verb:
                             print("Could not compute excess patterns")
                     else:
-                        excess_pats, excess_gap = excess
-                        if verb:
-                            print("Found {} patterns with excess charge; {}".format(len(excess_pats), " and ".join(["forming SFT"]*(forbid_excess is not None) + ["saving to {}.output".format(save_excess_pats)]*(save_excess_pats is not None))))
-                            print("Excess gap is {}".format(excess_gap))
-                            #for p in excess_pats: print(p)
-                        if save_excess_pats is not None:
+                        kind, pats, excess_gap = excess_data
+                        print("Excess gap is {}".format(excess_gap))
+                        if forbid_excess is not None:
+                            if kind == "exact":
+                                print("Found {} patterns with exact charge; forming SFT".format(sum(len(x) for x in pats.values())))
+                                exact = sft.intersection(the_sft,
+                                                         *(sft.SFT.from_allowed(the_sft.dim,
+                                                                                the_sft.nodes,
+                                                                                the_sft.alph,
+                                                                                the_sft.topology,
+                                                                                the_sft.graph,
+                                                                                list(exacts))
+                                                           for exacts in pats.values()))
+                            else:
+                                print("Found {} patterns with excess charge; forming SFT".format(len(pats)))
+                                no_excess = sft.SFT(the_sft.dim, the_sft.nodes, the_sft.alph, self.sft.topology, self.sft.graph, forbs=pats)
+                                exact = sft.intersection(the_sft, no_excess)
+                            self.SFTs[forbid_excess] = exact
+                        if kind == "excess" and save_excess_pats is not None:
                             with open(save_excess_pats+".output", 'w') as f:
                                 for pat in excess_pats:
                                     f.write(str(dict(pat)) + '\n')
                             if verb:
                                 print("Patterns saved")
-                        if forbid_excess is not None:
-                            no_excess = sft.SFT(dim=the_sft.dim, nodes=the_sft.nodes, alph=the_sft.alph, topology=the_sft.topology, graph=the_sft.graph, forbs=excess_pats)
-                            no_excess = sft.intersection(the_sft, no_excess)
-                            self.SFTs[forbid_excess] = no_excess
+                            
                             
                 expect = kwds.get("expect", None)
                 if expect is not None and mode == "assert":

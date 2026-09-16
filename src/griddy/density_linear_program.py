@@ -258,13 +258,21 @@ class DischargingRefiner:
         self.known_lb = known_lb
         self.old_bound = None
 
-    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0):
+    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True):
         "Return a boolean for success"
         rat_ok = self.disc_arg.try_rationalize(verbose=verbose, forget_surrs=False)
         if not rat_ok:
             if verbose:
-                print("Could not rationalize")
+                print("Refining failed: could not rationalize")
             return (False, None)
+        if self.old_bound is not None and self.disc_arg.bound < self.old_bound:
+            if verbose:
+                print("Refining failed: bound decreased due to numerical errors")
+            return (False, None)
+        if self.disc_arg.bound == self.known_ub and not ret_opt_conf:
+            if verbose:
+                print("Reached known upper bound")
+            return (True, None)
         get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
             (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
         if get_excess:
@@ -273,7 +281,7 @@ class DischargingRefiner:
             valid = self.disc_arg.is_valid(verbose=verbose) # just to compute excess counts
         if not valid:
             if verbose:
-                print("Invalid")
+                print("Refining failed: invalid")
             return (False, None)
         self.disc_arg.saved_surroundings = None
         if get_excess:
@@ -304,13 +312,14 @@ class DischargingRefiner:
             exact.deduce_circuit()
             if verbose:
                 print("Formed exact SFT with {} forbidden patterns".format(len(exact.forbs)))
-            empty, conf = exact.is_empty(ret_conf=True, verbose=verbose, method="automaton" if self.sft.dim <= 2 else "SAT", symmetries=self.disc_arg.symmetries, extra_threads=extra_threads, can_be_empty=self.known_ub is None or self.disc_arg.bound < self.known_ub)
+            empty, conf = exact.is_empty(ret_conf=True, verbose=verbose, print_freq=print_freq, method="automaton" if self.sft.dim <= 2 else "SAT", symmetries=self.disc_arg.symmetries, extra_threads=extra_threads, can_be_empty=self.known_ub is None or self.disc_arg.bound < self.known_ub)
             if not empty:
                 if verbose:
                     print("Reached tight bound")
-                    #print("conf contents", conf.pat)
-                    #print("in sft", conf in self.sft)
-                return (True, conf)
+                if ret_opt_conf:
+                    return (True, conf)
+                else:
+                    return (True, None)
         self.old_bound = self.disc_arg.bound
         if verbose:
             print("Extending rules")
@@ -326,9 +335,7 @@ class DischargingRefiner:
         self.disc_arg.extend_rules(extendables, remove_old=True, ordering="topology")
         self.disc_arg.bound = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
-        if self.disc_arg.bound + TOLERANCE < self.old_bound:
-            print("Failure")
-            return (False, None)
+        return (None, None)
             
 class DischargingArgument:
     "A discharging argument for a lower bound on the minimum density of an SFT."
@@ -452,6 +459,44 @@ class DischargingArgument:
                     self.trans_rules[source][fpat] = dict()
                 self.trans_rules[source][fpat][nvec] = amount
                 #print("loaded rule", source, fpat, nvec, amount)
+
+    def save_constraints(self, filename):
+        "Save bigdomain and constraint patterns to a file."
+        with open(filename + '.output', 'w') as f:
+            f.write("#bigdomain\n")
+            for p in self.bigdomain.items():
+                f.write(str(p)+"\n")
+            f.write("#bigpats\n")
+            for (node, pats) in self.bigpats.items():
+                f.write("#node\n")
+                f.write(str(node)+"\n")
+                for pat in pats:
+                    f.write(str(dict(pat))+"\n")
+            f.write("#end")
+
+    def load_constraints(self, filename):
+        "Load bigdomain and constraint patterns from a file."
+        with open(filename + '.output', 'r') as f:
+            bigdomain = dict()
+            bigpats = dict()
+            while True:
+                line = f.readline()
+                if line.strip() == "#bigdomain":
+                    continue
+                elif line.strip() == "#bigpats":
+                    break
+                else:
+                    node, domain = ast.literal_eval(line)
+                    bigdomain[node] = domain
+            while True:
+                line = f.readline()
+                if line.strip() == "#end":
+                    break
+                elif line.strip() == "#node":
+                    node = ast.literal_eval(f.readline())
+                    bigpats[node] = []
+                else:
+                    bigpats[node].append(ast.literal_eval(line))
 
     def bigdomain_from_spec(self, node):
         "Compute bigdomain of node from spec."
@@ -845,9 +890,9 @@ class DischargingArgument:
                             insert_pat(self.sft.alph, all_excess_pats, fpat)
                             i += 1
                             if verbose and i%10000 == 0:
-                                print("Handled {}/{} patterns, {} stored".format(i, total, len(excess_pats)))
+                                print("Handled {}/{} patterns, {} stored".format(i, total, len(all_excess_pats)))
                     if verbose:
-                        print("Done with {} patterns".format(len(excess_pats)))
+                        print("Done with {} patterns".format(len(all_excess_pats)))
                 else:
                     all_excess_pats = set().union(*new_excess_pats.values())
             if ret_excess:
@@ -1198,27 +1243,7 @@ class DischargingArgument:
             # load bigpats from a file
             if verbose:
                 print("Loading constraints...", end="")
-            with open(load_constr + '.output', 'r') as f:
-                bigdomain = dict()
-                bigpats = dict()
-                while True:
-                    line = f.readline()
-                    if line.strip() == "#bigdomain":
-                        continue
-                    elif line.strip() == "#bigpats":
-                        break
-                    else:
-                        node, domain = ast.literal_eval(line)
-                        bigdomain[node] = domain
-                while True:
-                    line = f.readline()
-                    if line.strip() == "#end":
-                        break
-                    elif line.strip() == "#node":
-                        node = ast.literal_eval(f.readline())
-                        bigpats[node] = []
-                    else:
-                        bigpats[node].append(ast.literal_eval(line))
+            self.load_constraints(load_constr)
             if verbose:
                 print(" done")
 
@@ -1320,18 +1345,7 @@ class DischargingArgument:
                     print("{} found so far".format(i))
 
         if save_constr is not None:
-            # save bigpats to file
-            with open(save_constr + '.output', 'w') as f:
-                f.write("#bigdomain\n")
-                for p in self.bigdomain.items():
-                    f.write(str(p)+"\n")
-                f.write("#bigpats\n")
-                for (node, pats) in self.bigpats.items():
-                    f.write("#node\n")
-                    f.write(str(node)+"\n")
-                    for pat in pats:
-                        f.write(str(dict(pat))+"\n")
-                f.write("#end")
+            self.save_constraints(save_constr)
 
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
