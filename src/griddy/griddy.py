@@ -795,6 +795,11 @@ class Griddy:
                 solver = kwds.get("solver", "CBC")
                 refine = kwds.get("refine", False)
                 opt_conf = kwds.get("opt_conf", None)
+                extension_order = kwds.get("extension_order", "topology")
+                if isinstance(extension_order, list) and extension_order[0] == "topology":
+                    extension_order = ["topology", self.environments[extension_order[1]][2]]
+                if extension_order == "env_topology":
+                    extension_order = ["topology", self.topology]
                 specs = args[1]
                 #print("specs", specs)
                 if not specs:
@@ -846,7 +851,7 @@ class Griddy:
                         if verb:
                             print(" done")
                     while True:
-                        res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, ret_opt_conf=opt_conf is not None)
+                        res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, extension_order=extension_order, ret_opt_conf=opt_conf is not None)
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
@@ -894,11 +899,28 @@ class Griddy:
                 if show_rules:
                     if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
                     for (node, rules) in disc_arg.trans_rules.items():
-                        for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: tuple(sorted(p[0].items()))):
+                        for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: len(p[0])):
                             if amounts:
-                                if mode != "silent": print("on {}:".format(dict(fr_pat)))
+                                if mode != "silent":
+                                    print("on {{{}}}:".format(
+                                        ', '.join("{}: {}".format(
+                                            nvec[0] if nvec[1] == () else "({}; {})".format(
+                                                ', '.join(str(n) for n in nvec[0]),
+                                                '.'.join(nvec[1])
+                                            ),
+                                            sym
+                                            )
+                                                  for (nvec, sym) in fr_pat.items())))
                                 for (nvec, amount) in sorted(amounts.items()):
-                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, ((0,)*the_sft.dim, node), nvec))
+                                    if nvec[1] == ():
+                                        target = nvec[0]
+                                    else:
+                                        target = "({}; {})".format(', '.join(str(n) for n in nvec[0]), '.'.join(nvec[1]))
+                                    if node == ():
+                                        source = (0,)*the_sft.dim
+                                    else:
+                                        source = "({}; {})".format(', '.join('0'*the_sft.dim), '.'.join(node))
+                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, source, target))
                 elif mode != "silent":
                     print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:

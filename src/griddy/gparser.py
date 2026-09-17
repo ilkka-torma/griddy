@@ -136,6 +136,7 @@ cmd_dlb_opts: ( /radius/ "=" NAT
               | /max_split/ "=" NAT
               | /num_split/ "=" NAT
               | /refine/ "=" NAT
+              | /extension_order/ "=" (STRICT_LABEL | list_of{STRICT_LABEL})
               | /save_constr/ "=" LABEL
               | /load_constr/ "=" LABEL
               | /save_rules/ "=" LABEL

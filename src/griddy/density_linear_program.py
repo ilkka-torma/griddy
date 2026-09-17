@@ -258,20 +258,23 @@ class DischargingRefiner:
         self.known_lb = known_lb
         self.old_bound = None
 
-    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True):
+    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None):
         "Return a boolean for success"
         rat_ok = self.disc_arg.try_rationalize(verbose=verbose, forget_surrs=False)
         if not rat_ok:
             if verbose:
                 print("Refining failed: could not rationalize")
+            self.disc_arg.saved_surroundings = None
             return (False, None)
         if self.old_bound is not None and self.disc_arg.bound < self.old_bound:
             if verbose:
                 print("Refining failed: bound decreased due to numerical errors")
+            self.disc_arg.saved_surroundings = None
             return (False, None)
         if self.disc_arg.bound == self.known_ub and not ret_opt_conf:
             if verbose:
                 print("Reached known upper bound")
+            self.disc_arg.saved_surroundings = None
             return (True, None)
         get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
             (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
@@ -282,6 +285,7 @@ class DischargingRefiner:
         if not valid:
             if verbose:
                 print("Refining failed: invalid")
+            self.disc_arg.saved_surroundings = None
             return (False, None)
         self.disc_arg.saved_surroundings = None
         if get_excess:
@@ -324,15 +328,23 @@ class DischargingRefiner:
         if verbose:
             print("Extending rules")
         extendables = set()
+        # choose from each sym_node separately
         for node in self.disc_arg.sym_nodes:
             extendables.update([rule
                                 for (rule, _) in
                                 sorted(self.disc_arg.occurrences_in_exact[node].items(),
                                        key=lambda p: -p[1])][:self.num_extend])
+        # pool all sym_nodes together
+        #extendables.update([rule
+        #                    for (rule, _) in
+        #                    sorted([pair
+        #                            for node in self.disc_arg.sym_nodes
+        #                            for pair in self.disc_arg.occurrences_in_exact[node].items()],
+        #                           key=lambda p: -p[1])][:self.num_extend])
         #print("ext")
         #for rule in extendables:
         #    print(" ", rule)
-        self.disc_arg.extend_rules(extendables, remove_old=True, ordering="topology")
+        self.disc_arg.extend_rules(extendables, remove_old=True, ordering=extension_order)
         self.disc_arg.bound = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
         return (None, None)
@@ -1169,11 +1181,13 @@ class DischargingArgument:
                     for vec in sorted(hypercube_shell(self.sft.dim, rad),
                                       key=lambda vec: sum(abs(x) for x in vec)):
                         for node in self.sft.nodes:
-                            # only add nodes with nontrivial alphabets
-                            if len(self.sft.alph[node]) > 1:
-                                yield (vec, node)
+                            yield (vec, node)
                     rad += 1
-        elif ordering == "topology":
+        elif ordering == "topology" or ordering[0] == "topology":
+            if ordering == "topology":
+                topology = self.sft.topology
+            else:
+                topology = ordering[1]
             def ordering(sources):
                 for source in sources:
                     yield source
@@ -1182,11 +1196,12 @@ class DischargingArgument:
                 while True:
                     new_frontier = set()
                     for (vec, node) in frontier:
-                        for (_, edge_vec, from_node, to_node) in self.sft.topology:
+                        for (_, edge_vec, from_node, to_node) in topology:
                             if from_node == node:
                                 new_nvec = (vadd(vec, edge_vec), to_node)
                                 if new_nvec not in seen:
-                                    yield new_nvec
+                                    if len(self.sft.alph[new_nvec[1]]) > 1:
+                                        yield new_nvec
                                     seen.add(new_nvec)
                                     new_frontier.add(new_nvec)
                     frontier = new_frontier
