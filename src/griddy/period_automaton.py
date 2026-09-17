@@ -249,22 +249,13 @@ class PeriodAutomaton:
             pr.start()
         if debug_verbose: print("processes started")
         undone = len(self.states)
+        assert len(self.states) == 1 # the following loop is over singleton
         for state in self.states:
             task_q.put([state])
+            init_idx = state_to_idx(state)
 
-        assert len(self.states) == 1 # the above for loop is over singleton
         if ret_loop:
             assert not self.all_labels
-            # We maintain three pieces of data:
-            # 1) a list of nodes in DFS order (edges are in order of creation),
-            # 2) a dict of "pushing times" into the DFS stack (i.e. index in above list),
-            # 3) a dict of "popping times" from the DFS stack: index of first element pushed after this is popped.
-            # Several elements may have equal popping times, and the last one is len(list).
-            # These are updated as new edges are found.
-            # A loop is formed precisely when we insert a back-edge.
-            dfs_order = list(self.states)
-            pushed = {st : 0 for st in self.states}
-            popped = {st : 1 for st in self.states}
 
         qq = []
         while undone:
@@ -291,31 +282,8 @@ class PeriodAutomaton:
                 st_idx = state_to_idx(state)
                 new_st_idx = state_to_idx(new_state)
                 
-                if debug_verbose:
-                    print()
-                    print("order", dfs_order)
-                    print("pushed", pushed)
-                    print("popped", popped)
-                    print("got edge", st_idx, new_st_idx)
-                if debug_verbose or debug_check:
-                    if any(popped[ix] <= pushed[ix] for ix in dfs_order):
-                        print([ix for ix in dfs_order
-                               if popped[ix] <= pushed[ix]])
-                        raise Exception("Bad push/pop")
-                    if any(pushed[ix] < pushed[ix2] < popped[ix] < popped[ix2]
-                           for ix in dfs_order for ix2 in dfs_order):
-                        print([(ix, ix2)
-                               for ix in dfs_order for ix2 in dfs_order
-                               if pushed[ix] < pushed[ix2] < popped[ix] < popped[ix2]])
-                        raise Exception("Bad pop")
-                    if any(popped[ix] > len(dfs_order) for ix in dfs_order):
-                        print([(ix, popped[ix]) for ix in dfs_order
-                               if popped[ix] > len(dfs_order)])
-                        raise Exception("Bad long pop")
-                    if any(pushed[ix] != i for (i, ix) in enumerate(dfs_order)):
-                        print([(i,ix,pushed[ix]) for (i, ix) in enumerate(dfs_order)
-                               if pushed[ix] != i])
-                        raise Exception("Bad push")
+                #if debug_verbose:
+                #    print("got edge", st_idx, new_st_idx)
                 if st_idx not in self.trans:
                     self.trans[st_idx] = dict()
                 if new_st_idx not in self.trans:
@@ -332,112 +300,76 @@ class PeriodAutomaton:
                         self.trans[st_idx][new_st_idx] = set([sym_or_weight])
                     else:
                         self.trans[st_idx][new_st_idx] = sym_or_weight
-
-                if ret_loop:
-                    if existed:
-                        if debug_verbose: print("existed")
-                        # If the states are equal, return the singleton cycle immediately
-                        if st_idx == new_st_idx:
-                            for pr in processes:
-                                pr.terminate()
-                            return [sym_or_weight]
-                        # There are four possibilities:
-                        # 1) old[ new[ new] old] -> new was already in subtree, do nothing
-                        # 2) old[ old] new[ new] -> subtree of new is moved to right before old is popped
-                        # 3) new[ old[ old] new] -> back-edge, loop has been formed
-                        # 4) new[ new] old[ old] -> new was handled before old, do nothing
-                        if popped[st_idx] <= pushed[new_st_idx]:
-                            if debug_verbose: print("move branch")
-                            # Case 2
-                            # Split the list into four parts, swap the middle two
-                            # befores: everything up to and including the subtree of old
-                            befores = dfs_order[:popped[st_idx]]
-                            # middle: after old but before new
-                            middle = dfs_order[popped[st_idx]:pushed[new_st_idx]]
-                            # subtree: new and its descendants
-                            subtree = dfs_order[pushed[new_st_idx]:popped[new_st_idx]]
-                            # afters: everything after new
-                            afters = dfs_order[popped[new_st_idx]:]
-                            if debug_verbose: print("split", befores, middle, subtree, afters)
-                            dfs_order = befores + subtree + middle + afters
-                            # save values before editing
-                            push_st = pushed[st_idx]
-                            pop_st = popped[st_idx]
-                            push_new = pushed[new_st_idx]
-                            pop_new = popped[new_st_idx]
-                            # Adjust push and pop times:
-                            # in befores, common ancestors of old and new are unaffected
-                            # ancestors of old but not new will be popped later (this includes old itself)
-                            # these are pushed before old is pushed, popped after old is popped, and popped before new is pushed
-                            # non-ancestors of old are unaffected
-                            for idx in befores:
-                                if pushed[idx] <= push_st and pop_st <= popped[idx] <= push_new:
-                                    #if pushed[st_idx] < popped[idx] <= pushed[new_st_idx]:
-                                    popped[idx] += len(subtree)
-                            # everyone in the subtree is just moved earlier
-                            for idx in subtree:
-                                pushed[idx] -= len(middle)
-                                popped[idx] -= len(middle)
-                            # in the middle, everyone is pushed later
-                            # non-ancestors of new (which are popped before new is pushed) are also popped later
-                            for idx in middle:
-                                pushed[idx] += len(subtree)
-                                if popped[idx] <= push_new:
-                                    popped[idx] += len(subtree)
-                            # in afters there is no effect
-                            assert popped[st_idx] == popped[new_st_idx]
-                        elif pushed[new_st_idx] < pushed[st_idx] < popped[new_st_idx]:
-                            if debug_verbose: print("loop found")
-                            # Case 3
-                            # Loop detected, find it with BFS starting from new_st_idx
-                            for pr in processes:
-                                pr.terminate()
-                            parents = {new_st_idx : (sym_or_weight, st_idx)}
-                            frontier = set([new_st_idx])
-                            while frontier:
-                                if debug_verbose: print("frontier", frontier)
-                                new_frontier = set()
-                                for idx in frontier:
-                                    if idx == st_idx:
-                                        # Loop formed
-                                        loop = [sym_or_weight]
-                                        while idx != new_st_idx:
-                                            sym, idx = parents[idx]
-                                            loop.append(sym)
-                                        return loop[::-1]
-                                    if debug_verbose: print("handling", idx, self.trans[idx])
-                                    for (new_idx, sym) in self.trans[idx].items():
-                                        # NB. self.all_labels is False
-                                        if new_idx not in parents:
-                                            parents[new_idx] = (sym, idx)
-                                            new_frontier.add(new_idx)
-                                frontier = new_frontier
-                            raise Exception("This should not happen")
-                    else:
-                        if debug_verbose: print("new")
-                        # Totally new state -> no loops formed
-                        # Insert into the DFS list as the last child of state
-                        befores, afters = dfs_order[:popped[st_idx]], dfs_order[popped[st_idx]:]
-                        dfs_order = befores + [new_st_idx] + afters
-                        pushed[new_st_idx] = popped[st_idx]
-                        popped[new_st_idx] = popped[st_idx]+1
-                        # save pop time before modification
-                        pop_st = popped[st_idx]
-                        # all ancestors of old (including old) are popped one moment later
-                        # other nodes in befores are unaffected
-                        for idx in befores:
-                            if pushed[idx] <= pushed[st_idx] and pop_st <= popped[idx]:
-                                popped[idx] += 1
-                        # everyone after is shifted one step later
-                        for idx in afters:
-                            pushed[idx] += 1
-                            popped[idx] += 1
                         
                     
             if qq != []:
                 task_q.put(qq)
                 undone += len(qq)
                 qq = []
+
+            if ret_loop:
+                # after each received batch, check for existence of loops
+                if debug_verbose: print("checking loop")
+                dfs_stack = []
+                dfs_nexts = {init_idx : list(self.trans[init_idx])}
+                seen = set([init_idx])
+                curr = init_idx
+                loop_start = None
+                while True:
+                    if debug_verbose:
+                        print()
+                        print("curr", curr)
+                        print("stack", dfs_stack)
+                        print("nexts", dfs_nexts)
+                    try:
+                        new = dfs_nexts[curr].pop()
+                        if new in dfs_nexts:
+                            # back-edge -> loop found
+                            for (target, sym) in self.trans[curr].items():
+                                if target == new:
+                                    the_sym = sym
+                                    break
+                            loop_start = (curr, new, the_sym)
+                            break
+                        if new not in seen:
+                            dfs_stack.append(curr)
+                            dfs_nexts[new] = list(self.trans[new])
+                            seen.add(new)
+                            curr = new
+                        continue
+                    except IndexError:
+                        try:
+                            del dfs_nexts[curr]
+                            curr = dfs_stack.pop()
+                            continue
+                        except IndexError:
+                            break
+                if loop_start is not None:
+                    for pr in processes:
+                        pr.terminate()
+                    source, target, sym = loop_start
+                    parents = {target : (sym, source)}
+                    frontier = set([target])
+                    while frontier:
+                        if debug_verbose: print("frontier", frontier)
+                        new_frontier = set()
+                        for idx in frontier:
+                            if idx == source:
+                                # Loop formed
+                                loop = [sym]
+                                while idx != target:
+                                    sym2, idx = parents[idx]
+                                    loop.append(sym2)
+                                return loop[::-1]
+                            if debug_verbose: print("handling", idx, self.trans[idx])
+                            for (new_idx, sym2) in self.trans[idx].items():
+                                # NB. self.all_labels is False
+                                if new_idx not in parents:
+                                    parents[new_idx] = (sym2, idx)
+                                    new_frontier.add(new_idx)
+                        frontier = new_frontier
+                    raise Exception("This should not happen")
+            
         for pr in processes:
             pr.terminate()
         news = []
