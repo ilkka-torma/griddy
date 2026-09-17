@@ -1157,6 +1157,16 @@ code = """
 """
 unit_tests.append(("Custom automorphisms", code))
 
+code = """
+%alphabet 0 1 2
+%sft x Ao o.(2,2) != o & o.(0,3) != o
+%compute_forbidden_patterns x
+%find_periodic_conf c x (1,1) expect=F
+%find_periodic_conf c x (0,3) expect=F
+%find_periodic_conf c x (2,3) expect=T
+"""
+unit_tests.append(("Finding periodic points", code))
+
 
 
 

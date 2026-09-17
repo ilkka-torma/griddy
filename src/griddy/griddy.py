@@ -1004,6 +1004,7 @@ class Griddy:
                 chunk_size = kwds.get("chunk_size", 200)
                 print_freq = kwds.get("print_freq", 5000) if (mode != "silent") else 0
                 verb = "verbose" in flags
+                expect = kwds.get("expect", None)
                 if mode != "silent":
                     print("Finding configuration in {} with periods {}".format(sft_name, " ".join(str(vec) for vec in periods)))
                 tim = time.time()
@@ -1013,10 +1014,14 @@ class Griddy:
                 if maybe_cyc is None:
                     if mode != "silent":
                         print("No such configuration")
+                    if mode == "assert":
+                        assert expect == "F"
                 else:
                     self.confs[conf_name] = aut.cycle_to_conf(maybe_cyc)
                     if mode != "silent":
                         print("Configuration saved as {}".format(conf_name))
+                    if mode == "assert":
+                        assert expect == "T"
                 if mode != "silent":
                     print("Calculation took {} seconds".format(time.time()-tim))
 
