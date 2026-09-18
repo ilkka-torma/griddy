@@ -829,7 +829,7 @@ class Griddy:
                         print("Loading constraints from {}.output".format(load_constr))
                     disc_arg.load_constraints(load_constr)
                 if load_rules is None:
-                    disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq)
+                    disc_arg.compute_bound(solver, verbose=verb, print_freq=print_freq, keep_zero_rules=refine)
                 else:
                     if verb:
                         print("Loading rules from {}.output".format(load_rules))
@@ -1693,6 +1693,7 @@ class Griddy:
                 else:
                     self.automorphisms[name] = node_automorphism.AffineAutomorphism(
                         dim=self.dim,
+                        nodes=self.nodes,
                         matrix=matrix,
                         node_map=node_map,
                         vectors=vectors)

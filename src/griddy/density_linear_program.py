@@ -312,10 +312,22 @@ class DischargingRefiner:
                 #print("forming SFT")
                 no_excess = SFT(self.sft.dim, self.sft.nodes, self.sft.alph, self.sft.topology, self.sft.graph, forbs=ex_data[1])
                 exact = intersection(self.sft, no_excess)
-            exact.deduce_forbs(domain_or_rad=forb_radius, verbose=verbose)
-            exact.deduce_circuit()
             if verbose:
-                print("Formed exact SFT with {} forbidden patterns".format(len(exact.forbs)))
+                print("Deducing forbidden patterns for exact SFT")
+            exact.deduce_forbs(domain_or_rad=forb_radius)
+            exact.deduce_circuit()
+            while True:
+                if verbose:
+                    print("Found {} patterns, trying to reduce further".format(len(exact.forbs)))
+                old_forbs = exact.forbs
+                exact.deduce_forbs(domain_or_rad=forb_radius)
+                if len(exact.forbs) < len(old_forbs):
+                    exact.deduce_circuit()
+                else:
+                    exact.forbs = old_forbs
+                    break
+            if verbose:
+                print("Formed exact SFT")
             empty, conf = exact.is_empty(ret_conf=True, verbose=verbose, print_freq=print_freq, method="automaton" if self.sft.dim <= 2 else "SAT", symmetries=self.disc_arg.symmetries, extra_threads=extra_threads, can_be_empty=self.known_ub is None or self.disc_arg.bound < self.known_ub)
             if not empty:
                 if verbose:
@@ -345,8 +357,9 @@ class DischargingRefiner:
         #for rule in extendables:
         #    print(" ", rule)
         self.disc_arg.extend_rules(extendables, remove_old=True, ordering=extension_order)
+        old_bound = self.disc_arg.bound
         self.disc_arg.bound = None
-        self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq)
+        self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound)
         return (None, None)
             
 class DischargingArgument:
@@ -1238,11 +1251,11 @@ class DischargingArgument:
         # bigpats are updated during the next surroundings() call
                 
 
-    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False):
+    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
-                                  min(self.weights.values()),
+                                  min(self.weights.values()) if known_bound is None else known_bound,
                                   max(self.weights.values()))
         density.setInitialValue(max(self.weights.values()))
 
@@ -1384,7 +1397,7 @@ class DischargingArgument:
 
         self.trans_rules = {node : dict() for node in self.sft.nodes}
         for ((source, fr_pat, nvec), var) in send.items():
-            if True:#var.varValue:
+            if keep_zero_rules or var.varValue:
                 if fr_pat not in self.trans_rules[source]:
                     self.trans_rules[source][fr_pat] = dict()
                 self.trans_rules[source][fr_pat][nvec] = var.varValue
