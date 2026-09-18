@@ -260,21 +260,18 @@ class DischargingRefiner:
 
     def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None):
         "Return a boolean for success"
-        rat_ok = self.disc_arg.try_rationalize(verbose=verbose, forget_surrs=False)
+        rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
         if not rat_ok:
             if verbose:
                 print("Refining failed: could not rationalize")
-            self.disc_arg.saved_surroundings = None
             return (False, None)
         if self.old_bound is not None and self.disc_arg.bound < self.old_bound:
             if verbose:
                 print("Refining failed: bound decreased due to numerical errors")
-            self.disc_arg.saved_surroundings = None
             return (False, None)
         if self.disc_arg.bound == self.known_ub and not ret_opt_conf:
             if verbose:
                 print("Reached known upper bound")
-            self.disc_arg.saved_surroundings = None
             return (True, None)
         get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
             (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
@@ -285,9 +282,7 @@ class DischargingRefiner:
         if not valid:
             if verbose:
                 print("Refining failed: invalid")
-            self.disc_arg.saved_surroundings = None
             return (False, None)
-        self.disc_arg.saved_surroundings = None
         if get_excess:
             #print("ex data", ex_data)
             if verbose:
@@ -359,6 +354,7 @@ class DischargingRefiner:
         self.disc_arg.extend_rules(extendables, remove_old=True, ordering=extension_order)
         old_bound = self.disc_arg.bound
         self.disc_arg.bound = None
+        self.disc_arg.saved_surroundings = None
         self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound)
         return (None, None)
             
@@ -427,6 +423,7 @@ class DischargingArgument:
         self.bigpats = {node : None for node in self.sym_nodes}
         self.bigdomain = {node : None for node in self.sym_nodes}
         self.score = None
+        self.save_surrs = False
         self.saved_surroundings = None
 
         self.occurrences_in_exact = None
@@ -542,15 +539,26 @@ class DischargingArgument:
         return bigdomain
 
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, node, bigpat=None, ret_big=False, rules=None, verbose=False, shuffle=False):
+    def surroundings(self, node, bigpat=None, rules=None, verbose=False, shuffle=False):
         if self.saved_surroundings is not None:
             if shuffle:
                 random.shuffle(self.saved_surroundings[node])
-            return self.saved_surroundings[node]
+            for surr in self.saved_surroundings[node]:
+                yield surr
         else:
-            return self._surroundings(node, bigpat, ret_big, rules, verbose)
+            if self.save_surrs:
+                if self.saved_surroundings is None:
+                    self.saved_surroundings = dict()
+                if node not in self.saved_surroundings:
+                    self.saved_surroundings[node] = []
+                for surr in self._surroundings(node, bigpat, rules, verbose):
+                    yield surr
+                    self.saved_surroundings[node].append(surr)
+            else:
+                for surr in self._surroundings(node, bigpat, rules, verbose):
+                    yield surr
 
-    def _surroundings(self, node, bigpat, ret_big, rules, verbose):
+    def _surroundings(self, node, bigpat, rules, verbose):
         assert node in self.sym_nodes
         #print("start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "bigpats")
         #print("node", node)
@@ -579,6 +587,7 @@ class DischargingArgument:
                 while iterated:
                     yield iterated.pop()
             bigpats = iter_old_bigpats()
+        yielded = False
         while True:
             to_reprocess = []
             # This should run at most twice
@@ -630,10 +639,8 @@ class DischargingArgument:
                     else:
                         if compute_bigpats:
                             self.bigpats[node].append(the_bigpat)
-                        if ret_big:
-                            yield (orig_val, surr, the_bigpat)
-                        else:
-                            yield (orig_val, surr)    
+                        yielded = True
+                        yield (orig_val, surr, the_bigpat)   
             else:
                 #print("TREE")
                 tree = rules_to_tree(self.sft.dim, self.sft.alph, node, self.symmetries, rules)
@@ -673,10 +680,9 @@ class DischargingArgument:
                     else:
                         if compute_bigpats:
                             self.bigpats[node].append(the_bigpat)
-                        if ret_big:
-                            yield (orig_val, surr, the_bigpat)
-                        else:
-                            yield (orig_val, surr)
+                        yielded = True
+                        yield (orig_val, surr, the_bigpat)
+                        
             if to_reprocess:
                 did_extend = True
                 #print("need to reprocess", len(to_reprocess))
@@ -687,12 +693,9 @@ class DischargingArgument:
                 bigpats = iter_reprocessed()
             else:
                 break
-        #print("end with", len(self.bigpats[node]), "bigpats")
-        #if did_extend or did_compute:
-        #    for b in self.bigpats[node]:
-        #        print(b)
-        #if did_extend:
-        #    self.update_specs()
+
+        if not yielded:
+            raise NoSolutionError("Cannot bound density of empty SFT")
 
     def extend_pats(self, pat_pairs, symmetries):
         "Given a list of pairs (pattern, nvecs), extend each pattern in all locally valid ways to the nvecs."
@@ -742,7 +745,7 @@ class DischargingArgument:
         for node in self.sym_nodes:
             excess_pats[node] = set()
             exact_pats[node] = set()
-            for (orig_val, surr, the_bigpat) in self.surroundings(node, ret_big=True, bigpat=bigpat, rules=rules, shuffle=shuffle):
+            for (orig_val, surr, the_bigpat) in self.surroundings(node, bigpat=bigpat, rules=rules, shuffle=shuffle):
                 # for each legal combo, sum the contributions from each -v
                 if isinstance(self.bound, Fraction):
                     summa = Fraction(0)
@@ -810,7 +813,7 @@ class DischargingArgument:
                     else:
                         excess_pats[node].add(fpat)
                 i += 1
-        
+            
         if verbose:
             print("Found {} exact and {} excess patterns".format(
                 sum(len(pats) for pats in exact_pats.values()),
@@ -841,7 +844,7 @@ class DischargingArgument:
             else:
                 return True, "valid"
         elif ret_excess:
-            if sum(len(pats) for pats in exact_pats.values()) <= sum(len(pats) for pats in excess_pats.values()):
+            if sum(len(pats) for pats in exact_pats.values()) < sum(len(pats) for pats in excess_pats.values()):
                 # less exact pats -> return them
                 # generate symmetric exact patterns for each sym node
                 new_exact_pats = dict()
@@ -928,19 +931,11 @@ class DischargingArgument:
         else:
             return True
 
-    def try_rationalize(self, verbose=False, forget_surrs=True):
+    def try_rationalize(self, verbose=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
         if verbose:
             print("Attempting to rationalize")
-        # compute surroundings
-        rules = [(source, fpat, nvec)
-                 for (source, node_rules) in self.trans_rules.items()
-                 for (fpat, nvecs) in node_rules.items()
-                 for nvec in nvecs]
-        saved_surrs = dict()
-        for node in self.sym_nodes:
-            saved_surrs[node] = [s for s in self.surroundings(node, ret_big=True, rules=rules)]
-        self.saved_surroundings = saved_surrs
+        # save surroundings
         ret = False
         for den_ix in range(len(DENOMINATORS)):
             #if verbose:
@@ -949,15 +944,15 @@ class DischargingArgument:
             if rat_ok:
                 if verbose:
                     print("Succesfully rationalized solution, bound {}".format(self.bound))
-                self.saved_surroundings = None
-                return True
+                ret = True
+                break
         #rat_ok = self.rationalize(len(DENOMINATORS)//2, attempt_fix=True)
         #if rat_ok:
         #    if verbose:
         #        print("Succesfully rationalized solution, bound {}".format(self.bound))
         #    self.saved_surroundings = None
         #    return True
-        if verbose:
+        if not ret and verbose:
             valid = self.is_valid(give_reason=True)
             if valid:
                 print("Could not rationalize solution, but it is approximately valid")
@@ -965,9 +960,7 @@ class DischargingArgument:
                 print("Could not rationalize solution and it seems to be invalid")
                 for r in reason:
                     print(r)
-        if forget_surrs:
-            self.saved_surroundings = None
-        return False
+        return ret
     
     def rationalize(self, den_ix, verbose=False, attempt_fix=False):
         "Attempt to convert into rational numbers using given denominator bound. Return whether it was succesful."
@@ -981,7 +974,7 @@ class DischargingArgument:
                               for (nvec, num) in nvecs.items()}
                              for (fpat, nvecs) in rules.items()}
                             for (node, rules) in self.trans_rules.items()}
-        valid, reason = self.is_valid(give_reason=True)
+        valid = self.is_valid()#give_reason=True)
         if valid:
             return True
         elif not attempt_fix:
@@ -1251,7 +1244,7 @@ class DischargingArgument:
         # bigpats are updated during the next surroundings() call
                 
 
-    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None):
+    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None, save_surrs=False):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
@@ -1351,7 +1344,7 @@ class DischargingArgument:
         for node in self.sym_nodes:
             #for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
             #print("send", list(send))
-            for (orig_val, surr) in self.surroundings(node, rules=None if self.trans_rules is None else list(send), verbose=verbose):
+            for (orig_val, surr, _) in self.surroundings(node, rules=None if self.trans_rules is None else list(send), verbose=verbose):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -1521,7 +1514,7 @@ class DischargingArgument:
         # list all legal combinations of patterns around origin
         i = 0
         for node in self.sym_nodes:
-            for (orig_val, surr) in self.surroundings(node, rules=[p[:3] for p in send if p[3] != False]):
+            for (orig_val, surr, _) in self.surroundings(node, rules=[p[:3] for p in send if p[3] != False]):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:

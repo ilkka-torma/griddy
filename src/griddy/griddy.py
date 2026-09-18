@@ -850,6 +850,8 @@ class Griddy:
                         disc_arg.save_constraints(save_constr)
                         if verb:
                             print(" done")
+                    
+                    disc_arg.save_surrs = True
                     while True:
                         res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, extension_order=extension_order, ret_opt_conf=opt_conf is not None)
                         if save_rules is not None:
@@ -868,6 +870,8 @@ class Griddy:
                             if res and opt_conf is not None:
                                 self.confs[opt_conf] = conf
                             break
+                    disc_arg.save_surrs = False
+                    disc_arg.saved_surroundings = None
                     
                 if simplify:
                     if rationalize_intermediates:
