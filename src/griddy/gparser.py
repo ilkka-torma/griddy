@@ -304,7 +304,7 @@ just{val}: val
 dict: "{" (dict_pair (","? dict_pair))? "}"
 dict_pair: value ":" value
 
-LABEL: /[a-zA-Z0-9_]+/ |  ESCAPED_STRING
+LABEL: /[a-zA-Z0-9_#]+/ |  ESCAPED_STRING
 STRICT_LABEL: /[a-zA-Z_][a-zA-Z0-9_]*/ | ESCAPED_STRING
 NAT: /0|[1-9][0-9]*/
 INT: /0|-?[1-9][0-9]*/

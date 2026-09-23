@@ -4,6 +4,7 @@ Functions for computing lower bounds for density by a discharging argument encod
 
 import circuit
 from sft import SFT, centered_hypercube, intersection, SFT
+from alphabet import Alphabet
 from general import *
 import pulp
 import frozendict as fd
@@ -13,9 +14,12 @@ from node_automorphism import AffineAutomorphism
 import random
 from enum import Enum
 import ast
+import multiprocessing as mp
+
 
 TOLERANCE = 1e-6
 DENOMINATORS = [25, 50, 75, 100, 150, 200, 350, 500, 750, 1000, 2000, 3500, 5000, 7500, 10000, 20000, 35000, 50000, 75000, 100000, 200000, 350000, 500000, 750000, 1000000, 2000000, 3500000, 5000000, 7500000, 10000000, 20000000, 35000000, 50000000, 75000000, 100000000, 200000000, 350000000, 500000000, 750000000, 1000000000, 2000000000, 3500000000, 5000000000, 7500000000, 10000000000][::-1]
+#DENOMINATORS = list(reversed(range(1000, 100000000, 1000)))
 
 # A dict of solvers, type str -> ((solver, args), None | (solver, args))
 # The first component is used by default, the second when the first one fails
@@ -258,8 +262,9 @@ class DischargingRefiner:
         self.known_lb = known_lb
         self.old_bound = None
 
-    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None):
+    def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None, reduce_exacts=False, increase_exacts=False):
         "Return a boolean for success"
+        assert not (reduce_exacts and increase_exacts)
         rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
         if not rat_ok:
             if verbose:
@@ -273,6 +278,32 @@ class DischargingRefiner:
             if verbose:
                 print("Reached known upper bound")
             return (True, None)
+        if reduce_exacts or increase_exacts:
+            if verbose:
+                print("Attempting to {} number of exact patterns".format("reduce" if reduce_exacts else "increase"))
+            old_num_exacts = None
+            while True:
+                valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True)
+                if not valid:
+                    if verbose:
+                        print("Refining failed: invalid")
+                    return (False, None)
+                #print("valid", valid, "ex data", ex_data)
+                excess_gap = ex_data[2]
+                exact_pats = ex_data[3]
+                num_exacts = sum(len(pats) for pats in exact_pats.values())
+                if old_num_exacts is not None and (num_exacts >= old_num_exacts if reduce_exacts else num_exacts <= old_num_exacts):
+                    break
+                old_num_exacts = num_exacts
+                if reduce_exacts:
+                    self.disc_arg.reduce_exacts(self.solver_str, ex_data[2], ex_data[3], verbose=verbose, print_freq=print_freq)
+                else:
+                    self.disc_arg.increase_exacts(self.solver_str, ex_data[2], ex_data[3], verbose=verbose, print_freq=print_freq)
+                rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
+                if not rat_ok:
+                    if verbose:
+                        print("Refining failed: could not rationalize")
+                    return (False, None)
         get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
             (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
         if get_excess:
@@ -351,11 +382,11 @@ class DischargingRefiner:
         #print("ext")
         #for rule in extendables:
         #    print(" ", rule)
-        self.disc_arg.extend_rules(extendables, remove_old=True, ordering=extension_order)
+        self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order)
         old_bound = self.disc_arg.bound
         self.disc_arg.bound = None
         self.disc_arg.saved_surroundings = None
-        self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound)
+        self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads)
         return (None, None)
             
 class DischargingArgument:
@@ -425,12 +456,12 @@ class DischargingArgument:
         self.score = None
         self.save_surrs = False
         self.saved_surroundings = None
-
+        self.save_counter = 0
         self.occurrences_in_exact = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
-        with open(filename+".output", 'w') as f:
+        with open(filename.replace('#', str(self.save_counter))+".output", 'w') as f:
             if type(self.bound) == float:
                 f.write(str(self.bound)+'\n')
             else:
@@ -450,6 +481,7 @@ class DischargingArgument:
                             num, den = amount.as_integer_ratio()
                             f.write(str(num) + '/' + str(den) + '\n')
             f.write("#end")
+        self.save_counter += 1
 
     def load_transfer_rules(self, filename):
         "Load transfer rules and bound from a file."
@@ -484,7 +516,7 @@ class DischargingArgument:
 
     def save_constraints(self, filename):
         "Save bigdomain and constraint patterns to a file."
-        with open(filename + '.output', 'w') as f:
+        with open(filename.replace('#', str(self.save_counter)) + '.output', 'w') as f:
             f.write("#bigdomain\n")
             for p in self.bigdomain.items():
                 f.write(str(p)+"\n")
@@ -495,6 +527,7 @@ class DischargingArgument:
                 for pat in pats:
                     f.write(str(dict(pat))+"\n")
             f.write("#end")
+        self.save_counter += 1
 
     def load_constraints(self, filename):
         "Load bigdomain and constraint patterns from a file."
@@ -539,26 +572,25 @@ class DischargingArgument:
         return bigdomain
 
     # enumerate combined locally correct patterns that affect origin
-    def surroundings(self, node, bigpat=None, rules=None, verbose=False, shuffle=False):
-        if self.saved_surroundings is not None:
+    def surroundings(self, node, bigpat=None, rules=None, verbose=False, shuffle=False, threads=1):
+        if self.saved_surroundings is not None and node in self.saved_surroundings:
             if shuffle:
                 random.shuffle(self.saved_surroundings[node])
             for surr in self.saved_surroundings[node]:
                 yield surr
         else:
             if self.save_surrs:
-                if self.saved_surroundings is None:
-                    self.saved_surroundings = dict()
+                self.saved_surroundings = dict()
                 if node not in self.saved_surroundings:
                     self.saved_surroundings[node] = []
-                for surr in self._surroundings(node, bigpat, rules, verbose):
+                for surr in self._surroundings(node, bigpat, rules, verbose, threads=threads):
                     yield surr
                     self.saved_surroundings[node].append(surr)
             else:
-                for surr in self._surroundings(node, bigpat, rules, verbose):
+                for surr in self._surroundings(node, bigpat, rules, verbose, threads=threads):
                     yield surr
 
-    def _surroundings(self, node, bigpat, rules, verbose):
+    def _surroundings(self, node, bigpat, rules, verbose, threads):
         assert node in self.sym_nodes
         #print("start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "bigpats")
         #print("node", node)
@@ -686,7 +718,7 @@ class DischargingArgument:
             if to_reprocess:
                 did_extend = True
                 #print("need to reprocess", len(to_reprocess))
-                reprocessed = self.extend_pats(to_reprocess, self.sym_nodes[node])
+                reprocessed = self.extend_pats(to_reprocess, self.sym_nodes[node], threads=threads)
                 def iter_reprocessed():
                     while reprocessed:
                         yield reprocessed.pop()
@@ -697,7 +729,7 @@ class DischargingArgument:
         if not yielded:
             raise NoSolutionError("Cannot bound density of empty SFT")
 
-    def extend_pats(self, pat_pairs, symmetries):
+    def extend_pats(self, pat_pairs, symmetries, threads=1):
         "Given a list of pairs (pattern, nvecs), extend each pattern in all locally valid ways to the nvecs."
         # group the patterns by extension domain and existing symmetries
         groups = {}
@@ -714,12 +746,59 @@ class DischargingArgument:
             except KeyError:
                 groups[domain, local_syms] = [pat]
         #print("made {} groups".format(len(groups)))
-        ret = set()
-        for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
-            #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
-            #print("domain", domain, "local_syms", local_syms)
-            for new_pat in self.sft.all_patterns(domain, existing=pats, extra_rad=self.radius, mod_symmetries=local_syms):
-                ret.add(fd.frozendict(new_pat))
+        used_threads = max(1, 1+min(threads, sum(len(x) for x in groups.values()) // 40))
+        #print("pats", sum(len(x) for x in groups.values()), "used threads", used_threads)
+        if used_threads == 1:
+            ret = set()
+            for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
+                #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
+                #print("domain", domain, "local_syms", local_syms)
+                for new_pat in self.sft.all_patterns(domain, existing=pats, extra_rad=self.radius, mod_symmetries=local_syms):
+                    ret.add(fd.frozendict(new_pat))
+        else:
+            # split groups equitably
+            group_list = [(key, pat)
+                          for (key, pats) in groups.items()
+                          for pat in pats]
+            split_groups = [group_list[(i*len(group_list))//used_threads:((i+1)*len(group_list))//used_threads]
+                            for i in range(used_threads)]
+            assert sum(len(x) for x in split_groups) == len(group_list)
+            groups = []
+            for pairs in split_groups:
+                pr_groups = dict()
+                for (key, pat) in pairs:
+                    try:
+                        pr_groups[key].append(pat)
+                    except KeyError:
+                        pr_groups[key] = [pat]
+                groups.append(pr_groups)
+            res_q = mp.Queue()
+            processes = [mp.Process(target=extension_worker,
+                                    args=(self.sft.dim,
+                                          {node : (self.sft.alph[node].encoding,
+                                                   self.sft.alph[node].symbols)
+                                           for node in self.sft.nodes},
+                                          self.sft.topology,
+                                          self.sft.graph,
+                                          self.sft.circuit,
+                                          self.radius,
+                                          res_q,
+                                          pr_groups))
+                         for pr_groups in groups]
+            #print("starting {} processes".format(len(processes)))
+            for pr in processes:
+                pr.start()
+            #print("started")
+            running = used_threads
+            ret = set()
+            while running:
+                res = res_q.get()
+                if res is None:
+                    running -= 1
+                else:
+                    ret.update(res)
+            for pr in processes:
+                pr.terminate()
         return ret
             
 
@@ -806,7 +885,7 @@ class DischargingArgument:
                     else:
                         exact_pats[node].add(fpat)
                     for rule in occurring_rules:
-                        self.occurrences_in_exact[node][rule] += 1
+                        self.occurrences_in_exact[node][rule] += 1#/(1+len(fpat))
                 else:
                     if simplify_excess:
                         insert_pat(self.sft.alph, excess_pats[node], fpat)
@@ -874,7 +953,7 @@ class DischargingArgument:
                                            for (nvec, sym) in fpat.items()})
                             for fpat in new_exact_pats[sym_node]
                         }
-                return True, ("exact", new_exact_pats, excess_gap)
+                return True, ("exact", new_exact_pats, excess_gap, exact_pats)
             else:
                 # less excess pats -> return them
                 # generate symmetric excess patterns for each sym node
@@ -915,7 +994,7 @@ class DischargingArgument:
                     all_excess_pats = new_excess_pats[0]
                     for pats in new_excess_pats[1:]:
                         for fpat in pats:
-                            insert_pat(self.sft.alph, all_excess_pats, fpat)
+                            insert_pat(self.sft.alph, all_excess_pats, fpat, exact_pats)
                             i += 1
                             if verbose and i%10000 == 0:
                                 print("Handled {}/{} patterns, {} stored".format(i, total, len(all_excess_pats)))
@@ -924,7 +1003,7 @@ class DischargingArgument:
                 else:
                     all_excess_pats = set().union(*new_excess_pats.values())
             if ret_excess:
-                return True, ("excess", all_excess_pats, excess_gap)
+                return True, ("excess", all_excess_pats, excess_gap, exact_pats)
             else:
                 return True
     
@@ -1177,7 +1256,7 @@ class DischargingArgument:
             #        print(self.is_valid(bigpat=bigpat, give_reason=True))
             #        1/0
 
-    def extend_rules(self, extendables, ordering="hypercube", remove_old=True):
+    def extend_rules(self, extendables, num_extend, ordering="hypercube", remove_old=True):
         "Extend the given rules by adding new nodes to their neighborhood."
         if ordering == "hypercube":
             # Order by hypercube borders
@@ -1211,12 +1290,14 @@ class DischargingArgument:
                                     seen.add(new_nvec)
                                     new_frontier.add(new_nvec)
                     frontier = new_frontier
+        num_extended = 0
         for (source, pat, nvec) in extendables:
             for potential_nvec in ordering([((0,)*self.sft.dim, source), nvec]):
                 if potential_nvec not in pat:
                     new_nvec = potential_nvec
                     break
             #print("ext rule", source, pat, nvec, "into", new_nvec)
+            could_extend = False
             for sym in self.sft.alph[new_nvec[1]]:
                 # it should be safe to extend by invalid patterns, since they will never be used in the program, will have value 0, and will be removed
                 # it might not be safe to extend in such a way that we produce symmetry-equivalent rules
@@ -1234,17 +1315,22 @@ class DischargingArgument:
                     #print("already existed")
                     continue
                 #print("pat", dict(pat), "extended to", dict(new_pat))
+                could_extend = True
                 try:
                     self.trans_rules[source][new_pat][nvec] = self.trans_rules[source][pat][nvec]
                 except KeyError:
                     self.trans_rules[source][new_pat] = {nvec : self.trans_rules[source][pat][nvec]}
             if remove_old:
                 del self.trans_rules[source][pat][nvec]
+            if could_extend:
+                num_extended += 1
+            #if num_extended >= num_extend:
+            #    break
         self.update_specs(rules_only=True)
         # bigpats are updated during the next surroundings() call
                 
 
-    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None, save_surrs=False):
+    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None, save_surrs=False, threads=1):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
@@ -1344,7 +1430,7 @@ class DischargingArgument:
         for node in self.sym_nodes:
             #for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
             #print("send", list(send))
-            for (orig_val, surr, _) in self.surroundings(node, rules=None if self.trans_rules is None else list(send), verbose=verbose):
+            for (orig_val, surr, _) in self.surroundings(node, rules=None if self.trans_rules is None else list(send), verbose=verbose, threads=threads):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away) in surr:
@@ -1401,6 +1487,158 @@ class DischargingArgument:
         #print("trans_rules", self.trans_rules)
         return True
 
+    def reduce_exacts(self, solver_str, excess_gap, exact_pats, verbose=False, print_freq=5000):
+        "Assuming we have a solution, attempt to reduce the number of exact patterns."
+        assert self.trans_rules is not None
+        assert self.bound is not None
+        if verbose:
+            print("Computing pattern variables")
+        i = 0
+        send = dict()
+        for (source, rules) in self.trans_rules.items():
+            for (fr_pat, tr_nvecs) in rules.items():
+                for (tr_nvec, amount) in tr_nvecs.items():
+                    send[source, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                    send[source, fr_pat, tr_nvec].setInitialValue(amount)
+                    i += 1
+                    if verbose and i%print_freq == 0:
+                        print("{} found so far".format(i))
+
+        if verbose:
+            print("Done with {} variables, now adding constraints".format(i))
+
+        prob = pulp.LpProblem("discharge", pulp.LpMinimize)
+        constr_tim = time.time()
+        i = j = 0
+        slack_sum = 0
+        for node in self.sym_nodes:
+            for (orig_val, surr, bigpat) in self.surroundings(node, rules=list(send), verbose=verbose):
+                # for each legal combo, sum the contributions from each -v
+                summa = 0
+                for (source, pat, nvec, away) in surr:
+                    try:
+                        if away:
+                            summa -= send[source, pat, nvec]
+                        else:
+                            summa += send[source, pat, nvec]
+                    except KeyError:
+                        continue
+                
+                # for exact patterns, add a slack variable between 0 and gap/2
+                # if the pattern remains exact, we need its maximum value
+                # for other patterns, require gap to at most halve
+                # that way the problem remains feasible but there is some leeway
+                if fd.frozendict(bigpat) in exact_pats[node]:
+                    slack = pulp.LpVariable("slack{}".format(j), 0, excess_gap/2)
+                    summa += slack
+                    slack_sum += slack
+                    j += 1
+                    if node in self.relevant_nodes:
+                        summa += self.weights[orig_val]
+                        prob += summa >= self.bound + excess_gap/2
+                        #print("adding", summa >= density)
+                    else:
+                        prob += summa >= excess_gap/3
+                elif node in self.relevant_nodes:
+                    summa += self.weights[orig_val]
+                    prob += summa >= self.bound + excess_gap/2
+                else:
+                    prob += summa >= excess_gap/3
+                    
+                i += 1
+                if verbose and i%print_freq == 0:
+                    print("{} found so far".format(i))
+                    
+        # minimize the sum of the slack variables, forcing many patterns to be non-exact
+        prob += slack_sum
+        
+        if verbose:
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
+        tim = time.time()
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
+        solver(**solver_opts).solve(prob)
+        if verbose:
+            print("Solved in {} seconds".format(time.time()-tim))
+        
+        self.trans_rules = {node : dict() for node in self.sft.nodes}
+        for ((source, fr_pat, nvec), var) in send.items():
+            if fr_pat not in self.trans_rules[source]:
+                self.trans_rules[source][fr_pat] = dict()
+            self.trans_rules[source][fr_pat][nvec] = var.varValue
+
+    def increase_exacts(self, solver_str, excess_gap, exact_pats, verbose=False, print_freq=5000):
+        "Assuming we have a solution, attempt to increase the number of exact patterns."
+        assert self.trans_rules is not None
+        assert self.bound is not None
+        if verbose:
+            print("Computing pattern variables")
+        i = 0
+        send = dict()
+        for (source, rules) in self.trans_rules.items():
+            for (fr_pat, tr_nvecs) in rules.items():
+                for (tr_nvec, amount) in tr_nvecs.items():
+                    send[source, fr_pat, tr_nvec] = pulp.LpVariable("patvec{}".format(i)) #, 0, 1)
+                    send[source, fr_pat, tr_nvec].setInitialValue(amount)
+                    i += 1
+                    if verbose and i%print_freq == 0:
+                        print("{} found so far".format(i))
+
+        if verbose:
+            print("Done with {} variables, now adding constraints".format(i))
+
+        prob = pulp.LpProblem("discharge", pulp.LpMinimize)
+        constr_tim = time.time()
+        i = j = 0
+        excess_sum = 0
+        for node in self.sym_nodes:
+            for (orig_val, surr, bigpat) in self.surroundings(node, rules=list(send), verbose=verbose):
+                # for each legal combo, sum the contributions from each -v
+                summa = 0
+                for (source, pat, nvec, away) in surr:
+                    try:
+                        if away:
+                            summa -= send[source, pat, nvec]
+                        else:
+                            summa += send[source, pat, nvec]
+                    except KeyError:
+                        continue
+                
+                # require that exact patterns stay exact, and minimize total excess
+                if fd.frozendict(bigpat) in exact_pats[node]:
+                    if node in self.relevant_nodes:
+                        summa += self.weights[orig_val]
+                        prob += summa == self.bound
+                        #print("adding", summa >= density)
+                    else:
+                        prob += summa == 0
+                elif node in self.relevant_nodes:
+                    summa += self.weights[orig_val]
+                    prob += summa >= self.bound
+                    excess_sum += summa - self.bound
+                else:
+                    prob += summa >= 0
+                    excess_sum += summa
+                    
+                i += 1
+                if verbose and i%print_freq == 0:
+                    print("{} found so far".format(i))
+                    
+        # minimize the sum of the slack variables, forcing many patterns to be non-exact
+        prob += excess_sum
+        
+        if verbose:
+            print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
+        tim = time.time()
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
+        solver(**solver_opts).solve(prob)
+        if verbose:
+            print("Solved in {} seconds".format(time.time()-tim))
+        
+        self.trans_rules = {node : dict() for node in self.sft.nodes}
+        for ((source, fr_pat, nvec), var) in send.items():
+            if fr_pat not in self.trans_rules[source]:
+                self.trans_rules[source][fr_pat] = dict()
+            self.trans_rules[source][fr_pat][nvec] = var.varValue
     
     def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False, sort_pats=True):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
@@ -1587,7 +1825,20 @@ class DischargingArgument:
                     self.trans_rules[node][fr_pat][nvec] -= var.varValue
         self.update_specs()
             
-
+def extension_worker(dim, node_alphs, top, graph, circ, radius, res_queue, groups):
+    "Compute extensions for the given patterns and put them in the queue."
+    #print("I'm a process")
+    alph = {node : Alphabet.str_to_encoding(enc)(syms)
+            for (node, (enc, syms)) in node_alphs.items()}
+    the_sft = SFT(dim, list(node_alphs), alph, top, graph, circuit=circ)
+    for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
+        ret = set()
+        #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
+        #print("domain", domain, "local_syms", local_syms)
+        for new_pat in the_sft.all_patterns(domain, existing=pats, extra_rad=radius, mod_symmetries=local_syms):
+            ret.add(fd.frozendict(new_pat))
+        res_queue.put(ret)
+    res_queue.put(None)
 
 
 if __name__ == "__main__":
