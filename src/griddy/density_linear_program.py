@@ -307,12 +307,13 @@ class DischargingRefiner:
         get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
             (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
         if get_excess:
-            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True)
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True, give_reason=True)
         else:
-            valid = self.disc_arg.is_valid(verbose=verbose) # just to compute excess counts
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True) # just to compute excess counts
         if not valid:
             if verbose:
                 print("Refining failed: invalid")
+                #print(valid, ex_data)
             return (False, None)
         if get_excess:
             #print("ex data", ex_data)
@@ -372,6 +373,11 @@ class DischargingRefiner:
                                 for (rule, _) in
                                 sorted(self.disc_arg.occurrences_in_exact[node].items(),
                                        key=lambda p: -p[1])][:self.num_extend])
+        if False:#random.random() < 0.1:
+            print("added random lol")
+            extendables.add(random.choice([rule
+                                           for node in self.disc_arg.sym_nodes
+                                           for rule in self.disc_arg.occurrences_in_exact[node]]))
         # pool all sym_nodes together
         #extendables.update([rule
         #                    for (rule, _) in
@@ -456,12 +462,13 @@ class DischargingArgument:
         self.score = None
         self.save_surrs = False
         self.saved_surroundings = None
-        self.save_counter = 0
+        self.save_rules_counter = 0
+        self.save_constr_counter = 0
         self.occurrences_in_exact = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
-        with open(filename.replace('#', str(self.save_counter))+".output", 'w') as f:
+        with open(filename.replace('#', str(self.save_rules_counter))+".output", 'w') as f:
             if type(self.bound) == float:
                 f.write(str(self.bound)+'\n')
             else:
@@ -481,7 +488,7 @@ class DischargingArgument:
                             num, den = amount.as_integer_ratio()
                             f.write(str(num) + '/' + str(den) + '\n')
             f.write("#end")
-        self.save_counter += 1
+        self.save_rules_counter += 1
 
     def load_transfer_rules(self, filename):
         "Load transfer rules and bound from a file."
@@ -516,7 +523,7 @@ class DischargingArgument:
 
     def save_constraints(self, filename):
         "Save bigdomain and constraint patterns to a file."
-        with open(filename.replace('#', str(self.save_counter)) + '.output', 'w') as f:
+        with open(filename.replace('#', str(self.save_constr_counter)) + '.output', 'w') as f:
             f.write("#bigdomain\n")
             for p in self.bigdomain.items():
                 f.write(str(p)+"\n")
@@ -527,7 +534,7 @@ class DischargingArgument:
                 for pat in pats:
                     f.write(str(dict(pat))+"\n")
             f.write("#end")
-        self.save_counter += 1
+        self.save_constr_counter += 1
 
     def load_constraints(self, filename):
         "Load bigdomain and constraint patterns from a file."
@@ -576,19 +583,17 @@ class DischargingArgument:
         if self.saved_surroundings is not None and node in self.saved_surroundings:
             if shuffle:
                 random.shuffle(self.saved_surroundings[node])
-            for surr in self.saved_surroundings[node]:
-                yield surr
+            return self.saved_surroundings[node]
         else:
             if self.save_surrs:
                 self.saved_surroundings = dict()
                 if node not in self.saved_surroundings:
                     self.saved_surroundings[node] = []
                 for surr in self._surroundings(node, bigpat, rules, verbose, threads=threads):
-                    yield surr
                     self.saved_surroundings[node].append(surr)
+                return self.saved_surroundings[node]
             else:
-                for surr in self._surroundings(node, bigpat, rules, verbose, threads=threads):
-                    yield surr
+                return self._surroundings(node, bigpat, rules, verbose, threads=threads)
 
     def _surroundings(self, node, bigpat, rules, verbose, threads):
         assert node in self.sym_nodes
@@ -729,7 +734,7 @@ class DischargingArgument:
         if not yielded:
             raise NoSolutionError("Cannot bound density of empty SFT")
 
-    def extend_pats(self, pat_pairs, symmetries, threads=1):
+    def extend_pats(self, pat_pairs, symmetries, threads=1, chunk_size=300):
         "Given a list of pairs (pattern, nvecs), extend each pattern in all locally valid ways to the nvecs."
         # group the patterns by extension domain and existing symmetries
         groups = {}
@@ -745,10 +750,8 @@ class DischargingArgument:
                 groups[domain, local_syms].append(pat)
             except KeyError:
                 groups[domain, local_syms] = [pat]
-        #print("made {} groups".format(len(groups)))
-        used_threads = max(1, 1+min(threads, sum(len(x) for x in groups.values()) // 40))
-        #print("pats", sum(len(x) for x in groups.values()), "used threads", used_threads)
-        if used_threads == 1:
+                
+        if len(pat_pairs) <= 40:
             ret = set()
             for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
                 #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
@@ -757,21 +760,17 @@ class DischargingArgument:
                     ret.add(fd.frozendict(new_pat))
         else:
             # split groups equitably
-            group_list = [(key, pat)
-                          for (key, pats) in groups.items()
-                          for pat in pats]
-            split_groups = [group_list[(i*len(group_list))//used_threads:((i+1)*len(group_list))//used_threads]
-                            for i in range(used_threads)]
-            assert sum(len(x) for x in split_groups) == len(group_list)
-            groups = []
-            for pairs in split_groups:
-                pr_groups = dict()
-                for (key, pat) in pairs:
-                    try:
-                        pr_groups[key].append(pat)
-                    except KeyError:
-                        pr_groups[key] = [pat]
-                groups.append(pr_groups)
+            split_groups = []
+            for (key, grp) in groups.items():
+                local_chunk_size = max(1, chunk_size//max(len(key[0])//5-1,1))
+                if len(grp) <= local_chunk_size:
+                    split_groups.append((key, grp))
+                else:
+                    while grp:
+                        split_groups.append((key, grp[:local_chunk_size]))
+                        grp = grp[local_chunk_size:]
+            assert sum(len(ps) for (k, ps) in split_groups) == len(pat_pairs)
+            task_q = mp.Queue()
             res_q = mp.Queue()
             processes = [mp.Process(target=extension_worker,
                                     args=(self.sft.dim,
@@ -782,21 +781,22 @@ class DischargingArgument:
                                           self.sft.graph,
                                           self.sft.circuit,
                                           self.radius,
-                                          res_q,
-                                          pr_groups))
-                         for pr_groups in groups]
+                                          task_q,
+                                          res_q))
+                         for _ in range(threads)]
             #print("starting {} processes".format(len(processes)))
             for pr in processes:
                 pr.start()
+            in_queue = 0
+            for pair in split_groups:
+                task_q.put(pair)
+                in_queue += 1
             #print("started")
-            running = used_threads
             ret = set()
-            while running:
+            while in_queue:
                 res = res_q.get()
-                if res is None:
-                    running -= 1
-                else:
-                    ret.update(res)
+                ret.update(res)
+                in_queue -= 1
             for pr in processes:
                 pr.terminate()
         return ret
@@ -994,7 +994,7 @@ class DischargingArgument:
                     all_excess_pats = new_excess_pats[0]
                     for pats in new_excess_pats[1:]:
                         for fpat in pats:
-                            insert_pat(self.sft.alph, all_excess_pats, fpat, exact_pats)
+                            insert_pat(self.sft.alph, all_excess_pats, fpat)
                             i += 1
                             if verbose and i%10000 == 0:
                                 print("Handled {}/{} patterns, {} stored".format(i, total, len(all_excess_pats)))
@@ -1277,11 +1277,13 @@ class DischargingArgument:
                 for source in sources:
                     yield source
                 seen = set(sources)
-                frontier = set(seen)
+                frontier = list(seen)
                 while True:
                     new_frontier = set()
                     for (vec, node) in frontier:
-                        for (_, edge_vec, from_node, to_node) in topology:
+                        top = topology[::1]
+                        random.shuffle(top)
+                        for (_, edge_vec, from_node, to_node) in top:
                             if from_node == node:
                                 new_nvec = (vadd(vec, edge_vec), to_node)
                                 if new_nvec not in seen:
@@ -1289,7 +1291,8 @@ class DischargingArgument:
                                         yield new_nvec
                                     seen.add(new_nvec)
                                     new_frontier.add(new_nvec)
-                    frontier = new_frontier
+                    frontier = list(new_frontier)
+                    random.shuffle(frontier)
         num_extended = 0
         for (source, pat, nvec) in extendables:
             for potential_nvec in ordering([((0,)*self.sft.dim, source), nvec]):
@@ -1825,20 +1828,20 @@ class DischargingArgument:
                     self.trans_rules[node][fr_pat][nvec] -= var.varValue
         self.update_specs()
             
-def extension_worker(dim, node_alphs, top, graph, circ, radius, res_queue, groups):
+def extension_worker(dim, node_alphs, top, graph, circ, radius, task_queue, res_queue):
     "Compute extensions for the given patterns and put them in the queue."
     #print("I'm a process")
     alph = {node : Alphabet.str_to_encoding(enc)(syms)
             for (node, (enc, syms)) in node_alphs.items()}
     the_sft = SFT(dim, list(node_alphs), alph, top, graph, circuit=circ)
-    for (i, ((domain, local_syms), pats)) in enumerate(groups.items()):
+    while True:
+        ((domain, local_syms), pats) = task_queue.get()
         ret = set()
         #print("extending group {}/{} of size {}".format(i+1, len(groups), len(pats)))
         #print("domain", domain, "local_syms", local_syms)
         for new_pat in the_sft.all_patterns(domain, existing=pats, extra_rad=radius, mod_symmetries=local_syms):
             ret.add(fd.frozendict(new_pat))
         res_queue.put(ret)
-    res_queue.put(None)
 
 
 if __name__ == "__main__":
