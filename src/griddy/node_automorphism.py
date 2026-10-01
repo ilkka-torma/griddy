@@ -61,6 +61,7 @@ class AffineAutomorphism:
                             else vec
                             for (node, vec) in vectors.items()}
         self._hash = hash((tuple(int(n) for n in self.matrix.flat), tuple((node, tuple(int(n) for n in vec)) for (node, vec) in sorted(self.vectors.items())), tuple(sorted(self.node_map.items()))))
+        self.memo = dict()
         #print("made", self.matrix, self.vectors, self.node_map)
 
     @classmethod
@@ -144,13 +145,19 @@ class AffineAutomorphism:
         if type(arg) == tuple and len(arg) in [2,3]:
             # node vector
             vec, node = arg[:2]
-            if inv:
+            if (vec, node, inv) in self.memo:
+                ret = self.memo[vec, node, inv] + arg[2:]
+            elif inv:
                 new_node = self.inv_node_map[node]
                 new_vec = self.inv_matrix @ (vec - self.vectors[new_node])
-                ret = (tuple(int(x) for x in new_vec.flat), new_node) + arg[2:]
+                ret = (tuple(int(x) for x in new_vec.flat), new_node)
+                self.memo[vec, node, inv] = ret
+                ret = ret + arg[2:]
             else:
                 new_vec = self.matrix @ vec + self.vectors[node]
-                ret = (tuple(int(x) for x in new_vec), self.node_map[node]) + arg[2:]
+                ret = (tuple(int(x) for x in new_vec), self.node_map[node])
+                self.memo[vec, node, inv] = ret
+                ret = ret + arg[2:]
         elif isinstance(arg, circuit.Circuit):
             circ = arg.copy()
             circuit.transform(circ, lambda var: self(var))
