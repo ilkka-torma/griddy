@@ -188,7 +188,7 @@ class Alphabet:
             zeros = T
             is_leq = F
             for (circ1, circ2) in zip(circs1, circs2):
-                is_leq = OR(isleq, AND(zeros, circ1))
+                is_leq = OR(is_leq, AND(zeros, circ1))
                 zeros = AND(zeros, NOT(circ1), NOT(circ2))
             return is_leq
 
@@ -312,7 +312,7 @@ class Alphabet:
             zeros2 = T
             is_leq = F
             for (circ1, circ2) in zip(circs1, circs2):
-                is_leq = OR(isleq, AND(zeros1, zeros2, circ1))
+                is_leq = OR(is_leq, AND(zeros1, zeros2, circ1))
                 zeros1 = AND(zeros1, NOT(circ1))
                 zeros2 = AND(zeros2, NOT(circ2))
             return OR(zeros1, AND(is_leq, NOT(zeros2)))
@@ -379,7 +379,7 @@ class Alphabet:
         """
 
         vrs = list(range(math.ceil(math.log2(len(syms)))))
-
+        
         def m_to_s(bools):
             "Return symbol coded by bits in bools list."
             v = 0
@@ -392,6 +392,8 @@ class Alphabet:
 
         def codes_something(circs):
             "circuit value can't be more more than len(sym)-1"
+            if len(syms) == 1:
+                return T
             symc = list(int(a) for a in bin(len(syms) - 1)[2:])
             assert len(symc) == len(vrs)
             # we've seen a larger digit in alphabet already
