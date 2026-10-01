@@ -209,6 +209,7 @@ def formula_to_circuit_(graph, topology, nodes, alphabet, formula,
         circuit_code = formula[2]
         #print("ccode", circuit_code)
         unbound_vars = collect_unbound_vars(circuit_code, set(arg_names))
+        #print("unbound", unbound_vars)
         ret_code = formula[3]
         closure = {}
         for v in unbound_vars:
@@ -736,7 +737,7 @@ def collect_unbound_vars(formula, bound = None):
         var = formula[1]
         possibles.update(collect_unbound_vars(formula[2], bound)) # variable is not bound in the code to be binded
         bound.add(var)
-        possibles.update(collect_unbound_vars(formula[3], bound)) # but is in evaluation of actual 
+        possibles.update(collect_unbound_vars(formula[3], bound)) # but is in evaluation of actual
     # cvn[var] should be just the code, and a closure
     elif op == "LET":
         var = formula[1][0]
@@ -747,7 +748,10 @@ def collect_unbound_vars(formula, bound = None):
         possibles.update(collect_unbound_vars(circuit_code, argbound))
         bound.add(var)
         possibles.update(collect_unbound_vars(formula[3], bound))
-    elif op in ["POSEQ", "VALEQ", "ISNEIGHBOR", "DISTANCE"]:
+    elif op == "VALEQ":
+        for arg in [formula[1], formula[2]]:
+            possibles.update(collect_unbound_vars_valexpr(arg, bound))
+    elif op in ["POSEQ", "ISNEIGHBOR", "DISTANCE"]:
         possibles.add(var_of_pos_expr(formula[1]))
         possibles.add(var_of_pos_expr(formula[2]))
     elif op == "HASVAL":
@@ -766,16 +770,40 @@ def collect_unbound_vars(formula, bound = None):
         possibles.update(collect_unbound_vars(formula[2], bound))
     elif op in ["SET_BALL", "SET_SPHERE"]:
         possibles.update(collect_unbound_vars(formula[3], bound))
+    elif op == "SWITCH":
+        for (test, expr) in formula[1:]:
+            possibles.update(collect_unbound_vars(test, bound))
+            possibles.update(collect_unbound_vars(expr, bound))
     else:
         raise GriddyCompileError("Unknown operation " + op)
     ret = set()
     for p in possibles:
         if p not in bound:
             ret.add(p)
-    #print("now", ret)
+    #print("now collected", ret)
+    return ret
+
+def collect_unbound_vars_valexpr(expr, bound=None):
+    if bound is None:
+        bound = set()
+    possibles = set()
+    if isinstance(expr, str):
+        # a plain variable
+        possibles.add(expr)
+    elif expr[0] == "ADDRESS":
+        # an addressing construct: the second item is a string
+        possibles.add(expr[1])
+    elif expr[0] == "SWITCH":
+        for (test, valexpr) in expr[1:]:
+            possibles.update(collect_unbound_vars(test, bound))
+            possibles.update(collect_unbound_vars_valexpr(valexpr, bound))
+    else:
+        raise GriddyCompileError("Unknown operation " + expr[0])
+    ret = possibles - bound
     return ret
 
 def var_of_pos_expr(f):
+    # we have either a variable (string) or ("ADDRESS", var, *direction)
     if type(f) == tuple:
         f = f[1]
     return f
@@ -934,8 +962,8 @@ def eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables,
             inner_res, inner_typ = eval_posexpr_to_circ(graph, topology, nodes, alphabet, externals, variables, subst, global_restr, inner_expr)
             if inner_typ == "list":
                 # The inner expression is a list of cases -> splat them into res
-                res.extend(*((AND(circ, inner_circ), inner_inner_res)
-                             for (inner_circ, inner_inner_res) in inner_res))
+                res.extend([(AND(circ, inner_circ), inner_inner_res)
+                            for (inner_circ, inner_inner_res) in inner_res])
             else:
                 res.append((circ, (inner_res, inner_typ)))
 
