@@ -8,6 +8,12 @@ class GriddyCompileError(Exception):
 class NoSolutionError(GriddyRuntimeError):
     pass
 
+def inc_product(nums):
+    ret = 1
+    for num in nums:
+        ret *= num+1
+    return ret
+
 def vadd(vec1, vec2):
     return tuple(a+b for (a,b) in zip(vec1, vec2))
 

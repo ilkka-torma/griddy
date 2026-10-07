@@ -1198,7 +1198,7 @@ class SFT:
                 pat[nvec] = node_alph.model_to_sym(nvals)
             yield pat
 
-    # existing can be a pattern, a list of patterns, or None
+    # existing can be a pattern, a list of patterns, a list of (pattern, tag) pairs, or None
     # domain is a collection of nodevectors
     # if mod_symmetries are given, only generate one pattern in each equivalence class
     # mod_symmetries is assumed to be a finite group that does not break any pattern in existing
@@ -1208,6 +1208,10 @@ class SFT:
             existing = [dict()]
         if isinstance(existing, dict):
             existing = [existing]
+        if isinstance(existing[0], tuple):
+            tagged = True
+        else:
+            tagged = False
         id_sym = AffineAutomorphism(dim=self.dim, nodes=self.nodes)
         if mod_symmetries is None:
             mod_symmetries = [id_sym]
@@ -1267,7 +1271,11 @@ class SFT:
         process = solver_process(AND(*circuits), ret_assignment=True)
         _ = next(process)
 
-        for pat in existing:
+        for value in existing:
+            if tagged:
+                pat, tag = value
+            else:
+                pat = value
             #print("  existing", pat)
             var_vals = {}
             for (nvec, sym) in pat.items():
@@ -1286,7 +1294,10 @@ class SFT:
                     sym = local_alph.model_to_sym([res[var] for var in local_vars])
                     ret[nvec] = sym
                     oreds.append(NOT(local_alph.node_eq_sym([V(var) for var in local_vars], sym)))
-                yield ret
+                if tagged:
+                    yield (ret, tag)
+                else:
+                    yield ret
                 process.send(OR(*oreds))
 
         """

@@ -796,8 +796,8 @@ class Griddy:
                 refine = kwds.get("refine", False)
                 opt_conf = kwds.get("opt_conf", None)
                 extension_order = kwds.get("extension_order", "topology")
-                if isinstance(extension_order, list) and extension_order[0] == "topology":
-                    extension_order = ["topology", self.environments[extension_order[1]][2]]
+                if isinstance(extension_order, list) and extension_order[0] in ["topology", "adaptive_topology"]:
+                    extension_order = [extension_order[0], self.environments[extension_order[1]][2]]
                 if extension_order == "env_topology":
                     extension_order = ["topology", self.topology]
                 specs = args[1]
@@ -852,6 +852,8 @@ class Griddy:
                             print(" done")
                     
                     disc_arg.save_surrs = True
+                    #if extension_order == "adaptive_topology":
+                    #    disc_arg.setup_adative_topology()
                     while True:
                         res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, extension_order=extension_order, ret_opt_conf=opt_conf is not None)
                         if save_rules is not None:
