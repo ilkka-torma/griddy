@@ -1566,17 +1566,39 @@ class DischargingArgument:
                     alph = self.sft.alph[nbr_nvec[1]]
                     count_vecs = dict()
                     for d in [True, False]:
-                        norm = max(sym_counts[sym, d] for sym in alph)
+                        norm = sum(sym_counts[sym, d] for sym in alph)
                         if not norm:
                             diff_norm = 0
                             break
                         count_vecs[d] = [sym_counts[sym, d]/norm for sym in alph]
                     else:
-                        diff_norm = max(abs(x-y) for (x,y) in zip(count_vecs[True], count_vecs[False]))
+                        diff_norm = sum(abs(x-y) for (x,y) in zip(count_vecs[True], count_vecs[False]))
                     none_count = sym_counts[None, True] + sym_counts[None, False]
                     total_count = sum(sym_counts.values())
                     sym_ratio = (total_count - none_count)/total_count
-                    scores[rule, nbr_nvec] = (sym_ratio * diff_norm * rule_scores[rule], sym_ratio * rule_scores[rule])
+
+                    if ordering == "adaptive_topology":
+                        top = self.sft.topology
+                    else:
+                        top = ordering[1]
+                    dist_from_source = 0
+                    seen = set([((0,)*self.sft.dim, rule[0]), rule[2]])
+                    frontier = set(seen)
+                    while True:
+                        if nbr_nvec in frontier:
+                            break
+                        new_frontier = set()
+                        for (vec, node) in frontier:
+                            for (_, edge_vec, from_node, to_node) in top:
+                                if from_node == node:
+                                    new_nvec = (vadd(vec, edge_vec), to_node)
+                                    if new_nvec not in seen:
+                                        seen.add(new_nvec)
+                                        new_frontier.add(new_nvec)
+                        frontier = new_frontier
+                        dist_from_source += 1
+                    
+                    scores[rule, nbr_nvec] = (sym_ratio * diff_norm * rule_scores[rule], rule_scores[rule], -dist_from_source, sym_ratio)
                     #for away in [True, False]:
                     #    none_count += sym_counts[None, away]
                     #    del sym_counts[None, away]
