@@ -790,7 +790,7 @@ def collect_unbound_vars_valexpr(expr, bound=None):
     if isinstance(expr, str):
         # a plain variable
         possibles.add(expr)
-    elif expr[0] == "ADDRESS":
+    elif expr[0] == "ADDR":
         # an addressing construct: the second item is a string
         possibles.add(expr[1])
     elif expr[0] == "SWITCH":
