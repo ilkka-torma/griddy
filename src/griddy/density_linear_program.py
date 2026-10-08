@@ -18,15 +18,18 @@ import multiprocessing as mp
 
 
 TOLERANCE = 1e-6
-DENOMINATORS = [100, 150, 200, 350, 500, 750,
-                1000, 1500, 2000, 3500, 5000, 7500,
-                10000, 15000, 20000, 35000, 50000, 75000,
-                100000, 150000, 200000, 350000, 500000, 750000,
-                1000000, 1500000, 2000000, 3500000, 5000000, 7500000,
-                10000000, 15000000, 20000000, 35000000, 50000000, 75000000,
-                100000000, 150000000, 200000000, 350000000, 500000000, 750000000,
-                1000000000, 1500000000, 2000000000, 3500000000, 5000000000, 7500000000,
-                10000000000, 15000000000, 20000000000, 35000000000, 50000000000, 75000000000][::-1]
+#DENOMINATORS = [100, 150, 200, 350, 500, 750,
+#                1000, 1500, 2000, 3500, 5000, 7500,
+#                10000, 15000, 20000, 35000, 50000, 75000,
+#                100000, 150000, 200000, 350000, 500000, 750000,
+#                1000000, 1500000, 2000000, 3500000, 5000000, 7500000,
+#                10000000, 15000000, 20000000, 35000000, 50000000, 75000000,
+#                100000000, 150000000, 200000000, 350000000, 500000000, 750000000,
+#                1000000000, 1500000000, 2000000000, 3500000000, 5000000000, 7500000000,
+#                10000000000, 15000000000, 20000000000, 35000000000, 50000000000, 75000000000][::-1]
+DENOMINATORS = [(a * 10**b)//2
+                for b in range(2, 13)
+                for a in range(1, 20)][::-1]
 #DENOMINATORS = list(reversed(range(1000, 100000000, 1000)))
 
 # A dict of solvers, type str -> ((solver, args), None | (solver, args))
@@ -341,6 +344,10 @@ class DischargingRefiner:
             if verbose:
                 print("Reached known upper bound")
             return (True, None)
+        if self.disc_arg.bound > self.known_ub:
+            if verbose:
+                print("Exceeded known upper bound; something is wrong")
+            return (False, None)
         if reduce_exacts or increase_exacts:
             if verbose:
                 print("Attempting to {} number of exact patterns".format("reduce" if reduce_exacts else "increase"))
@@ -584,7 +591,7 @@ class DischargingArgument:
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
-        with open(filename.replace('#', str(self.save_rules_counter))+".output", 'w') as f:
+        with open(filename.replace('$', str(self.save_rules_counter))+".output", 'w') as f:
             if type(self.bound) == float:
                 f.write(str(self.bound)+'\n')
             else:
@@ -639,7 +646,7 @@ class DischargingArgument:
 
     def save_constraints(self, filename):
         "Save bigdomain and constraint patterns to a file."
-        with open(filename.replace('#', str(self.save_constr_counter)) + '.output', 'w') as f:
+        with open(filename.replace('$', str(self.save_constr_counter)) + '.output', 'w') as f:
             f.write("#bigdomain\n")
             for p in self.bigdomain.items():
                 f.write(str(p)+"\n")
@@ -647,8 +654,8 @@ class DischargingArgument:
             for (node, pats) in self.bigpats.items():
                 f.write("#node\n")
                 f.write(str(node)+"\n")
-                for pat in pats:
-                    f.write(str(dict(pat))+"\n")
+                for (pat, exact) in pats.items():
+                    f.write(str((dict(pat), exact))+"\n")
             f.write("#end")
         self.save_constr_counter += 1
 
@@ -672,9 +679,10 @@ class DischargingArgument:
                     break
                 elif line.strip() == "#node":
                     node = ast.literal_eval(f.readline())
-                    self.bigpats[node] = []
+                    self.bigpats[node] = dict()
                 else:
-                    self.bigpats[node].append(ast.literal_eval(line))
+                    pat, exact = ast.literal_eval(line)
+                    self.bigpats[node][fd.frozendict(pat)] = exact
 
     def bigdomain_from_spec(self, node):
         "Compute bigdomain of node from spec."
