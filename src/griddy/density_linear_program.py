@@ -211,7 +211,7 @@ class DischargingSimplifier:
     def is_finished(self):
         return self.status == SimplifierState.FINISHED
 
-    def step(self, verbose=False, print_freq=10000):
+    def step(self, verbose=False, print_freq=10000, extra_threads=0):
         "Apply a single simplifier step/transition."
         self.history.append((self.status, self.disc_arg.trans_rules, self.disc_arg.score))
         if verbose:
@@ -223,7 +223,7 @@ class DischargingSimplifier:
             if verbose:
                 print("Splitting rules")
             if self.simp_mode == "minimize":
-                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=True)
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, max_larges=self.max_split, num_split=self.num_split, minimize_all=self.minimize_all, sort_pats=True, extra_threads=extra_threads)
                 if self.trim_mode is not None:
                     self.status = SimplifierState.TRIM_PHASE1
                 elif self.disc_arg.score >= self.history[-1][2]:
@@ -234,7 +234,7 @@ class DischargingSimplifier:
                         print("Entering phase 2")
                 
             elif self.simp_mode == "recompute":
-                res = disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, split=True, num_split=self.num_split, max_split=self.max_split)
+                res = disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, split=True, num_split=self.num_split, max_split=self.max_split, extra_threads=extra_threads)
                 if not res:
                     self.status = SimplifierState.SIMPLIFY_PHASE2
                     if verbose:
@@ -246,7 +246,7 @@ class DischargingSimplifier:
             if verbose:
                 print("Trimming rules")
             if self.trim_mode in ["minimize", None]:
-                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split, minimize_all=self.minimize_all)
+                self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, num_split=0, max_larges=self.max_split, minimize_all=self.minimize_all, extra_threads=extra_threads)
             elif self.trim_mode == "recompute":
                 self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, max_rounds="until_fail")
             if len(self.history) >= 2 and self.disc_arg.score >= self.history[-2][2]:
@@ -261,7 +261,7 @@ class DischargingSimplifier:
         elif self.status == SimplifierState.SIMPLIFY_PHASE2:
             if verbose:
                 print("Splitting rules")
-            self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, minimize_all=True, sort_pats=True)
+            self.disc_arg.recompute_with_holes(self.solver_str, verbose=verbose, print_freq=print_freq, minimize_all=True, sort_pats=True, extra_threads=extra_threads)
             if self.disc_arg.score >= self.history[-1][2]:
                 self.status = SimplifierState.TRIM_FINAL
 
@@ -288,11 +288,18 @@ class DischargingRefiner:
     def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None, reduce_exacts=False, increase_exacts=False):
         "Return a boolean for success"
         assert not (reduce_exacts and increase_exacts)
-        rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
-        if not rat_ok:
+        while True:
+            if self.old_bound is None or self.disc_arg.bound >= self.old_bound - TOLERANCE:
+                rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
+                if rat_ok:
+                    break
             if verbose:
-                print("Refining failed: could not rationalize")
-            return (False, None)
+                print("Recomputing bound...")
+            # shuffle surroundings, in case that helps
+            if self.disc_arg.saved_surroundings is not None:
+                for node in self.disc_arg.relevant_sym_nodes:
+                    random.shuffle(self.disc_arg.saved_surroundings[node])
+            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=self.old_bound, threads=1+extra_threads)
         if self.old_bound is not None and self.disc_arg.bound < self.old_bound:
             if verbose:
                 print("Refining failed: bound decreased due to numerical errors")
@@ -344,7 +351,7 @@ class DischargingRefiner:
             if verbose:
                 print("Reached known upper bound")
             return (True, None)
-        if self.disc_arg.bound > self.known_ub:
+        if self.known_ub is not None and self.disc_arg.bound > self.known_ub:
             if verbose:
                 print("Exceeded known upper bound; something is wrong")
             return (False, None)
@@ -1989,7 +1996,7 @@ class DischargingArgument:
                 self.trans_rules[source][fr_pat] = dict()
             self.trans_rules[source][fr_pat][nvec] = var.varValue
     
-    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False, sort_pats=True):
+    def recompute_with_holes(self, solver_str, verbose=False, print_freq=5000, max_larges=None, num_split=None, ordered_split=False, minimize_all=False, sort_pats=True, extra_threads=0):
         "Recompute the argument using patterns with one node removed, minimizing contributions of large patterns."
         # an upper bound on the total share send by large patterns, which we minimize
         if self.bound is None:
@@ -2101,7 +2108,7 @@ class DischargingArgument:
         # list all legal combinations of patterns around origin
         i = 0
         for node in self.relevant_sym_nodes:
-            for (orig_val, surr, _, _) in self.surroundings(node, rules=[p[:3] for p in send if p[3] != False]):
+            for (orig_val, surr, _, _) in self.surroundings(node, rules=[p[:3] for p in send if p[3] != False], threads=1+extra_threads):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away, _) in surr:

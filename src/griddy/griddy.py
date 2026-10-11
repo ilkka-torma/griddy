@@ -889,7 +889,7 @@ class Griddy:
                         print("Simplifying rules")
                     simplifier = density_linear_program.DischargingSimplifier(disc_arg, solver, simp_mode=simp_mode, trim_mode=trim_mode, max_split=max_split, num_split=num_split, minimize_all=minimize_all, trim_initial=trim_rules or trim_initial)
                     while not simplifier.is_finished():
-                        simplifier.step(verbose=verb, print_freq=print_freq)
+                        simplifier.step(verbose=verb, print_freq=print_freq, extra_threads=extra_threads)
                         if rationalize_intermediates:
                             disc_arg.try_rationalize(verbose=verb)
                         if save_rules is not None:
