@@ -284,10 +284,13 @@ class DischargingRefiner:
         self.known_ub = known_ub
         self.known_lb = known_lb
         self.old_bound = None
+        self.old_exact_count = None
+        self.extended_last = False
 
     def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None, reduce_exacts=False, increase_exacts=False):
         "Return a boolean for success"
         assert not (reduce_exacts and increase_exacts)
+        old_exact_count = self.disc_arg.exact_count
         while True:
             if self.old_bound is None or self.disc_arg.bound >= self.old_bound - TOLERANCE:
                 rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
@@ -443,35 +446,48 @@ class DischargingRefiner:
                     return (True, conf)
                 else:
                     return (True, None)
+        if self.disc_arg.bound == self.old_bound and\
+           self.disc_arg.exact_count == old_exact_count and\
+           not self.last_extended:
+            if verbose:
+                print("Extending rules")
+            extendables = []
+            # choose from each sym_node separately
+            for node in self.disc_arg.relevant_sym_nodes:
+                extendables.append({rule : count
+                                    for (rule, count) in self.disc_arg.occurrences_in_exact[node].items()
+                                    if count})
+            if False:#random.random() < 0.1:
+                print("added random lol")
+                extendables.add(random.choice([rule
+                                               for node in self.disc_arg.relevant_sym_nodes
+                                               for rule in self.disc_arg.occurrences_in_exact[node]]))
+            # pool all sym_nodes together
+            #extendables.update([rule
+            #                    for (rule, _) in
+            #                    sorted([pair
+            #                            for node in self.disc_arg.sym_nodes
+            #                            for pair in self.disc_arg.occurrences_in_exact[node].items()],
+            #                           key=lambda p: -p[1])][:self.num_extend])
+            #print("ext")
+            #for rule in extendables:
+            #    print(" ", rule)
+            self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order, verbose=verbose)
+            self.last_extended = True
+            #self.disc_arg.saved_surroundings = None
+        elif self.disc_arg.saved_surroundings is not None:
+            #print("shuffling")
+            self.last_extended = False
+            #for node in self.disc_arg.relevant_sym_nodes:
+            #    random.shuffle(self.disc_arg.saved_surroundings[node])
+        #print("saved surrs", self.disc_arg.saved_surroundings)
+        self.disc_arg.saved_surroundings = None
         self.old_bound = self.disc_arg.bound
-        if verbose:
-            print("Extending rules")
-        extendables = []
-        # choose from each sym_node separately
-        for node in self.disc_arg.relevant_sym_nodes:
-            extendables.append({rule : count
-                                for (rule, count) in self.disc_arg.occurrences_in_exact[node].items()
-                                if count})
-        if False:#random.random() < 0.1:
-            print("added random lol")
-            extendables.add(random.choice([rule
-                                           for node in self.disc_arg.relevant_sym_nodes
-                                           for rule in self.disc_arg.occurrences_in_exact[node]]))
-        # pool all sym_nodes together
-        #extendables.update([rule
-        #                    for (rule, _) in
-        #                    sorted([pair
-        #                            for node in self.disc_arg.sym_nodes
-        #                            for pair in self.disc_arg.occurrences_in_exact[node].items()],
-        #                           key=lambda p: -p[1])][:self.num_extend])
-        #print("ext")
-        #for rule in extendables:
-        #    print(" ", rule)
-        self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order, verbose=verbose)
         old_bound = self.disc_arg.bound
         # set of neighborhoods for adaptive topology
         if (extension_order == "adaptive_topology" or\
             (type(extension_order) == list and extension_order[0] == "adaptive_topology")):
+            #print("readying nhoods")
             if extension_order == "adaptive_topology":
                 top = self.disc_arg.sft.topology
             else:
@@ -494,17 +510,15 @@ class DischargingRefiner:
         else:
             nhoods = None
                         
-        self.disc_arg.saved_surroundings = None
         while True:
             self.disc_arg.bound = None
             # we pass the neighborhoods here in order to save the results into the surroundings
-            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods)
+            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=not self.last_extended)
             if self.disc_arg.bound >= old_bound - TOLERANCE:
                 break
             else:
                 if verbose:
                     print("Bound decreased, retrying")
-                    1/0
                 # shuffle surroundings, in case that helps
                 if self.disc_arg.saved_surroundings is not None:
                     for node in self.disc_arg.relevant_sym_nodes:
@@ -595,6 +609,7 @@ class DischargingArgument:
         self.occurrences_in_exact = None
         self.node_occurrences_in_exact = None
         self.nbrs_in_exact = None
+        self.exact_count = None
 
     def save_transfer_rules(self, filename):
         "Save transfer rules and bound to a file."
@@ -727,6 +742,8 @@ class DischargingArgument:
                     self.saved_surroundings[node] = []
                 for surr in self._surroundings(node, bigpat, rules, verbose, only_exacts, threads):
                     self.saved_surroundings[node].append(surr)
+                if shuffle:
+                    random.shuffle(self.saved_surroundings[node])
                 return self.saved_surroundings[node]
             else:
                 return self._surroundings(node, bigpat, rules, verbose, only_exacts, threads)
@@ -751,10 +768,10 @@ class DischargingArgument:
                 #print(self.bigdomain[node])
             # only compute one pattern from each symmetry orbit
             if rules is None:
-                bigpats = ((fd.frozendict(pat), False)
+                bigpats = ((fd.frozendict(pat), True)
                            for pat in self.sft.all_patterns(self.bigdomain[node], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node]))
             else:
-                bigpats = ((fd.frozendict(pat), False)
+                bigpats = ((fd.frozendict(pat), True)
                            for pat in self.sft.all_patterns([((0,)*self.sft.dim, node)], extra_rad=self.radius, mod_symmetries=self.sym_nodes[node]))
             self.bigpats[node] = dict()
         else:
@@ -959,10 +976,11 @@ class DischargingArgument:
         return ret
             
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False):
         "Check that the argument is valid, and optionally do lots of other stuff."
         #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods)
         bigpat_given = bigpat is not None
+        exact_count = 0
         if self.bound is None:
             if give_reason:
                 return True, "uninitialized"
@@ -985,6 +1003,7 @@ class DischargingArgument:
                                              for rule in rules}
                                      for node in self.relevant_sym_nodes}
         occurs_in_any = set()
+        exact_exists = False
         for node in self.relevant_sym_nodes:
             excess_pats[node] = set()
             exact_pats[node] = set()
@@ -1021,7 +1040,7 @@ class DischargingArgument:
                     # reduce float inaccuracies but possibly introduce false positives
                     summa += TOLERANCE
                 fpat = fd.frozendict(the_bigpat)
-                #print("fpat", fpat)
+                #print("fpat", fpat, "summa", summa, "was exact", was_exact)
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
                     is_exact = summa + self.weights[orig_val] <= self.bound + (TOLERANCE if type(summa) == float else 0)
@@ -1071,6 +1090,9 @@ class DischargingArgument:
                 for rule in occurring_rules:
                     occurs_in_any.add(rule)
                 if is_exact:
+                    #print("is exact")
+                    exact_count += 1
+                    exact_exists = True
                     if simplify_excess:
                         insert_pat(self.sft.alph, exact_pats[node], fpat)
                     else:
@@ -1091,6 +1113,14 @@ class DischargingArgument:
                     else:
                         excess_pats[node].add(fpat)
                 i += 1
+
+        if require_exact and not exact_exists:
+            if give_reason:
+                return (False, "no exacts")
+            else:
+                return False
+
+        self.exact_count = exact_count
 
         if remove_unused:
             #print("oia", occurs_in_any)
@@ -1279,7 +1309,7 @@ class DischargingArgument:
                               for (nvec, num) in nvecs.items()}
                              for (fpat, nvecs) in rules.items()}
                             for (node, rules) in self.trans_rules.items()}
-        valid = self.is_valid()#give_reason=True)
+        valid = self.is_valid(require_exact=True)#give_reason=True)
         if valid:
             return True
         elif not attempt_fix:
@@ -1680,7 +1710,7 @@ class DischargingArgument:
         # bigpats are updated during the next surroundings() call
                 
 
-    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None, save_surrs=False, threads=1, nhoods=None, only_exacts=False):
+    def compute_bound(self, solver_str, verbose=False, print_freq=5000, save_constr=None, load_constr=None, split=False, max_split=None, num_split=None, ordered_split=False, keep_zero_rules=False, known_bound=None, save_surrs=False, threads=1, nhoods=None, only_exacts=False, shuffle_surrs=False):
         "Compute the best lower bound for the specs and the associated charge transfer rules."
         # this is how large density can be made, i.e. what we want to compute
         density = pulp.LpVariable("epsilon",
@@ -1786,7 +1816,7 @@ class DischargingArgument:
         for node in self.relevant_sym_nodes:
             #for (orig_val, surr) in self.surroundings(node, rules=None if self.bound is None else list(send), verbose=verbose):
             #print("send", list(send))
-            for (orig_val, surr, _, _) in self.surroundings(node, rules=rules, verbose=verbose, threads=threads, only_exacts=only_exacts):
+            for (orig_val, surr, _, _) in self.surroundings(node, rules=rules, verbose=verbose, threads=threads, only_exacts=only_exacts, shuffle=shuffle_surrs):
                 # for each legal combo, sum the contributions from each -v
                 summa = 0
                 for (source, pat, nvec, away, _) in surr:
