@@ -271,133 +271,51 @@ class DischargingSimplifier:
             self.disc_arg.minimize_rule_count(self.solver_str, verbose=verbose, print_freq=print_freq, sort_rules=True)
             self.status = SimplifierState.FINISHED
 
+class RefinerState(Enum):
+    JUST_INCREASED = 0
+    UNCHECKED = 1
+    CHECK_NOW = 2
+    EXTENDED = 3
+    NOT_EXTENDED = 4
 
 class DischargingRefiner:
     "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
 
     def __init__(self, disc_arg, solver_str, num_extend, known_ub=None, known_lb=None):
-        # disc_arg should have compute_bound() executed but nothing else
+        # disc_arg should have compute_bound() executed and rationalized
         self.disc_arg = disc_arg
         self.sft = disc_arg.sft
         self.solver_str = solver_str
         self.num_extend = num_extend
         self.known_ub = known_ub
         self.known_lb = known_lb
-        self.old_bound = None
-        self.old_exact_count = None
+        #self.old_bound = None
         self.extended_last = False
+        self.state = RefinerState.JUST_INCREASED
 
     def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None, reduce_exacts=False, increase_exacts=False):
         "Return a boolean for success"
         assert not (reduce_exacts and increase_exacts)
-        old_exact_count = self.disc_arg.exact_count
-        while True:
-            if self.old_bound is None or self.disc_arg.bound >= self.old_bound - TOLERANCE:
-                rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
-                if rat_ok:
-                    break
-            if verbose:
-                print("Recomputing bound...")
-            # shuffle surroundings, in case that helps
-            if self.disc_arg.saved_surroundings is not None:
-                for node in self.disc_arg.relevant_sym_nodes:
-                    random.shuffle(self.disc_arg.saved_surroundings[node])
-            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=self.old_bound, threads=1+extra_threads)
-        if self.old_bound is not None and self.disc_arg.bound < self.old_bound:
-            if verbose:
-                print("Refining failed: bound decreased due to numerical errors")
-            return (False, None)
-        if False and self.old_bound is not None and self.disc_arg.bound > self.old_bound:
-            if verbose:
-                print("Bound will increase; computing actual new bound")
-            # bound increased -> recompute with all constraints
-            self.disc_arg.saved_surroundings = None
-            if (extension_order == "adaptive_topology" or\
-                (type(extension_order) == tuple and extension_order[0] == "adaptive_topology")):
-                if extension_order == "adaptive_topology":
-                    top = self.sft.topology
-                else:
-                    top = extension_order[1]
-                nhoods = dict()
-                for (source, node_rules) in self.disc_arg.trans_rules.items():
-                    for (fpat, nvecs) in node_rules.items():
-                        for nvec in nvecs:
-                            border = set()
-                            for (vec, node) in fpat:
-                                for (_, edge_vec, from_node, to_node) in top:
-                                    if from_node == node:
-                                        new_nvec = (vadd(vec, edge_vec), to_node)
-                                        if new_nvec not in fpat:
-                                            border.add(new_nvec)
-                            nhoods[source, fpat, nvec] = border
-            else:
-                nhoods = None
-            while True:
-                self.disc_arg.bound = None
-                # we pass the neighborhoods here in order to save the results into the surroundings
-                self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=self.old_bound, threads=1+extra_threads, nhoods=nhoods)
-                if self.disc_arg.bound >= self.old_bound - TOLERANCE:
-                    break
-                else:
-                    if verbose:
-                        print("Bound decreased, retrying...")
-                    # shuffle surroundings, in case that helps
-                    if self.disc_arg.saved_surroundings is not None:
-                        for node in self.disc_arg.relevant_sym_nodes:
-                            random.shuffle(self.disc_arg.saved_surroundings[node])
-            rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
-            if not rat_ok:
-                if verbose:
-                    print("Refining failed: could not rationalize")
-                return (False, None)
-        if self.disc_arg.bound == self.known_ub and not ret_opt_conf:
-            if verbose:
-                print("Reached known upper bound")
-            return (True, None)
-        if self.known_ub is not None and self.disc_arg.bound > self.known_ub:
-            if verbose:
-                print("Exceeded known upper bound; something is wrong")
-            return (False, None)
-        if reduce_exacts or increase_exacts:
-            if verbose:
-                print("Attempting to {} number of exact patterns".format("reduce" if reduce_exacts else "increase"))
-            old_num_exacts = None
-            while True:
-                valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True)
-                if not valid:
-                    if verbose:
-                        print("Refining failed: invalid")
-                    return (False, None)
-                #print("valid", valid, "ex data", ex_data)
-                excess_gap = ex_data[2]
-                exact_pats = ex_data[3]
-                num_exacts = sum(len(pats) for pats in exact_pats.values())
-                if old_num_exacts is not None and (num_exacts >= old_num_exacts if reduce_exacts else num_exacts <= old_num_exacts):
-                    break
-                old_num_exacts = num_exacts
-                if reduce_exacts:
-                    self.disc_arg.reduce_exacts(self.solver_str, ex_data[2], ex_data[3], verbose=verbose, print_freq=print_freq)
-                else:
-                    self.disc_arg.increase_exacts(self.solver_str, ex_data[2], ex_data[3], verbose=verbose, print_freq=print_freq)
-                rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
-                if not rat_ok:
-                    if verbose:
-                        print("Refining failed: could not rationalize")
-                    return (False, None)
-        get_excess = (self.old_bound is None or self.old_bound < self.disc_arg.bound) and\
-            (self.known_lb is None or self.known_lb <= self.disc_arg.bound)
-        same_bound = self.disc_arg.bound == self.old_bound
-        update_nhoods = self.old_bound is not None and (extension_order == "adaptive_topology" or (type(extension_order) == list and extension_order[0] == "adaptive_topology"))
-        if get_excess:
-            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True, give_reason=True, remove_unused=self.old_bound is not None, restrict_exacts=same_bound, update_nhoods=update_nhoods)
+        old_bound = self.disc_arg.bound
+        #same_bound = self.disc_arg.bound == self.old_bound
+        just_inc = self.state == RefinerState.JUST_INCREASED
+        if just_inc:
+            old_exact_count = sum(len(x) for x in self.disc_arg.bigpats.values())
         else:
-            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=self.old_bound is not None, restrict_exacts=same_bound, update_nhoods=update_nhoods) # just to compute excess counts
+            old_exact_count = self.disc_arg.exact_count
+        #print("BEGIN STEP", self.state, old_bound, old_exact_count)
+        #print("same bound", same_bound)
+        update_nhoods = extension_order == "adaptive_topology" or (type(extension_order) == list and extension_order[0] == "adaptive_topology")
+        if self.state == RefinerState.CHECK_NOW:
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True)
+        else:
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True) # just to compute excess counts
         if not valid:
             if verbose:
                 print("Refining failed: invalid")
                 #print(valid, ex_data)
             return (False, None)
-        if get_excess:
+        if self.state == RefinerState.CHECK_NOW:
             #print("ex data", ex_data)
             if verbose:
                 print("Excess gap", ex_data[2])
@@ -446,9 +364,8 @@ class DischargingRefiner:
                     return (True, conf)
                 else:
                     return (True, None)
-        if self.disc_arg.bound == self.old_bound and\
-           self.disc_arg.exact_count == old_exact_count and\
-           not self.last_extended:
+        if self.state == RefinerState.NOT_EXTENDED and\
+           self.disc_arg.exact_count == old_exact_count:
             if verbose:
                 print("Extending rules")
             extendables = []
@@ -457,30 +374,11 @@ class DischargingRefiner:
                 extendables.append({rule : count
                                     for (rule, count) in self.disc_arg.occurrences_in_exact[node].items()
                                     if count})
-            if False:#random.random() < 0.1:
-                print("added random lol")
-                extendables.add(random.choice([rule
-                                               for node in self.disc_arg.relevant_sym_nodes
-                                               for rule in self.disc_arg.occurrences_in_exact[node]]))
-            # pool all sym_nodes together
-            #extendables.update([rule
-            #                    for (rule, _) in
-            #                    sorted([pair
-            #                            for node in self.disc_arg.sym_nodes
-            #                            for pair in self.disc_arg.occurrences_in_exact[node].items()],
-            #                           key=lambda p: -p[1])][:self.num_extend])
-            #print("ext")
-            #for rule in extendables:
-            #    print(" ", rule)
             self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order, verbose=verbose)
-            self.last_extended = True
+            extended = True
             #self.disc_arg.saved_surroundings = None
         elif self.disc_arg.saved_surroundings is not None:
-            #print("shuffling")
-            self.last_extended = False
-            #for node in self.disc_arg.relevant_sym_nodes:
-            #    random.shuffle(self.disc_arg.saved_surroundings[node])
-        #print("saved surrs", self.disc_arg.saved_surroundings)
+            extended = False
         self.disc_arg.saved_surroundings = None
         self.old_bound = self.disc_arg.bound
         old_bound = self.disc_arg.bound
@@ -509,20 +407,45 @@ class DischargingRefiner:
                       for (key, border) in nhoods.items()}
         else:
             nhoods = None
-                        
+
+        shuffle = False
         while True:
             self.disc_arg.bound = None
             # we pass the neighborhoods here in order to save the results into the surroundings
-            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=not self.last_extended)
-            if self.disc_arg.bound >= old_bound - TOLERANCE:
+            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
+            nhoods = False
+            shuffle = True
+            rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
+            if not rat_ok:
+                continue
+            if self.disc_arg.bound >= old_bound:
                 break
             else:
                 if verbose:
                     print("Bound decreased, retrying")
-                # shuffle surroundings, in case that helps
-                if self.disc_arg.saved_surroundings is not None:
-                    for node in self.disc_arg.relevant_sym_nodes:
-                        random.shuffle(self.disc_arg.saved_surroundings[node])
+        # check solution
+        if self.disc_arg.bound == self.known_ub and not ret_opt_conf:
+            if verbose:
+                print("Reached known upper bound")
+            return (True, None)
+        if self.known_ub is not None and self.disc_arg.bound > self.known_ub:
+            if verbose:
+                print("Exceeded known upper bound; something is wrong")
+            return (False, None)
+        # pick new state
+        #print("pick state", self.state, self.disc_arg.bound, old_bound, self.disc_arg.exact_count, old_exact_count)
+        if self.disc_arg.bound > old_bound:
+            self.state = RefinerState.JUST_INCREASED
+        elif self.state in [RefinerState.UNCHECKED, RefinerState.JUST_INCREASED]:
+            if self.disc_arg.exact_count == old_exact_count:
+                self.state = RefinerState.CHECK_NOW
+            else:
+                self.state = RefinerState.UNCHECKED
+        elif extended:
+            self.state = RefinerState.EXTENDED
+        else:
+            self.state = RefinerState.NOT_EXTENDED
+            
         return (None, None)
             
 class DischargingArgument:
@@ -976,7 +899,7 @@ class DischargingArgument:
         return ret
             
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False, update_exact_count=False):
         "Check that the argument is valid, and optionally do lots of other stuff."
         #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods)
         bigpat_given = bigpat is not None
@@ -1040,7 +963,8 @@ class DischargingArgument:
                     # reduce float inaccuracies but possibly introduce false positives
                     summa += TOLERANCE
                 fpat = fd.frozendict(the_bigpat)
-                #print("fpat", fpat, "summa", summa, "was exact", was_exact)
+                #if was_exact:
+                #    print("fpat", fpat, "val", summa + self.weights[orig_val], "was exact", was_exact)
                 if node in self.relevant_nodes:
                     good = summa + self.weights[orig_val] >= self.bound
                     is_exact = summa + self.weights[orig_val] <= self.bound + (TOLERANCE if type(summa) == float else 0)
@@ -1048,13 +972,13 @@ class DischargingArgument:
                     #    print("is exact", dict(fpat))
                     #    if restrict_exacts:
                     #        print("was exact", was_exact)
-                    if restrict_exacts:
-                        is_exact = is_exact and was_exact
                     if not is_exact:
                         if excess_gap is None:
                             excess_gap = summa + self.weights[orig_val] - self.bound
                         else:
                             excess_gap = min(summa + self.weights[orig_val] - self.bound, excess_gap)
+                    if restrict_exacts:
+                        is_exact = is_exact and was_exact
                 else:
                     good = summa >= 0
                     is_exact = summa <= (TOLERANCE if type(summa) == float else 0)
@@ -1120,7 +1044,9 @@ class DischargingArgument:
             else:
                 return False
 
-        self.exact_count = exact_count
+        #print("exact count", exact_count)
+        if update_exact_count:
+            self.exact_count = exact_count
 
         if remove_unused:
             #print("oia", occurs_in_any)

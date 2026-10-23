@@ -837,6 +837,11 @@ class Griddy:
                     disc_arg.update_specs()
                     
                 if refine:
+                    disc_arg.save_surrs = True
+                    rat_ok = disc_arg.try_rationalize(verbose=verb)
+                    if not rat_ok:
+                        disc_arg.save_surrs = False
+                if refine and rat_ok:
                     refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine, known_ub=known_ub, known_lb=known_lb)
                     if load_rules is None and save_rules is not None:
                         if verb:
@@ -850,8 +855,6 @@ class Griddy:
                         disc_arg.save_constraints(save_constr)
                         if verb:
                             print(" done")
-                    
-                    disc_arg.save_surrs = True
                     #if extension_order == "adaptive_topology":
                     #    disc_arg.setup_adative_topology()
                     while True:
