@@ -89,6 +89,8 @@ def gcd_bezout(nums):
         
 def normalize_periods(pmat):
     "Put a period matrix in a 'row echelon form' of sorts"
+    if not pmat:
+        return pmat
     dim = len(pmat[0])
     pmat = [list(p) for p in pmat]
     for i in range(dim-1):

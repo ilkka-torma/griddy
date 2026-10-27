@@ -55,7 +55,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "set_weights" cmd_opts dict_of{node_name, fraction} cmd_opts -> cmd_set_weights_default
        | "set_weights" cmd_opts dict_pair_of{node_name, fraction} (cmd_opts dict_pair_of{node_name, fraction})* cmd_opts -> cmd_set_weights_open
        | "minimum_density" cmd_opts STRICT_LABEL cmd_opts list_of{vector} cmd_opts -> cmd_min_density_default
-       | "minimum_density" cmd_opts STRICT_LABEL cmd_opts vector (cmd_opts vector)* cmd_opts -> cmd_min_density_open
+       | "minimum_density" cmd_opts STRICT_LABEL (cmd_opts vector)* cmd_opts -> cmd_min_density_open
        | "density_lower_bound" cmd_dlb_opts STRICT_LABEL (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ (cmd_dlb_opts vector)* cmd_dlb_opts ";"? -> cmd_density_bound_single
        | "density_lower_bound" cmd_dlb_opts STRICT_LABEL cmd_dlb_opts ";"? (node_name? ";"? (cmd_dlb_opts vector)+ cmd_dlb_opts /;/ ((cmd_dlb_opts vector)+ cmd_dlb_opts ";"? | cmd_dlb_opts /;/))+ -> cmd_density_bound_multi
        | "empty" cmd_opts STRICT_LABEL cmd_opts -> cmd_empty
