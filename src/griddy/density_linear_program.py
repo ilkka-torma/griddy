@@ -413,7 +413,7 @@ class DischargingRefiner:
             self.disc_arg.bound = None
             # we pass the neighborhoods here in order to save the results into the surroundings
             self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
-            nhoods = False
+            #nhoods = False
             shuffle = True
             rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
             if not rat_ok:
@@ -647,29 +647,38 @@ class DischargingArgument:
                                          for nvec in aut_domain)
         return bigdomain
 
+
     # enumerate combined locally correct patterns that affect origin
     # this yields quadruples (origin_symbol, surr, bigpat, was_exact)
     # surr is a list of quadruples (source_node, subpattern, tr_nvec, is_away, nhood_pat)
     # the subpattern and nhood_pat have been moved back to standard position
     # so that (source_node, subpattern, tr_nvec) is in the transition rules
-    def surroundings(self, node, bigpat=None, rules=None, verbose=False, shuffle=False, threads=1, only_exacts=False):
+    def surroundings(self, node, bigpat=None, rules=None, verbose=False, shuffle=False, threads=1, only_exacts=False, update_exacts=False):
+        if self.save_surrs:
+            if self.saved_surroundings is None:
+                self.saved_surroundings = dict()
+            if node not in self.saved_surroundings:
+                self.saved_surroundings[node] = []
+                for surr in self._surroundings(node, bigpat, rules, verbose, only_exacts, threads):
+                    self.saved_surroundings[node].append(surr)
         if self.saved_surroundings is not None and node in self.saved_surroundings:
             if shuffle:
                 random.shuffle(self.saved_surroundings[node])
-            return self.saved_surroundings[node]
-        else:
-            if self.save_surrs:
-                if self.saved_surroundings is None:
-                    self.saved_surroundings = dict()
-                if node not in self.saved_surroundings:
-                    self.saved_surroundings[node] = []
-                for surr in self._surroundings(node, bigpat, rules, verbose, only_exacts, threads):
-                    self.saved_surroundings[node].append(surr)
-                if shuffle:
-                    random.shuffle(self.saved_surroundings[node])
-                return self.saved_surroundings[node]
+            #print("surrs", len(self.saved_surroundings[node]))
+            if update_exacts:
+                for i in range(len(self.saved_surroundings[node])):
+                    the_surr = self.saved_surroundings[node][i]
+                    #print("yielding surr", i, hash(the_surr[2]))
+                    new_exact = yield the_surr
+                    assert new_exact is not None
+                    #print("received", new_exact)
+                    self.saved_surroundings[node][i] = the_surr[:3] + (new_exact,)
             else:
-                return self._surroundings(node, bigpat, rules, verbose, only_exacts, threads)
+                for surr in self.saved_surroundings[node]:
+                    yield surr
+        else:
+            for surr in self._surroundings(node, bigpat, rules, verbose, only_exacts, threads):
+                yield surr
 
     def _surroundings(self, node, bigpat, rules, verbose, only_exacts, threads):
         assert node in self.relevant_sym_nodes
@@ -901,7 +910,7 @@ class DischargingArgument:
 
     def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False, update_exact_count=False):
         "Check that the argument is valid, and optionally do lots of other stuff."
-        #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods)
+        #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods, "simplify_excess", simplify_excess)
         bigpat_given = bigpat is not None
         exact_count = 0
         if self.bound is None:
@@ -930,7 +939,19 @@ class DischargingArgument:
         for node in self.relevant_sym_nodes:
             excess_pats[node] = set()
             exact_pats[node] = set()
-            for (orig_val, surr, the_bigpat, was_exact) in self.surroundings(node, bigpat=bigpat, rules=rules, shuffle=shuffle):
+            iter_surr = self.surroundings(node, bigpat=bigpat, rules=rules, shuffle=shuffle, update_exacts=update_exact_count)
+            is_exact = None
+            while True:
+                #print("starting loop")
+                if not update_exact_count:
+                    is_exact = None
+                try:
+                    #print("getting surr")
+                    (orig_val, surr, the_bigpat, was_exact) = iter_surr.send(is_exact)
+                    #print("got surr", hash(the_bigpat))
+                except StopIteration:
+                    #print("ended")
+                    break
                 # for each legal combo, sum the contributions from each -v
                 if isinstance(self.bound, Fraction):
                     summa = Fraction(0)
@@ -986,13 +1007,13 @@ class DischargingArgument:
                     #    print("is exact", dict(fpat))
                     #    if restrict_exacts:
                     #        print("was exact", was_exact)
-                    if restrict_exacts:
-                        is_exact = is_exact and was_exact
                     if not is_exact:
                         if excess_gap is None:
                             excess_gap = summa
                         else:
                             excess_gap = min(summa, excess_gap)
+                    if restrict_exacts:
+                        is_exact = is_exact and was_exact
                 if not good:
                     if give_reason:
                         return False, (node, the_bigpat, orig_val,
@@ -1007,7 +1028,10 @@ class DischargingArgument:
                         return False, None
                     else:
                         return False
-                self.bigpats[node][the_bigpat] = is_exact
+                if update_exact_count:
+                    self.bigpats[node][the_bigpat] = is_exact
+                    #print("sending back", is_exact)
+                    #iter_surr.send(is_exact)
                 for nvec in the_bigpat:
                     if len(self.sft.alph[nvec[1]]) == 1:
                         fpat = fpat.delete(nvec)
@@ -1067,9 +1091,10 @@ class DischargingArgument:
             #print("ntr", self.trans_rules)
             
         if verbose:
-            print("Found {} exact and {} excess patterns".format(
+            print("Found {} exact and {} excess patterns {}".format(
                 sum(len(pats) for pats in exact_pats.values()),
-                sum(len(pats) for pats in excess_pats.values())
+                sum(len(pats) for pats in excess_pats.values()),
+                " (reduced)" if simplify_excess else ""
             ))
             for node in self.relevant_sym_nodes:
                 if exact_pats[node]:
