@@ -304,6 +304,7 @@ class DischargingRefiner:
         else:
             old_exact_count = self.disc_arg.exact_count
         #print("BEGIN STEP", self.state, old_bound, old_exact_count)
+        #print("nbrs in exact", self.disc_arg.nbrs_in_exact)
         #print("same bound", same_bound)
         update_nhoods = extension_order == "adaptive_topology" or (type(extension_order) == list and extension_order[0] == "adaptive_topology")
         if self.state == RefinerState.CHECK_NOW:
@@ -376,16 +377,15 @@ class DischargingRefiner:
                                     if count})
             self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order, verbose=verbose)
             extended = True
-            #self.disc_arg.saved_surroundings = None
-        elif self.disc_arg.saved_surroundings is not None:
+        else:
             extended = False
-        self.disc_arg.saved_surroundings = None
+        if self.state == RefinerState.JUST_INCREASED or extended:
+            self.disc_arg.saved_surroundings = None
         self.old_bound = self.disc_arg.bound
         old_bound = self.disc_arg.bound
         # set of neighborhoods for adaptive topology
         if (extension_order == "adaptive_topology" or\
             (type(extension_order) == list and extension_order[0] == "adaptive_topology")):
-            #print("readying nhoods")
             if extension_order == "adaptive_topology":
                 top = self.disc_arg.sft.topology
             else:
@@ -405,14 +405,18 @@ class DischargingRefiner:
             nhoods = {key : {nvec for nvec in border
                              if len(self.disc_arg.sft.alph[nvec[1]]) > 1}
                       for (key, border) in nhoods.items()}
+            #print("nhoods", nhoods)
         else:
+            #print("no nhoods")
             nhoods = None
 
         shuffle = False
         while True:
             self.disc_arg.bound = None
             # we pass the neighborhoods here in order to save the results into the surroundings
+            #print("saved surrs before", self.disc_arg.saved_surroundings)
             self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
+            #print("saved surrs after", self.disc_arg.saved_surroundings)
             #nhoods = False
             shuffle = True
             rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
@@ -969,6 +973,7 @@ class DischargingArgument:
                             summa += self.trans_rules[source][pat][nvec]
                         occurring_rules.add(the_rule)
                         if update_nhoods:
+                            #print("update nhood counts", the_rule, nhood)
                             for pair in nhood.items():
                                 #assert pair[0] not in pat
                                 if the_rule not in nhood_counts:
@@ -1048,13 +1053,14 @@ class DischargingArgument:
                     for rule in occurring_rules:
                         self.occurrences_in_exact[node][rule] += 1#2**(-len(fpat))
                         if update_nhoods:
+                            #print("updating nhood of occurring rule", rule)
                             for ((nbr_nvec, sym), count) in nhood_counts.get(rule, {}).items():
                                 assert nbr_nvec not in rule[1]
                                 try:
                                     self.nbrs_in_exact[node][rule][nbr_nvec, sym] += count
                                 except KeyError:
                                     self.nbrs_in_exact[node][rule][nbr_nvec, sym] = count
-                                    #print("adding first counts for rule", rule)
+                                #print("added counts")
                 else:
                     if simplify_excess:
                         insert_pat(self.sft.alph, excess_pats[node], fpat)
