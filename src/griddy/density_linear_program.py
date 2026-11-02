@@ -281,7 +281,7 @@ class RefinerState(Enum):
 class DischargingRefiner:
     "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
 
-    def __init__(self, disc_arg, solver_str, num_extend, known_ub=None, known_lb=None):
+    def __init__(self, disc_arg, solver_str, num_extend, stab_bound=4, known_ub=None, known_lb=None):
         # disc_arg should have compute_bound() executed and rationalized
         self.disc_arg = disc_arg
         self.sft = disc_arg.sft
@@ -292,6 +292,8 @@ class DischargingRefiner:
         #self.old_bound = None
         self.extended_last = False
         self.state = RefinerState.JUST_INCREASED
+        self.stab_bound = stab_bound
+        self.eq_steps = 0
 
     def step(self, verbose=False, print_freq=None, forb_radius=0, extra_threads=0, ret_opt_conf=True, extension_order=None, reduce_exacts=False, increase_exacts=False):
         "Return a boolean for success"
@@ -365,8 +367,15 @@ class DischargingRefiner:
                     return (True, conf)
                 else:
                     return (True, None)
-        if self.state == RefinerState.NOT_EXTENDED and\
-           self.disc_arg.exact_count == old_exact_count:
+
+        # update how many times we've had the same exact count
+        if self.disc_arg.exact_count == old_exact_count:
+            self.eq_steps += 1
+        else:
+            self.eq_steps = 0
+
+        # extend rules if count has stabilized
+        if self.state == RefinerState.NOT_EXTENDED and self.eq_steps >= self.stab_bound:
             if verbose:
                 print("Extending rules")
             extendables = []
@@ -377,6 +386,7 @@ class DischargingRefiner:
                                     if count})
             self.disc_arg.extend_rules(extendables, self.num_extend, remove_old=True, ordering=extension_order, verbose=verbose)
             extended = True
+            self.eq_steps = 0
         else:
             extended = False
         if self.state == RefinerState.JUST_INCREASED or extended:
@@ -448,7 +458,7 @@ class DischargingRefiner:
                                                             for surr in surrs]
                                                     for (node, surrs) in self.disc_arg.saved_surroundings.items()}
         elif self.state in [RefinerState.UNCHECKED, RefinerState.JUST_INCREASED]:
-            if self.disc_arg.exact_count == old_exact_count:
+            if self.eq_steps >= self.stab_bound:
                 self.state = RefinerState.CHECK_NOW
             else:
                 self.state = RefinerState.UNCHECKED
