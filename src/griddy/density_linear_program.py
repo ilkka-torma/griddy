@@ -439,7 +439,14 @@ class DischargingRefiner:
         # pick new state
         #print("pick state", self.state, self.disc_arg.bound, old_bound, self.disc_arg.exact_count, old_exact_count)
         if self.disc_arg.bound > old_bound:
-            self.state = RefinerState.JUST_INCREASED
+            if self.known_lb is None or self.disc_arg.bound >= self.known_lb:
+                self.state = RefinerState.JUST_INCREASED
+            else:
+                self.state = RefinerState.EXTENDED
+            if self.disc_arg.save_surrs:
+                self.disc_arg.saved_surroundings = {node : [surr[:-1] + (True,)
+                                                            for surr in surrs]
+                                                    for (node, surrs) in self.disc_arg.saved_surroundings.items()}
         elif self.state in [RefinerState.UNCHECKED, RefinerState.JUST_INCREASED]:
             if self.disc_arg.exact_count == old_exact_count:
                 self.state = RefinerState.CHECK_NOW
@@ -1097,7 +1104,7 @@ class DischargingArgument:
             #print("ntr", self.trans_rules)
             
         if verbose:
-            print("Found {} exact and {} excess patterns {}".format(
+            print("Found {} exact and {} excess patterns{}".format(
                 sum(len(pats) for pats in exact_pats.values()),
                 sum(len(pats) for pats in excess_pats.values()),
                 " (reduced)" if simplify_excess else ""
