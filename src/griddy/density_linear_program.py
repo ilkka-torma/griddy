@@ -281,7 +281,7 @@ class RefinerState(Enum):
 class DischargingRefiner:
     "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
 
-    def __init__(self, disc_arg, solver_str, num_extend, stab_bound=4, known_ub=None, known_lb=None):
+    def __init__(self, disc_arg, solver_str, num_extend, stab_bound=1, known_ub=None, known_lb=None):
         # disc_arg should have compute_bound() executed and rationalized
         self.disc_arg = disc_arg
         self.sft = disc_arg.sft
@@ -422,10 +422,13 @@ class DischargingRefiner:
 
         shuffle = False
         while True:
-            self.disc_arg.bound = None
             # we pass the neighborhoods here in order to save the results into the surroundings
             #print("saved surrs before", self.disc_arg.saved_surroundings)
-            self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
+            if self.disc_arg.saved_surroundings is not None:
+                self.disc_arg.reduce_exacts(self.solver_str, verbose=verbose, print_freq=print_freq)
+            else:
+                self.disc_arg.bound = None
+                self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
             #print("saved surrs after", self.disc_arg.saved_surroundings)
             #nhoods = False
             shuffle = True
@@ -873,11 +876,14 @@ class DischargingArgument:
                                    if all(pat.get(aut(nvec), sym) == sym
                                           for (nvec, sym) in pat.items())
                                    if domain == {aut(nvec) for nvec in domain})
-            
-            try:
-                groups[domain, local_syms].append((pat, was_exact))
-            except KeyError:
-                groups[domain, local_syms] = [(pat, was_exact)]
+            for aut in local_syms:
+                aut_pat = {aut(nvec) : sym
+                           for (nvec, sym) in pat.items()}
+                try:
+                    if (aut_pat, was_exact) not in groups[domain, local_syms]:
+                        groups[domain, local_syms].append((aut_pat, was_exact))
+                except KeyError:
+                    groups[domain, local_syms] = [(aut_pat, was_exact)]
                 
         if threads==1 or len(triples) <= chunk_size:
             ret = set()
@@ -896,7 +902,7 @@ class DischargingArgument:
                     while grp:
                         split_groups.append((key, grp[:chunk_size]))
                         grp = grp[chunk_size:]
-            assert sum(len(ps) for (k, ps) in split_groups) == len(triples)
+            #assert sum(len(ps) for (k, ps) in split_groups) == len(triples)
             task_q = mp.Queue()
             res_q = mp.Queue()
             processes = [mp.Process(target=extension_worker,
@@ -1838,10 +1844,10 @@ class DischargingArgument:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         #print("prob", prob)
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str][0]
+        solver, solver_opts = SOLVER_DICTS[solver_str][random.randint(0, int(SOLVER_DICTS[solver_str][1] != None))]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False,
-        #           solver="ipx"
+        #          solver="ipx"
         #           ).solve(prob)
         #pulp.PULP_CBC_CMD(msg=False, warmStart=True, keepFiles=True).solve(prob)
         #pulp.GLPK_CMD(msg=False, options=SOLVER_OPTS_INITIAL).solve(prob)
@@ -1867,12 +1873,12 @@ class DischargingArgument:
         #print("trans_rules", self.trans_rules)
         return True
 
-    def reduce_exacts(self, solver_str, excess_gap, exact_pats, verbose=False, print_freq=5000):
+    def reduce_exacts(self, solver_str, verbose=False, print_freq=5000):
         "Assuming we have a solution, attempt to reduce the number of exact patterns."
         assert self.trans_rules is not None
         assert self.bound is not None
         if verbose:
-            print("Computing pattern variables")
+            print("Reducing exact patterns; computing pattern variables")
         i = 0
         send = dict()
         for (source, rules) in self.trans_rules.items():
@@ -1887,10 +1893,10 @@ class DischargingArgument:
         if verbose:
             print("Done with {} variables, now adding constraints".format(i))
 
-        prob = pulp.LpProblem("discharge", pulp.LpMinimize)
+        prob = pulp.LpProblem("discharge", pulp.LpMaximize)
         constr_tim = time.time()
         i = j = 0
-        slack_sum = 0
+        exact_sum = 0
         for node in self.relevant_sym_nodes:
             for (orig_val, surr, bigpat, _) in self.surroundings(node, rules=list(send), verbose=verbose):
                 # for each legal combo, sum the contributions from each -v
@@ -1904,33 +1910,22 @@ class DischargingArgument:
                     except KeyError:
                         continue
                 
-                # for exact patterns, add a slack variable between 0 and gap/2
-                # if the pattern remains exact, we need its maximum value
-                # for other patterns, require gap to at most halve
-                # that way the problem remains feasible but there is some leeway
-                if fd.frozendict(bigpat) in exact_pats[node]:
-                    slack = pulp.LpVariable("slack{}".format(j), 0, excess_gap/2)
-                    summa += slack
-                    slack_sum += slack
-                    j += 1
-                    if node in self.relevant_nodes:
-                        summa += self.weights[orig_val]
-                        prob += summa >= self.bound + excess_gap/2
-                        #print("adding", summa >= density)
-                    else:
-                        prob += summa >= excess_gap/3
-                elif node in self.relevant_nodes:
+                if node in self.relevant_nodes:
                     summa += self.weights[orig_val]
-                    prob += summa >= self.bound + excess_gap/2
+                    prob += summa >= self.bound
                 else:
-                    prob += summa >= excess_gap/3
+                    prob += summa >= 0
+
+                # maximize sum of values of formerly exact patterns
+                if self.bigpats[node][bigpat]:
+                    exact_sum += summa
                     
                 i += 1
                 if verbose and i%print_freq == 0:
                     print("{} found so far".format(i))
                     
-        # minimize the sum of the slack variables, forcing many patterns to be non-exact
-        prob += slack_sum
+        # maximize sum of exact constraints
+        prob += exact_sum
         
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
