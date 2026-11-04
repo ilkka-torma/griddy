@@ -1240,7 +1240,7 @@ class DischargingArgument:
         else:
             return True
 
-    def try_rationalize(self, verbose=False):
+    def try_rationalize(self, verbose=False, inverse_order=False):
         "Attempt to convert into rational numbers. Return whether it was succesful."
         if verbose:
             print("Attempting to rationalize")
@@ -1253,7 +1253,7 @@ class DischargingArgument:
                for amount in nvecs.values()):
             ret = True
         else:
-            for den_ix in range(len(DENOMINATORS)):
+            for den_ix in reversed(range(len(DENOMINATORS))) if inverse_order else range(len(DENOMINATORS)):
                 #if verbose:
                 #    print("Attempting to rationalize with denominator {}.".format(DENOMINATORS[den_ix]))
                 rat_ok = self.rationalize(den_ix)
@@ -1651,6 +1651,10 @@ class DischargingArgument:
                                               rule_scores[rule],
                                               -dist_from_source,
                                               sym_ratio_ex)
+                    scores[rule, nbr_nvec] = (sym_ratio_ex * diff_norm * rule_scores[rule],
+                                              rule_scores[rule],
+                                              -dist_from_source,
+                                              sym_ratio_ex)
                     #for away in [True, False]:
                     #    none_count += sym_counts[None, away]
                     #    del sym_counts[None, away]
@@ -1844,7 +1848,7 @@ class DischargingArgument:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
         #print("prob", prob)
         tim = time.time()
-        solver, solver_opts = SOLVER_DICTS[solver_str][random.randint(0, int(SOLVER_DICTS[solver_str][1] != None))]
+        solver, solver_opts = SOLVER_DICTS[solver_str][0]
         solver(**solver_opts).solve(prob)
         #pulp.HiGHS(msg=False,
         #          solver="ipx"

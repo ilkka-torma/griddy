@@ -906,10 +906,10 @@ class Griddy:
                                 print(" done")
                         
                 if rationalize:
-                    disc_arg.try_rationalize(verbose=verb)
+                    disc_arg.try_rationalize(verbose=verb, inverse_order=True)
                             
                 if show_rules:
-                    if mode != "silent": print("Bound {}, discharging rules:".format(disc_arg.bound))
+                    if mode != "silent": print("Bound {}, {} discharging rules:".format(disc_arg.bound, sum(len(rules) for rules in disc_arg.trans_rules.values())))
                     for (node, rules) in disc_arg.trans_rules.items():
                         for (fr_pat, amounts) in sorted(rules.items(), key=lambda p: len(p[0])):
                             if amounts:
@@ -924,6 +924,11 @@ class Griddy:
                                             )
                                                   for (nvec, sym) in fr_pat.items())))
                                 for (nvec, amount) in sorted(amounts.items()):
+                                    sym_count = sum(1 for aut in disc_arg.sym_nodes[node]
+                                                    if aut(nvec) == nvec
+                                                    if {aut(nvec) : sym
+                                                        for (nvec, sym) in fr_pat.items()} == fr_pat)
+                                    #print("sym count", sym_count)
                                     if nvec[1] == ():
                                         target = nvec[0]
                                     else:
@@ -932,7 +937,7 @@ class Griddy:
                                         source = (0,)*the_sft.dim
                                     else:
                                         source = "({}; {})".format(', '.join('0'*the_sft.dim), '.'.join(node))
-                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount, source, target))
+                                    if amount and mode != "silent": print("  send {} from {} to {}".format(amount*sym_count, source, target))
                 elif mode != "silent":
                     print("Bound {}".format(disc_arg.bound))
                 if save_rules is not None:
