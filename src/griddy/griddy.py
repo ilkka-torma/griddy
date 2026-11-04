@@ -842,6 +842,7 @@ class Griddy:
                     if not rat_ok:
                         disc_arg.save_surrs = False
                 if refine and rat_ok:
+                    num_rules = sum(len(rules) for rules in disc_arg.trans_rules.values())
                     refiner = density_linear_program.DischargingRefiner(disc_arg, solver, refine, known_ub=known_ub, known_lb=known_lb)
                     if load_rules is None and save_rules is not None:
                         if verb:
@@ -859,18 +860,20 @@ class Griddy:
                     #    disc_arg.setup_adative_topology()
                     while True:
                         res, conf = refiner.step(verbose=verb, print_freq=print_freq, forb_radius=forb_radius, extra_threads=extra_threads, extension_order=extension_order, ret_opt_conf=opt_conf is not None)
-                        if save_rules is not None:
+                        new_num_rules = sum(len(rules) for rules in disc_arg.trans_rules.values())
+                        if save_rules is not None and new_num_rules > num_rules:
                             if verb:
                                 print("Saving intermediate rules...", end='')
                             disc_arg.save_transfer_rules(save_rules)
                             if verb:
                                 print(" done")
-                        if save_constr is not None:
+                        if save_constr is not None and new_num_rules > num_rules:
                             if verb:
                                 print("Saving intermediate constraints...", end='')
                             disc_arg.save_constraints(save_constr)
                             if verb:
                                 print(" done")
+                        num_rules = new_num_rules
                         if res is not None:
                             if res and opt_conf is not None:
                                 self.confs[opt_conf] = conf
