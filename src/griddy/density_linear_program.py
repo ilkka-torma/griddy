@@ -1069,20 +1069,21 @@ class DischargingArgument:
                         exact_pats[node].add(fpat)
                     for rule in occurring_rules:
                         self.occurrences_in_exact[node][rule] += 1#2**(-len(fpat))
-                        if update_nhoods:
-                            #print("updating nhood of occurring rule", rule)
-                            for ((nbr_nvec, sym), count) in nhood_counts.get(rule, {}).items():
-                                assert nbr_nvec not in rule[1]
-                                try:
-                                    self.nbrs_in_exact[node][rule][nbr_nvec, sym] += count
-                                except KeyError:
-                                    self.nbrs_in_exact[node][rule][nbr_nvec, sym] = count
-                                #print("added counts")
                 else:
                     if simplify_excess:
                         insert_pat(self.sft.alph, excess_pats[node], fpat)
                     else:
                         excess_pats[node].add(fpat)
+                if update_nhoods:
+                    for rule in occurring_rules:
+                        #print("updating nhood of occurring rule", rule)
+                        for ((nbr_nvec, sym), count) in nhood_counts.get(rule, {}).items():
+                            assert nbr_nvec not in rule[1]
+                            try:
+                                self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] += count
+                            except KeyError:
+                                self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] = count
+                        #print("added counts")
                 i += 1
 
         if require_exact and not exact_exists:
@@ -1564,14 +1565,17 @@ class DischargingArgument:
                         if rule not in rule_scores:
                             continue
                         #print("rules[rule]", rules[rule])
-                        for ((nbr_nvec, sym), amount) in rule_values[rule].items():
+                        for ((nbr_nvec, sym, is_ex), amount) in rule_values[rule].items():
+                            #print("sym", sym)
                             if (rule, nbr_nvec) not in nhood_counts:
-                                nhood_counts[rule, nbr_nvec] = {(sym, away) : 0
+                                nhood_counts[rule, nbr_nvec] = {(sym, away, ex) : 0
                                                                 for sym in self.sft.alph[nbr_nvec[1]]
-                                                                for away in [True, False]}
-                                nhood_counts[rule, nbr_nvec][None, True] = 0
-                                nhood_counts[rule, nbr_nvec][None, False] = 0
-                            nhood_counts[rule, nbr_nvec][sym] += amount
+                                                                for away in [True, False]
+                                                                for ex in [True, False]}
+                                for away in [True, False]:
+                                    for exact in [True, False]:
+                                        nhood_counts[rule, nbr_nvec][None, away, exact] = 0
+                            nhood_counts[rule, nbr_nvec][sym + (is_ex,)] += amount
                 if nhood_counts == {}:
                     raise Exception("No neighborhood counts (this should not happen)")
                 #print("nhood counts", nhood_counts)
@@ -1582,6 +1586,7 @@ class DischargingArgument:
                 # in all exact patterns, with None meaning "outside the bigpat".
                 # We try to minimize the correlation between direction and symbol counts.
                 scores = dict()
+                max_count = 0
                 for ((rule, nbr_nvec), sym_counts) in nhood_counts.items():
                     #print("sym counts", nbr_nvec, sym_counts)
                     #for away in [True, False]:
@@ -1593,16 +1598,25 @@ class DischargingArgument:
                     alph = self.sft.alph[nbr_nvec[1]]
                     count_vecs = dict()
                     for d in [True, False]:
-                        norm = sum(sym_counts[sym, d] for sym in alph)
+                        norm = sum(sym_counts[sym, d, True] for sym in alph)
                         if not norm:
                             diff_norm = 0
                             break
-                        count_vecs[d] = [sym_counts[sym, d]/norm for sym in alph]
+                        count_vecs[d] = [sym_counts[sym, d, True]/norm for sym in alph]
                     else:
                         diff_norm = sum(abs(x-y) for (x,y) in zip(count_vecs[True], count_vecs[False]))
-                    none_count = sym_counts[None, True] + sym_counts[None, False]
-                    total_count = sum(sym_counts.values())
-                    sym_ratio = (total_count - none_count)/total_count
+                    none_count_all = sum(sym_counts[None, away, exact]
+                                         for away in [True, False]
+                                         for exact in [True, False])
+                    total_count_all = sum(sym_counts.values())
+                    sym_ratio_all = (total_count_all - none_count_all)/total_count_all
+
+                    none_count_ex = sum(sym_counts[None, away, True]
+                                         for away in [True, False])
+                    total_count_ex = sum(num
+                                         for ((_, _, exact), num) in sym_counts.items()
+                                         if exact)
+                    sym_ratio_ex = (total_count_ex - none_count_ex)/total_count_ex
 
                     if ordering == "adaptive_topology":
                         top = self.sft.topology
@@ -1624,13 +1638,19 @@ class DischargingArgument:
                                         new_frontier.add(new_nvec)
                         frontier = new_frontier
                         dist_from_source += 1
-                    
-                    scores[rule, nbr_nvec] = (sym_ratio * diff_norm * rule_scores[rule], rule_scores[rule], -dist_from_source, sym_ratio)
+
+                    max_count = max(max_count, rule_scores[rule])
+                    scores[rule, nbr_nvec] = (sym_ratio_all * sym_ratio_ex * diff_norm * rule_scores[rule],
+                                              sym_ratio_ex * diff_norm * rule_scores[rule],
+                                              rule_scores[rule],
+                                              -dist_from_source,
+                                              sym_ratio_ex)
                     #for away in [True, False]:
                     #    none_count += sym_counts[None, away]
                     #    del sym_counts[None, away]
                     #    sym_counts[max((p for p in sym_counts if p[1] == away),
                     #                   key=lambda p: sym_counts[p])] += none_count
+                #print("max rule count", max_count)
                 scored = list(scores)
                 scored.sort(key=lambda p: scores[p])
                 scored.reverse()
