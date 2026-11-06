@@ -17,7 +17,7 @@ import ast
 import multiprocessing as mp
 
 
-TOLERANCE = 1e-6
+TOLERANCE = 1e-11
 #DENOMINATORS = [100, 150, 200, 350, 500, 750,
 #                1000, 1500, 2000, 3500, 5000, 7500,
 #                10000, 15000, 20000, 35000, 50000, 75000,
@@ -27,9 +27,9 @@ TOLERANCE = 1e-6
 #                100000000, 150000000, 200000000, 350000000, 500000000, 750000000,
 #                1000000000, 1500000000, 2000000000, 3500000000, 5000000000, 7500000000,
 #                10000000000, 15000000000, 20000000000, 35000000000, 50000000000, 75000000000][::-1]
-DENOMINATORS = [(a * 10**b)//2
+DENOMINATORS = [(a * 10**b)//10
                 for b in range(2, 13)
-                for a in range(1, 20)][::-1]
+                for a in range(1, 10)][::-1]
 #DENOMINATORS = list(reversed(range(1000, 100000000, 1000)))
 
 # A dict of solvers, type str -> ((solver, args), None | (solver, args))
@@ -272,11 +272,12 @@ class DischargingSimplifier:
             self.status = SimplifierState.FINISHED
 
 class RefinerState(Enum):
-    JUST_INCREASED = 0
-    UNCHECKED = 1
-    CHECK_NOW = 2
-    EXTENDED = 3
-    NOT_EXTENDED = 4
+    INITIAL = 0
+    JUST_INCREASED = 1
+    UNCHECKED = 2
+    CHECK_NOW = 3
+    EXTENDED = 4
+    NOT_EXTENDED = 5
 
 class DischargingRefiner:
     "A process for iteratively refining a discharging argument by extending some rules that occur in exact constraints."
@@ -291,7 +292,7 @@ class DischargingRefiner:
         self.known_lb = known_lb
         #self.old_bound = None
         self.extended_last = False
-        self.state = RefinerState.JUST_INCREASED
+        self.state = RefinerState.INITIAL
         self.stab_bound = stab_bound
         self.eq_steps = 0
 
@@ -301,7 +302,7 @@ class DischargingRefiner:
         old_bound = self.disc_arg.bound
         #same_bound = self.disc_arg.bound == self.old_bound
         just_inc = self.state == RefinerState.JUST_INCREASED
-        if just_inc:
+        if just_inc or self.state == RefinerState.INITIAL:
             old_exact_count = sum(len(x) for x in self.disc_arg.bigpats.values())
         else:
             old_exact_count = self.disc_arg.exact_count
@@ -312,7 +313,7 @@ class DischargingRefiner:
         if self.state == RefinerState.CHECK_NOW:
             valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True)
         else:
-            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True) # just to compute excess counts
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True, threads=extra_threads+1) # just to compute excess counts
         if not valid:
             if verbose:
                 print("Refining failed: invalid")
@@ -375,7 +376,7 @@ class DischargingRefiner:
             self.eq_steps = 0
 
         # extend rules if count has stabilized
-        if self.state == RefinerState.NOT_EXTENDED and self.eq_steps >= self.stab_bound:
+        if (self.state == RefinerState.NOT_EXTENDED and self.eq_steps >= self.stab_bound) or self.state == RefinerState.CHECK_NOW:
             if verbose:
                 print("Extending rules")
             extendables = []
@@ -389,7 +390,7 @@ class DischargingRefiner:
             self.eq_steps = 0
         else:
             extended = False
-        if self.state == RefinerState.JUST_INCREASED or extended:
+        if self.state == RefinerState.INITIAL or extended:
             self.disc_arg.saved_surroundings = None
         self.old_bound = self.disc_arg.bound
         old_bound = self.disc_arg.bound
@@ -421,17 +422,22 @@ class DischargingRefiner:
             nhoods = None
 
         shuffle = False
+        can_improve = self.disc_arg.saved_surroundings is None
+        i = 0
         while True:
             # we pass the neighborhoods here in order to save the results into the surroundings
             #print("saved surrs before", self.disc_arg.saved_surroundings)
-            if self.disc_arg.saved_surroundings is not None:
-                self.disc_arg.reduce_exacts(self.solver_str, verbose=verbose, print_freq=print_freq)
-            else:
+            if can_improve:
                 self.disc_arg.bound = None
                 self.disc_arg.compute_bound(self.solver_str, verbose=verbose, print_freq=print_freq, keep_zero_rules=True, known_bound=old_bound, threads=1+extra_threads, nhoods=nhoods, shuffle_surrs=shuffle or self.state != RefinerState.EXTENDED)
+            elif i < 4:
+                self.disc_arg.reduce_exacts(self.solver_str, verbose=verbose, print_freq=print_freq)
+            else:
+                break
             #print("saved surrs after", self.disc_arg.saved_surroundings)
             #nhoods = False
             shuffle = True
+            i += 1
             rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
             if not rat_ok:
                 continue
@@ -460,7 +466,7 @@ class DischargingRefiner:
                 self.disc_arg.saved_surroundings = {node : [surr[:-1] + (True,)
                                                             for surr in surrs]
                                                     for (node, surrs) in self.disc_arg.saved_surroundings.items()}
-        elif self.state in [RefinerState.UNCHECKED, RefinerState.JUST_INCREASED]:
+        elif self.state in [RefinerState.INITIAL, RefinerState.UNCHECKED, RefinerState.JUST_INCREASED]:
             if self.eq_steps >= self.stab_bound:
                 self.state = RefinerState.CHECK_NOW
             else:
@@ -932,10 +938,18 @@ class DischargingArgument:
                 in_queue -= 1
             for pr in processes:
                 pr.terminate()
+
+        # prune symmetric patterns
+        ret = set((min((fd.frozendict({aut(nvec) : sym
+                                       for (nvec, sym) in new_pat.items()})
+                        for aut in symmetries),
+                       key = lambda pat: tuple(sorted(pat.items()))),
+                   was_exact)
+                  for (new_pat, was_exact) in ret)
         return ret
             
 
-    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False, update_exact_count=False):
+    def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False, update_exact_count=False, threads=1):
         "Check that the argument is valid, and optionally do lots of other stuff."
         #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods, "simplify_excess", simplify_excess)
         bigpat_given = bigpat is not None
@@ -966,7 +980,7 @@ class DischargingArgument:
         for node in self.relevant_sym_nodes:
             excess_pats[node] = set()
             exact_pats[node] = set()
-            iter_surr = self.surroundings(node, bigpat=bigpat, rules=rules, shuffle=shuffle, update_exacts=update_exact_count)
+            iter_surr = self.surroundings(node, bigpat=bigpat, rules=rules, shuffle=shuffle, update_exacts=update_exact_count, threads=threads)
             is_exact = None
             while True:
                 #print("starting loop")
@@ -1073,6 +1087,16 @@ class DischargingArgument:
                         insert_pat(self.sft.alph, exact_pats[node], fpat)
                     else:
                         exact_pats[node].add(fpat)
+                    if update_nhoods:
+                        for rule in occurring_rules:
+                            #print("updating nhood of occurring rule", rule)
+                            for ((nbr_nvec, sym), count) in nhood_counts.get(rule, {}).items():
+                                assert nbr_nvec not in rule[1]
+                                try:
+                                    self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] += count
+                                except KeyError:
+                                    self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] = count
+                            #print("added counts")
                     for rule in occurring_rules:
                         self.occurrences_in_exact[node][rule] += 1#2**(-len(fpat))
                 else:
@@ -1080,16 +1104,6 @@ class DischargingArgument:
                         insert_pat(self.sft.alph, excess_pats[node], fpat)
                     else:
                         excess_pats[node].add(fpat)
-                if update_nhoods:
-                    for rule in occurring_rules:
-                        #print("updating nhood of occurring rule", rule)
-                        for ((nbr_nvec, sym), count) in nhood_counts.get(rule, {}).items():
-                            assert nbr_nvec not in rule[1]
-                            try:
-                                self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] += count
-                            except KeyError:
-                                self.nbrs_in_exact[node][rule][nbr_nvec, sym, is_exact] = count
-                        #print("added counts")
                 i += 1
 
         if require_exact and not exact_exists:
@@ -1251,9 +1265,12 @@ class DischargingArgument:
                for rules in self.trans_rules.values()
                for nvecs in rules.values()
                for amount in nvecs.values()):
+            if verbose:
+                print("Solution was already rational")
             ret = True
         else:
             for den_ix in reversed(range(len(DENOMINATORS))) if inverse_order else range(len(DENOMINATORS)):
+                #print("denominator", DENOMINATORS[den_ix])
                 #if verbose:
                 #    print("Attempting to rationalize with denominator {}.".format(DENOMINATORS[den_ix]))
                 rat_ok = self.rationalize(den_ix)
@@ -1274,14 +1291,15 @@ class DischargingArgument:
                 print("Could not rationalize solution, but it is approximately valid")
             else:
                 print("Could not rationalize solution and it seems to be invalid")
-                for r in reason:
-                    print(r)
+                #for r in reason:
+                #    print(r)
         return ret
     
     def rationalize(self, den_ix, verbose=False, attempt_fix=False):
         "Attempt to convert into rational numbers using given denominator bound. Return whether it was succesful."
         old_bound = self.bound
-        self.bound = Fraction(self.bound).limit_denominator(DENOMINATORS[den_ix])
+        if type(self.bound) == float:
+            self.bound = Fraction(self.bound).limit_denominator(DENOMINATORS[den_ix])
         #print("denom", DENOMINATORS[den_ix], "bound", self.bound)
         old_rules = self.trans_rules
         self.trans_rules = {node :
@@ -1646,11 +1664,6 @@ class DischargingArgument:
                         dist_from_source += 1
 
                     max_count = max(max_count, rule_scores[rule])
-                    scores[rule, nbr_nvec] = (sym_ratio_all * sym_ratio_ex * diff_norm * rule_scores[rule],
-                                              sym_ratio_ex * diff_norm * rule_scores[rule],
-                                              rule_scores[rule],
-                                              -dist_from_source,
-                                              sym_ratio_ex)
                     scores[rule, nbr_nvec] = (sym_ratio_ex * diff_norm * rule_scores[rule],
                                               rule_scores[rule],
                                               -dist_from_source,
