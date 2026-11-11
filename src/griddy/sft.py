@@ -1460,7 +1460,7 @@ class SFT:
             if verbose and len(self.forbs)%print_freq == 0:
                 print("{} patterns found in {} seconds, average size {}".format(len(self.forbs), time.time()-start_time, sum(len(f) for f in self.forbs)/len(self.forbs)))
 
-    def is_empty(self, method="SAT", verbose=False, print_freq=None, ret_conf=False, symmetries=None, extra_threads=0, can_be_empty=True):
+    def is_empty(self, method="SAT", verbose=False, print_freq=None, ret_conf=False, symmetries=None, extra_threads=0, can_be_empty=True, chunk_size=50):
         if verbose:
             print("Checking SFT emptiness with " + method)
         if method == "SAT":
@@ -1517,7 +1517,7 @@ class SFT:
                 if verbose:
                     print("Periods", p_mat)
                 p_aut = PeriodAutomaton(self, p_mat, all_labels=False, relevant_nodes=[])
-                maybe_cyc = p_aut.populate(verbose=verbose, report=print_freq, ret_loop=True, num_threads=1+extra_threads)
+                maybe_cyc = p_aut.populate(verbose=verbose, report=print_freq, ret_loop=True, num_threads=1+extra_threads, chunk_size=chunk_size)
                 if maybe_cyc is not None:
                     if ret_conf:
                         return False, p_aut.cycle_to_conf(maybe_cyc)
