@@ -111,7 +111,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "closure_under_autos" STRICT_LABEL STRICT_LABEL STRICT_LABEL* -> cmd_closure_autos_open
        | "find_periodic_conf" cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts (vector cmd_opts)+ -> cmd_find_periodic
 
-top_edge: LABEL vector~1..3
+top_edge: LABEL vector~1..3 LABEL?
 
 cmd_opts: cmd_opt*
 cmd_opt: | STRICT_LABEL "=" value -> option

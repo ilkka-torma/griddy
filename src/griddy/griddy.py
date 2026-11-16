@@ -308,7 +308,12 @@ class Griddy:
                     self.topology = []
                     self.automorphisms = {}
                     legacy = None
-                    for edge in top:
+                    while top:
+                        edge = top.pop()
+                        if isinstance(edge[-1], str):
+                            # inverted edge
+                            edge, inv_name = edge[:-1], edge[-1]
+                            top.append((inv_name,) + edge[1:][::-1])
                         if legacy == None:
                             legacy = (len(edge) == 3)
                             #print("legacy topology? " + str(legacy))
