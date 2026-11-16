@@ -319,7 +319,7 @@ class DischargingRefiner:
             valid, ex_data = self.disc_arg.is_valid(verbose=verbose, ret_excess=True, simplify_excess=True, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=False, update_exact_count=True)
             self.disc_arg.saved_surroundings = saved_surrs
         else:
-            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=False, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True, threads=extra_threads+1) # just to compute excess counts
+            valid, ex_data = self.disc_arg.is_valid(verbose=verbose, give_reason=True, remove_unused=just_inc, restrict_exacts=not just_inc, update_nhoods=update_nhoods, update_exact_count=True, threads=extra_threads+1) # just to compute excess counts
         #print("nhood counts2", self.disc_arg.nbrs_in_exact)
         if not valid:
             if verbose:
@@ -365,7 +365,7 @@ class DischargingRefiner:
                 else:
                     exact.forbs = old_forbs
                     break
-            #print(exact.forbs)
+            #print("forbs", exact.forbs)
             if verbose:
                 print("Formed exact SFT")
             empty, conf = exact.is_empty(ret_conf=True, verbose=verbose, print_freq=print_freq, method="automaton" if self.sft.dim <= 2 else "SAT", symmetries=self.disc_arg.symmetries, extra_threads=extra_threads, can_be_empty=self.known_ub is None or self.disc_arg.bound < self.known_ub)
@@ -432,10 +432,12 @@ class DischargingRefiner:
         shuffle = False
         can_improve = self.disc_arg.saved_surroundings is None
         only_exacts = True
-        i = 0
+        num_exacts = sum(is_ex
+                         for node in self.disc_arg.relevant_sym_nodes
+                         for is_ex in self.disc_arg.bigpats[node].values())
         while True:
             # we pass the neighborhoods here in order to save the results into the surroundings
-            if can_improve or i >= 10:
+            if can_improve or num_exacts == 0:
                 self.stab_bound = 4
                 self.disc_arg.bound = None
                 if verbose and not only_exacts:
@@ -450,11 +452,11 @@ class DischargingRefiner:
                     self.disc_arg.saved_surroundings =\
                         {node : [surr for surr in surrs if surr[-1]]
                          for (node, surrs) in self.disc_arg.saved_surroundings.items()}
-                self.disc_arg.reduce_exacts(self.solver_str, verbose=verbose, print_freq=print_freq, only_exacts=only_exacts and (self.state != RefinerState.UNCHECKED or self.eq_steps < self.stab_bound))
+                self.disc_arg.reduce_exacts(self.solver_str, verbose=verbose, print_freq=print_freq, only_exacts=only_exacts and (self.state != RefinerState.UNCHECKED or self.eq_steps < self.stab_bound), num_exacts=num_exacts)
             #print("true only exacts", only_exacts and (self.state != RefinerState.UNCHECKED or self.eq_steps < self.stab_bound))
             #nhoods = False
             shuffle = True
-            i += 1
+            num_exacts = num_exacts//2
             rat_ok = self.disc_arg.try_rationalize(verbose=verbose)
             if not rat_ok:
                 continue
@@ -741,7 +743,7 @@ class DischargingArgument:
     def _surroundings(self, node, bigpat, rules, verbose, only_exacts, threads):
         assert node in self.relevant_sym_nodes
         if self.verbose_surrs:
-            print("Start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "constraint patterns for node", ".".join(node))
+            print("Start with", "no" if self.bigpats[node] is None else len(self.bigpats[node]), "constraint patterns", "for node " + ".".join(node) if node else "")
         #print("node", node)
         #print("Spec len", len(self.specs))
         # TODO: find a more efficient way to generate these when self.specs is large
@@ -1230,10 +1232,13 @@ class DischargingArgument:
                                 the_aut = aut
                                 sym_node = aut.inv_node_map[node]
                                 break
+                        else:
+                            # no relevant sym node in orbit -> allow everything
+                            new_exact_pats[node] = {fd.frozendict()}
                         new_exact_pats[node] = {
                             fd.frozendict({the_aut(nvec) : sym
                                            for (nvec, sym) in fpat.items()})
-                            for fpat in new_exact_pats[sym_node]
+                            for fpat in new_exact_pats[node]
                         }
                 return True, ("exact", new_exact_pats, excess_gap, exact_pats)
             else:
@@ -1265,7 +1270,7 @@ class DischargingArgument:
                         new_excess_pats[node] = {
                             fd.frozendict({the_aut(nvec) : sym
                                            for (nvec, sym) in fpat.items()})
-                            for fpat in new_excess_pats[sym_node]
+                            for fpat in new_excess_pats[node]
                         }
                 # combine
                 if simplify_excess:
@@ -1569,7 +1574,7 @@ class DischargingArgument:
                                           key=lambda vec: sum(abs(x) for x in vec)):
                             for node in self.sft.nodes:
                                 if (vec, node) not in rule[1]:
-                                    yield (rule, (vec, node))
+                                    yield ((rule, (vec, node)), rule_scores[rule])
                                     break
                             else:
                                 continue
@@ -1613,7 +1618,7 @@ class DischargingArgument:
                             for nvec in sorted(new_frontier,
                                                key = lambda nvec: -new_frontier[nvec]):
                                 if len(self.sft.alph[nvec[1]]) > 1 and nvec not in rule[1]:
-                                    yield (rule, nvec)
+                                    yield ((rule, nvec), rule_scores[rule])
                                     break
                             else:
                                 frontier = new_frontier
@@ -1720,17 +1725,17 @@ class DischargingArgument:
                 scored.reverse()
                 for p in scored[:num_extend]:
                     #print("score", scores[p])
-                    yield p
+                    yield (p, scores[p])
                 
         num_extended = 0
         already_extended = set()
         for rules in extendables:
-            for (rule, new_nvec) in pick_ext(rules):
+            for ((rule, new_nvec), score) in pick_ext(rules):
                 if rule in already_extended:
                     continue
                 source, pat, nvec = rule
                 if verbose:
-                    print("Extending rule {} : {} -> {} into {}".format(dict(pat), ((0,)*self.sft.dim, source), nvec, new_nvec))
+                    print("Extending rule {} : {} -> {} into {}{}".format(dict(pat), ((0,)*self.sft.dim, source), nvec, new_nvec, "" if score is None else "; score {}".format(score)))
                 could_extend = False
                 ex_syms = []
                 for sym in self.sft.alph[new_nvec[1]]:
@@ -1933,12 +1938,12 @@ class DischargingArgument:
         #print("trans_rules", self.trans_rules)
         return True
 
-    def reduce_exacts(self, solver_str, verbose=False, print_freq=5000, only_exacts=False):
+    def reduce_exacts(self, solver_str, verbose=False, print_freq=5000, only_exacts=False, num_exacts=None):
         "Assuming we have a solution, attempt to reduce the number of exact patterns."
         assert self.trans_rules is not None
         assert self.bound is not None
         if verbose:
-            print("Reducing exact patterns; computing pattern variables")
+            print("Reducing exact patterns{}; computing pattern variables".format("" if num_exacts is None else " (trying {})".format(num_exacts)))
         i = 0
         send = dict()
         for (source, rules) in self.trans_rules.items():
@@ -1956,7 +1961,7 @@ class DischargingArgument:
         prob = pulp.LpProblem("discharge", pulp.LpMaximize)
         constr_tim = time.time()
         i = j = 0
-        exact_sum = 0
+        summed_exacts = []
         for node in self.relevant_sym_nodes:
             for (orig_val, surr, bigpat, _) in self.surroundings(node, rules=list(send), verbose=verbose, only_exacts=only_exacts):
                 # for each legal combo, sum the contributions from each -v
@@ -1978,14 +1983,17 @@ class DischargingArgument:
 
                 # maximize sum of values of formerly exact patterns
                 if self.bigpats[node][bigpat]:
-                    exact_sum += summa
+                    summed_exacts.append(summa)
                     
                 i += 1
                 if verbose and i%print_freq == 0:
                     print("{} found so far".format(i))
                     
         # maximize sum of exact constraints
-        prob += exact_sum
+        if num_exacts is None:
+            prob += sum(summed_exacts)
+        else:
+            prob += sum(random.sample(summed_exacts, num_exacts))
         
         if verbose:
             print("Done with {} constraints in {} seconds, now solving".format(i, time.time()-constr_tim))
