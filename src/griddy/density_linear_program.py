@@ -737,7 +737,8 @@ class DischargingArgument:
                 for surr in self.saved_surroundings[node]:
                     yield surr
         else:
-            for surr in self._surroundings(node, bigpat, rules, verbose, only_exacts, threads):
+            surrs = list(self._surroundings(node, bigpat, rules, verbose, only_exacts, threads))
+            for surr in surrs:
                 yield surr
 
     def _surroundings(self, node, bigpat, rules, verbose, only_exacts, threads):
@@ -893,6 +894,8 @@ class DischargingArgument:
                 if self.verbose_surrs:
                     print("Need to reprocess", len(to_reprocess))
                 reprocessed = self.extend_pats(to_reprocess, self.sym_nodes[node], threads=threads)
+                if self.verbose_surrs:
+                    print("Reprocessed into", len(reprocessed))
                 def iter_reprocessed():
                     while reprocessed:
                         yield reprocessed.pop()
@@ -989,7 +992,7 @@ class DischargingArgument:
 
     def is_valid(self, bigpat=None, give_reason=False, ret_excess=False, simplify_excess=False, shuffle=False, verbose=False, remove_unused=False, restrict_exacts=False, update_nhoods=False, nhoods=None, require_exact=False, update_exact_count=False, threads=1):
         "Check that the argument is valid, and optionally do lots of other stuff."
-        #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods, "simplify_excess", simplify_excess)
+        #print("is valid: restrict exacts", restrict_exacts, "update_nhoods", update_nhoods, "simplify_excess", simplify_excess, "remove unused", remove_unused, "update exact count", update_exact_count)
         bigpat_given = bigpat is not None
         exact_count = 0
         if self.bound is None:
@@ -1354,10 +1357,13 @@ class DischargingArgument:
                               for (nvec, num) in nvecs.items()}
                              for (fpat, nvecs) in rules.items()}
                             for (node, rules) in self.trans_rules.items()}
-        valid = self.is_valid(require_exact=True)#give_reason=True)
+        #print("bigpats1", sum(len(x) for x in self.bigpats.values()))
+        valid = self.is_valid(require_exact=True)#, give_reason=True)
+        #print("bigpats2", sum(len(x) for x in self.bigpats.values()))
         if valid:
             return True
         elif not attempt_fix:
+            #print("reason", reason)
             self.bound = old_bound
             self.trans_rules = old_rules
             return False
@@ -1990,6 +1996,7 @@ class DischargingArgument:
                     print("{} found so far".format(i))
                     
         # maximize sum of exact constraints
+        #print("mo", num_exacts, len(summed_exacts))
         if num_exacts is None:
             prob += sum(summed_exacts)
         else:

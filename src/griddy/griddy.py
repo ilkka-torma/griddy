@@ -174,28 +174,61 @@ class Griddy:
                 alph = args[0]
                 default = kwds.get("default", None)
                 encoding = kwds.get("encoding", None)
-                if encoding is None:
-                    mk_alph = default_alph
-                elif encoding == "unary_minus_one":
-                    mk_alph = Alphabet.unary_minus_one
-                elif encoding == "unary":
-                    mk_alph = Alphabet.unary
-                elif encoding == "binary":
-                    mk_alph = Alphabet.binary
-                elif encoding == "tally":
-                    mk_alph = Alphabet.tally
-                elif encoding == "test":
-                    mk_alph = Alphabet.test_alph
+                if encoding is None or isinstance(encoding, str):
+                    encs = {node : encoding
+                            for node in self.nodes}
                 else:
-                    raise GriddyRuntimeError("Invalid alphabet encoding: {}".format(encoding))
-                if default is not None:
-                    default = mk_alph(default)
-                if type(alph) == list and default is None:
-                    if len(alph) == 1 and alph[0][0] == 'Z' and is_nat(alph[0][1:]):
-                        # alphabet keyword Zm
-                        m = int(alph[0][1:])
-                        if encoding in [None, "unary"]:
-                            default = Alphabet.unary_Z(m)
+                    encs = dict()
+                    for (track, local_enc) in encoding.items():
+                        if track in self.nodes:
+                            encs[track] = local_enc
+                        else:
+                            for node in self.nodes.subtrack(track):
+                                encs[node] = local_enc
+                #print("encs", encs)
+                if type(alph) == list:
+                    alphs = {node : alph for node in self.nodes}
+                else:
+                    alphs = dict()
+                    for (track, local_alph) in alph.items():
+                        if track in self.nodes:
+                            alphs[track] = local_alph
+                        else:
+                            for node in self.nodes.subtrack(track):
+                                alphs[node] = local_alph
+                #print("alphs", alphs)
+                self.alphabet = {}
+                for node in self.nodes:
+                    local_enc = encs.get(node, default_alph)
+                    local_alph = alphs.get(node, default)
+                    if local_alph is None:
+                        raise GriddyRuntimeError("No alphabet specified for node {}".format(node))
+                    # actually make encoding
+                    if local_enc is None:
+                        mk_alph = default_alph
+                    elif local_enc == "unary_minus_one":
+                        mk_alph = Alphabet.unary_minus_one
+                    elif local_enc == "unary":
+                        mk_alph = Alphabet.unary
+                    elif local_enc == "binary":
+                        mk_alph = Alphabet.binary
+                    elif local_enc == "tally":
+                        mk_alph = Alphabet.tally
+                    elif local_enc == "test":
+                        mk_alph = Alphabet.test_alph
+                    else:
+                        raise GriddyRuntimeError("Invalid alphabet encoding: {}".format(enc))
+                    #print("local alph", local_alph)
+                    if isinstance(local_alph, str):
+                        local_alph = [local_alph]
+                    if len(local_alph) == 1 and\
+                       local_alph[0][0] == 'Z'\
+                       and is_nat(local_alph[0][1:]):
+                        # Alphabet is Zn
+                        #print("making Zn")
+                        m = int(local_alph[0][1:])
+                        if local_enc in [None, "unary"]:
+                            self.alphabet[node] = Alphabet.unary_Z(m)
                         else:
                             elems = [str(k) for k in range(m)]
                             ops = {
@@ -203,19 +236,10 @@ class Griddy:
                                 '-' : (lambda a, b: str((int(a)-int(b))%m), None),
                                 '*' : (lambda a, b: str((int(a)*int(b))%m), None)
                             }
-                            default = mk_alph(elems, operations=ops)
+                            self.alphabet[node] = mk_alph(elems, operations=ops)
                     else:
-                        default = mk_alph(alph)
-                self.alphabet = {node:default for node in self.nodes}
-                if type(alph) == dict:
-                    for (labels, local_alph) in alph.items():
-                        subtr = self.nodes.subtrack(labels)
-                        if subtr == False:
-                            raise Exception("Invalid subtrack for {}: {}".format(self.nodes, labels))
-                        for subnode in subtr:
-                            node = labels + subnode
-                            self.alphabet[node] = mk_alph(local_alph)
-                if None in self.alphabet.values():
+                        self.alphabet[node] = mk_alph(local_alph)
+                if any(node not in self.alphabet for node in self.nodes):
                     raise Exception("Incomplete alphabet definition")
 
             elif cmd == "graph":
@@ -887,8 +911,12 @@ class Griddy:
                     disc_arg.saved_surroundings = None
                     
                 if simplify:
+                    disc_arg.verbose_surrs = True
                     if rationalize_intermediates:
+                        disc_arg.save_surrs = True
                         disc_arg.try_rationalize(verbose=verb)
+                        disc_arg.saved_surroundings = None
+                        disc_arg.save_surrs = False
                     if load_rules is None and not refine:
                         if save_rules is not None:
                             if verb:
@@ -902,7 +930,10 @@ class Griddy:
                     while not simplifier.is_finished():
                         simplifier.step(verbose=verb, print_freq=print_freq, extra_threads=extra_threads)
                         if rationalize_intermediates:
+                            disc_arg.save_surrs = True
                             disc_arg.try_rationalize(verbose=verb)
+                            disc_arg.saved_surroundings = None
+                            disc_arg.save_surrs = False
                         if save_rules is not None:
                             if verb:
                                 print("Saving intermediate rules...", end='')
@@ -911,6 +942,7 @@ class Griddy:
                                 print(" done")
                         
                 if rationalize:
+                    disc_arg.save_surrs = True
                     disc_arg.try_rationalize(verbose=verb, inverse_order=True)
                             
                 if show_rules:

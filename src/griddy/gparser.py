@@ -42,7 +42,7 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
        | "topology" (top_edge (";"? top_edge)* ";"?)? -> cmd_topology_open_edges
        | ("nodes" | "vertices") cmd_opts (list_of{node_name} | nested_default_dict_of{LABEL} cmd_opts) -> cmd_nodes_default
        | ("nodes" | "vertices") node_name* -> cmd_nodes_open
-       | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, list_of{LABEL}}) cmd_alph_opts -> cmd_alph_default
+       | ("alphabet" | "alph") cmd_alph_opts (list_of{LABEL} | dict_of{node_name, alph_spec}) cmd_alph_opts -> cmd_alph_default
        | ("alphabet" | "alph") cmd_alph_opts (LABEL cmd_alph_opts)+ -> cmd_alph_open
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts STRICT_LABEL cmd_opts sym_or_node cmd_opts -> cmd_blockmap
        | ("blockmap" | "block_map" | "CA") cmd_opts STRICT_LABEL cmd_opts node_name cmd_opts STRICT_LABEL cmd_opts sym_or_node cmd_opts (";"  node_name STRICT_LABEL cmd_opts sym_or_node cmd_opts)* (";" cmd_opts)? -> cmd_blockmap_nodes
@@ -113,11 +113,13 @@ command: (/sft/ | /SFT/ | /clopen/) cmd_opts STRICT_LABEL cmd_opts (quantified |
 
 top_edge: LABEL vector~1..3 LABEL?
 
+?alph_spec: LABEL | list_of{LABEL}
+
 cmd_opts: cmd_opt*
 cmd_opt: | STRICT_LABEL "=" value -> option
          | "@" STRICT_LABEL       -> flag
 
-cmd_alph_opts: (/default/ "=" list_of{LABEL} | /encoding/ "=" LABEL)*
+cmd_alph_opts: (/default/ "=" list_of{LABEL} | /encoding/ "=" (LABEL | dict_of{node_name, LABEL}))*
 cmd_product_opts: (/tracks/ "=" list_of{LABEL} | /env/ "=" LABEL)*
 cmd_relation_opts: ("tracks" "=" list_of{LABEL})?
 cmd_tiler_opts: ( /x_size/ "=" NAT
@@ -213,6 +215,7 @@ QUANTIFIER: "A" | "AC" | "E" | "EC"
                    | STRICT_LABEL                                -> num_var
                    | "#" STRICT_LABEL "[" finite_set "]" formula -> count_quantified
                    | "dist" pos_expr pos_expr                    -> num_dist
+                   | "min" atomic_num_formula+                   -> num_min
                    | "#" pos_expr                                -> num_node
 
 ?rightmost_num_formula: "abs" atomic_num_formula -> num_call
@@ -654,6 +657,9 @@ class GriddyTransformer(Transformer_NonRecursive):
 
     def num_dist(self, items):
         return ("DISTANCE", *items)
+
+    def num_min(self, items):
+        return ("MIN", *items)
 
     def num_node(self, items):
         return ("SYM_TO_NUM", items[0])

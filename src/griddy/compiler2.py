@@ -592,6 +592,68 @@ def prod_circuit(factors, global_restr):
     else:
         the_len = len(rng)
         return moc.MOCircuit({the_len-i-1 : circ for (i, circ) in circ.circuits.items()}), [num * const for num in reversed(rng)]
+
+def min_circuit(nums):
+    # Separate constants
+    const = None
+    for (circ, num) in nums:
+        if circ is None:
+            if const is None:
+                const = num
+            else:
+                const = min(const, num)
+    others = [pair for pair in nums if pair[0] is not None]
+    if not others:
+        return None, const
+    if len(others) == 1:
+        circs, rng = others[0]
+        if const is not None and const < rng[0]:
+            return None, const
+        elif const is None or const in rng:
+            return (moc.MOCircuit({i : circ if rng[i] < const\
+                                   else OR(*(circs[j] for j in range(i, len(rng))))
+                                   for (i, circ) in circs.circuits.items()
+                                   if const is None or rng[i] <= const}),
+                    [num for num in rng if const is None or num <= const])
+        else:
+            new_circs = {i : circ
+                         for (i, circ) in circs.circuits.values()
+                         if const is None or rng[i] <= const}
+            new_circs[max(new_circs)+1] = AND(NOT(circ) for circ in new_circs.items())
+            return (moc.MOCircuit(new_circs),
+                    [num for num in rng if const is None or num <= const] + [const])
+    if len(others) == 2:
+        (circs1, rng1), (circs2, rng2) = others
+        if const is not None and const < min(rng1[0], rng2[0]):
+            return None, const
+        new_rng = [num
+                   for num in sorted(set(rng1+rng2))
+                   if const is None or num <= const
+                   if num <= min(rng1[-1], rng2[-1])]
+        new_circs = dict()
+        for (i, num) in enumerate(new_rng):
+            i1 = min(j for (j, n) in enumerate(rng1) if n == num)
+            i2 = min(j for (j, n) in enumerate(rng2) if n == num)
+            new_circ = OR(AND(circs1[i1],
+                              OR(*(circs2[j] for j in range(i2+1, len(rng2))))),
+                          AND(circs2[i2],
+                              OR(*(circs1[j] for j in range(i1+1, len(rng1))))))
+            new_circs[i] = new_circ
+        if const is not None and const not in new_rng:
+            new_rng.append(const)
+            i1 = min(j for (j,n) in enumerate(rng1) if n > const)
+            i2 = min(j for (j,n) in enumerate(rng2) if n > const)
+            new_circs[max(new_circs)+1] = AND(OR(*(circs1[j] for j in range(i1, len(rng1)))),
+                                              OR(*(circs2[j] for j in range(i2, len(rng2)))))
+        return (moc.MOCircuit(new_circs),
+                new_rng)
+    else:
+        left = others[:len(others)//2]
+        right = others[len(others)//2:]
+        args = [min_circuit(left), min_circuit(right)]
+        if const is not None:
+            args.append((None, const))
+        return min_circuit(args)
     
 # Apply a numeric function to a numeric circuit    
 def num_func_circ(func, arg, global_restr):
@@ -640,6 +702,12 @@ def numexpr_to_circuit(graph, topology, nodes, alphabet, formula, variables, sub
         for numexpr in args:
             factors.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, subst, externals, global_restr))
         ret = prod_circuit(factors, global_restr)
+    elif op == "MIN":
+        args = formula[1:]
+        nums = []
+        for numexpr in args:
+            nums.append(numexpr_to_circuit(graph, topology, nodes, alphabet, numexpr, variables, subst, externals, global_restr))
+        ret = min_circuit(nums)
     elif op in ["ABS"]:
         numcirc = numexpr_to_circuit(graph, topology, nodes, alphabet, formula[1], variables, subst, externals, global_restr)
         if op == "ABS":
